@@ -15,6 +15,7 @@ import org.springframework.kafka.support.Acknowledgment;
 import org.springframework.stereotype.Component;
 
 import java.nio.charset.StandardCharsets;
+import java.math.RoundingMode;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.CompletableFuture;
@@ -202,7 +203,7 @@ public class MatchEventConsumer {
                 }
             }
             
-            // 判断是否为快照（Match Engine 不区分，都是增量）
+            // 判断是否为快照
             boolean isSnapshot = event.getBooleanValue("isSnapshot") || 
                                  event.getBooleanValue("snapshot") ||
                                  (firstUpdateId == 1 && lastUpdateId == 1); // 首次更新视为快照
@@ -266,7 +267,8 @@ public class MatchEventConsumer {
             return null;
         }
         
-        final long PRICE_SCALE = 100_000_000L;  // 与 match-engine-core 保持一致
+        final long PRICE_SCALE = 100_000_000L;
+        final java.math.BigDecimal SCALE_BD = java.math.BigDecimal.valueOf(PRICE_SCALE);
         
         List<Object> list = (List<Object>) jsonArray;
         List<long[]> result = new java.util.ArrayList<>(list.size());
@@ -277,14 +279,13 @@ public class MatchEventConsumer {
             String priceStr = pair.get(0).toString();
             String qtyStr = pair.get(1).toString();
             
-            java.math.BigDecimal priceBd = new java.math.BigDecimal(priceStr);
-            java.math.BigDecimal qtyBd = new java.math.BigDecimal(qtyStr);
-            
-            // 价格：乘以 PRICE_SCALE（撮合引擎发布时除以了 PRICE_SCALE）
-            long price = priceBd.multiply(java.math.BigDecimal.valueOf(PRICE_SCALE)).longValue();
-            // 🔥 FIX: 数量也需要乘以 PRICE_SCALE，避免 0.8 -> 0 的截断
-            long qty = qtyBd.multiply(java.math.BigDecimal.valueOf(PRICE_SCALE)).longValue();
-            
+            java.math.BigDecimal priceBd = new java.math.BigDecimal(priceStr).setScale(8, RoundingMode.HALF_UP);
+            java.math.BigDecimal qtyBd = new java.math.BigDecimal(qtyStr).setScale(8, RoundingMode.HALF_UP);
+
+            // 统一按十进制价格/数量解析，不再做缩放格式猜测。
+            long price = priceBd.multiply(SCALE_BD).longValueExact();
+            long qty = qtyBd.multiply(SCALE_BD).longValueExact();
+
             result.add(new long[]{price, qty});
         }
         

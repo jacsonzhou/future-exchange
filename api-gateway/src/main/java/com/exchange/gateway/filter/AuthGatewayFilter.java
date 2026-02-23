@@ -122,10 +122,7 @@ public class AuthGatewayFilter implements GlobalFilter, Ordered {
                 
                 return chain.filter(exchange.mutate().request(mutatedRequest).build());
             })
-            .onErrorResume(e -> {
-                log.error("[AuthGatewayFilter] Auth error, path: {}", path, e);
-                return unauthorized(exchange.getResponse(), "Authentication failed");
-            });
+            .doOnError(e -> log.error("[AuthGatewayFilter] Auth processing error, path: {}", path, e));
     }
     
     @Override

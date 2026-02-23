@@ -10,6 +10,8 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.web.bind.annotation.*;
 
+import java.math.BigDecimal;
+import java.math.RoundingMode;
 import java.util.List;
 
 /**
@@ -130,10 +132,10 @@ public class MarketDataController {
             
             BookTickerResponse response = new BookTickerResponse();
             response.setSymbol(symbol);
-            response.setBidPrice(String.valueOf(bbo[0]));
-            response.setBidQty(String.valueOf(bbo[1]));
-            response.setAskPrice(String.valueOf(bbo[2]));
-            response.setAskQty(String.valueOf(bbo[3]));
+            response.setBidPrice(formatScaled(bbo[0]));
+            response.setBidQty(formatScaled(bbo[1]));
+            response.setAskPrice(formatScaled(bbo[2]));
+            response.setAskQty(formatScaled(bbo[3]));
             
             return ApiResponse.success(response);
             
@@ -152,6 +154,9 @@ public class MarketDataController {
     }
 
     // ========== 辅助方法 ==========
+    
+    private static final long PRICE_SCALE = 100_000_000L;
+    private static final BigDecimal SCALE_BD = BigDecimal.valueOf(PRICE_SCALE);
 
     private String[][] convertToStringArray(List<long[]> list) {
         if (list == null) return new String[0][];
@@ -159,26 +164,32 @@ public class MarketDataController {
         String[][] result = new String[list.size()][2];
         for (int i = 0; i < list.size(); i++) {
             long[] item = list.get(i);
-            result[i][0] = String.valueOf(item[0]);
-            result[i][1] = String.valueOf(item[1]);
+            result[i][0] = formatScaled(item[0]);
+            result[i][1] = formatScaled(item[1]);
         }
         return result;
     }
 
     private Object[] convertKlineToArray(Kline k) {
         return new Object[] {
-            k.getOpenTime(),           // 开盘时间
-            k.getOpenPrice(),          // 开盘价
-            k.getHighPrice(),          // 最高价
-            k.getLowPrice(),           // 最低价
-            k.getClosePrice(),         // 收盘价
-            k.getVolume(),             // 成交量
-            k.getCloseTime(),          // 收盘时间
-            k.getQuoteVolume(),        // 成交额
-            k.getTradeCount(),         // 成交笔数
-            k.getTakerBuyVolume(),     // 主动买入成交量
-            k.getTakerBuyQuoteVolume() // 主动买入成交额
+            k.getOpenTime(),                               // 开盘时间
+            formatScaled(k.getOpenPrice()),                // 开盘价
+            formatScaled(k.getHighPrice()),                // 最高价
+            formatScaled(k.getLowPrice()),                 // 最低价
+            formatScaled(k.getClosePrice()),               // 收盘价
+            formatScaled(k.getVolume()),                   // 成交量
+            k.getCloseTime(),                              // 收盘时间
+            formatScaled(k.getQuoteVolume()),              // 成交额
+            k.getTradeCount(),                             // 成交笔数
+            formatScaled(k.getTakerBuyVolume()),           // 主动买入成交量
+            formatScaled(k.getTakerBuyQuoteVolume())       // 主动买入成交额
         };
+    }
+
+    private String formatScaled(long value) {
+        return BigDecimal.valueOf(value)
+                .divide(SCALE_BD, 8, RoundingMode.HALF_UP)
+                .toPlainString();
     }
 
     // ========== DTO 类 ==========

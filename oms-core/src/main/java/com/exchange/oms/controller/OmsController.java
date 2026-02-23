@@ -115,7 +115,7 @@ public class OmsController {
      */
     @GetMapping("/list")
     public OrderListResponse queryOrderList(
-            @RequestHeader(value = "X-User-Id", required = false) Long userId,
+            @RequestHeader(value = "X-User-Id") Long userId,
             @RequestParam(value = "status", required = false) String status,
             @RequestParam(value = "symbol", required = false) String symbol,
             @RequestParam(value = "offset", required = false, defaultValue = "0") Integer offset,
@@ -134,6 +134,5 @@ public class OmsController {
         return omsService.queryOrderList(request);
     }
 }
-
 
 

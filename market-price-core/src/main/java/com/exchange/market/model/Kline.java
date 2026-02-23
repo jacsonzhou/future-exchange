@@ -5,6 +5,9 @@ import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 
+import java.math.BigDecimal;
+import java.math.RoundingMode;
+
 /**
  * K线数据模型（内存使用）
  * 
@@ -103,23 +106,33 @@ public class Kline {
         this.takerBuyQuoteVolume = 0;
     }
     
+    private static final long PRICE_SCALE = 100_000_000L;
+    private static final BigDecimal SCALE_BD = BigDecimal.valueOf(PRICE_SCALE);
+    
     /**
      * 转换为数组格式（与Binance API兼容）
+     * 价格和数量从 Money 格式（8位小数）转换为 double
      */
     public Object[] toArray() {
         return new Object[] {
             openTime,
-            openPrice,
-            highPrice,
-            lowPrice,
-            closePrice,
-            volume,
+            formatScaled(openPrice),
+            formatScaled(highPrice),
+            formatScaled(lowPrice),
+            formatScaled(closePrice),
+            formatScaled(volume),
             closeTime,
-            quoteVolume,
+            formatScaled(quoteVolume),
             tradeCount,
-            takerBuyVolume,
-            takerBuyQuoteVolume
+            formatScaled(takerBuyVolume),
+            formatScaled(takerBuyQuoteVolume)
         };
+    }
+
+    private String formatScaled(long value) {
+        return BigDecimal.valueOf(value)
+                .divide(SCALE_BD, 8, RoundingMode.HALF_UP)
+                .toPlainString();
     }
     
     @Override

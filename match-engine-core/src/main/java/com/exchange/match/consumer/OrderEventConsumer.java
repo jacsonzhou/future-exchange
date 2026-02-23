@@ -132,7 +132,15 @@ public class OrderEventConsumer {
      */
     private OrderCommand deserializeJson(byte[] message) throws Exception {
         String jsonMessage = new String(message, StandardCharsets.UTF_8);
-        return objectMapper.readValue(jsonMessage, OrderCommand.class);
+        OrderCommand command = objectMapper.readValue(jsonMessage, OrderCommand.class);
+        // 兼容旧格式消息：没有 eventType 时，根据字段推断为下单事件，避免消费卡死
+        if (command.getEventType() == null || command.getEventType().isBlank()) {
+            if (command.getSide() != null || command.getOrderType() != null
+                || command.getPrice() != null || command.getQuantity() != null) {
+                command.setEventType("ORDER_SUBMIT");
+            }
+        }
+        return command;
     }
     
     /**

@@ -14,6 +14,9 @@ import org.springframework.web.socket.TextMessage;
 import org.springframework.web.socket.WebSocketSession;
 import org.springframework.web.socket.handler.TextWebSocketHandler;
 
+import java.net.URLDecoder;
+import java.nio.charset.StandardCharsets;
+
 /**
  * 私有推送 WebSocket 处理器
  * 
@@ -308,8 +311,9 @@ public class PrivateWebSocketHandler extends TextWebSocketHandler {
         // 从 Header 提取
         var headers = session.getHandshakeHeaders();
         String auth = headers.getFirst("Authorization");
-        if (auth != null && auth.startsWith("Bearer ")) {
-            return auth.substring(7);
+        String headerToken = normalizeToken(auth);
+        if (headerToken != null) {
+            return headerToken;
         }
         
         // 从 Query 参数提取
@@ -317,12 +321,40 @@ public class PrivateWebSocketHandler extends TextWebSocketHandler {
         if (query != null) {
             for (String param : query.split("&")) {
                 if (param.startsWith("token=")) {
-                    return param.substring(6);
+                    String queryToken = normalizeToken(param.substring(6));
+                    if (queryToken != null) {
+                        return queryToken;
+                    }
                 }
             }
         }
         
         return null;
+    }
+
+    private String normalizeToken(String token) {
+        if (token == null) {
+            return null;
+        }
+
+        String normalized = URLDecoder.decode(token, StandardCharsets.UTF_8).trim();
+
+        if (normalized.startsWith("Bearer ")) {
+            normalized = normalized.substring(7).trim();
+        }
+
+        if ((normalized.startsWith("\"") && normalized.endsWith("\"")) ||
+                (normalized.startsWith("'") && normalized.endsWith("'"))) {
+            normalized = normalized.substring(1, normalized.length() - 1).trim();
+        }
+
+        if (normalized.isEmpty() ||
+                "undefined".equalsIgnoreCase(normalized) ||
+                "null".equalsIgnoreCase(normalized)) {
+            return null;
+        }
+
+        return normalized;
     }
     
     /**

@@ -5,6 +5,7 @@ import org.springframework.boot.autoconfigure.SpringBootApplication;
 import org.springframework.cloud.client.discovery.EnableDiscoveryClient;
 import org.springframework.context.ConfigurableApplicationContext;
 import org.springframework.core.env.Environment;
+import org.springframework.scheduling.annotation.EnableScheduling;
 
 /**
  * Match Engine Core 启动类
@@ -19,6 +20,7 @@ import org.springframework.core.env.Environment;
  */
 @SpringBootApplication
 @EnableDiscoveryClient
+@EnableScheduling
 public class MatchEngineApplication {
     
     public static void main(String[] args) {

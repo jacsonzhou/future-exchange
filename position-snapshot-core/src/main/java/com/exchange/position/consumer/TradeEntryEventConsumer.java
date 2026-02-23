@@ -98,6 +98,19 @@ public class TradeEntryEventConsumer {
             log.info("[TradeEntryConsumer] Parse event, tradeId={}, symbol={}, bizSeq={}, entries={}",
                 event.getTradeId(), event.getSymbol(), event.getBizSeq(), 
                 event.getEntries() != null ? event.getEntries().size() : 0);
+
+            // SYSTEM事件（如冻结/解冻）不影响持仓，直接跳过并提交offset，避免阻塞消费
+            if ("SYSTEM".equalsIgnoreCase(event.getSymbol()) || "trade-entry-SYSTEM".equalsIgnoreCase(topic)) {
+                log.debug("[TradeEntryConsumer] Skip system event, topic={}, tradeId={}", topic, event.getTradeId());
+                return;
+            }
+
+            // 仅处理配置内交易对，避免误消费无关topic导致阻塞
+            if (!getSymbolList().contains(event.getSymbol())) {
+                log.debug("[TradeEntryConsumer] Skip unsupported symbol event, topic={}, symbol={}, tradeId={}, supported={}",
+                    topic, event.getSymbol(), event.getTradeId(), getSymbolList());
+                return;
+            }
             
             // 2. 调用Service处理（从账本分录中提取持仓变动）
             positionService.onTradeEntryEvent(event);
@@ -108,13 +121,14 @@ public class TradeEntryEventConsumer {
         } catch (Exception e) {
             log.error("[TradeEntryConsumer] ❌ Process event error, topic={}, offset={}",
                 topic, offset, e);
-            
-            // 🔥 生产环境：
-            // 1. 记录到死信队列
-            // 2. 报警
-            // 3. 跳过该消息继续处理（或者停机修复）
-            
-            // 简化实现：抛异常，让Kafka重试
+
+            // 避免SYSTEM topic 的脏数据卡死消费线程
+            if ("trade-entry-SYSTEM".equalsIgnoreCase(topic)) {
+                log.warn("[TradeEntryConsumer] Skip poisoned SYSTEM message, topic={}, offset={}", topic, offset);
+                return;
+            }
+
+            // 非SYSTEM消息继续重试，避免真实成交消息丢失
             throw new RuntimeException("Process trade entry event failed", e);
         }
     }

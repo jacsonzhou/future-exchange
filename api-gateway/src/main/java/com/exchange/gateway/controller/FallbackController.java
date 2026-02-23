@@ -3,7 +3,6 @@ package com.exchange.gateway.controller;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
-import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 import reactor.core.publisher.Mono;
@@ -24,7 +23,7 @@ public class FallbackController {
     /**
      * 订单服务降级
      */
-    @GetMapping("/order")
+    @RequestMapping("/order")
     public Mono<ResponseEntity<Map<String, Object>>> orderFallback() {
         log.warn("[Fallback] Order service is unavailable");
         
@@ -40,7 +39,7 @@ public class FallbackController {
     /**
      * 用户服务降级
      */
-    @GetMapping("/user")
+    @RequestMapping("/user")
     public Mono<ResponseEntity<Map<String, Object>>> userFallback() {
         log.warn("[Fallback] User service is unavailable");
         
@@ -56,7 +55,7 @@ public class FallbackController {
     /**
      * 行情服务降级
      */
-    @GetMapping("/market")
+    @RequestMapping("/market")
     public Mono<ResponseEntity<Map<String, Object>>> marketFallback() {
         log.warn("[Fallback] Market data service is unavailable");
         
@@ -72,7 +71,7 @@ public class FallbackController {
     /**
      * 通用降级
      */
-    @GetMapping("/default")
+    @RequestMapping("/default")
     public Mono<ResponseEntity<Map<String, Object>>> defaultFallback() {
         log.warn("[Fallback] Service is unavailable");
         

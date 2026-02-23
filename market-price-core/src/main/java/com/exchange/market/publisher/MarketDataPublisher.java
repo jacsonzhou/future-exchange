@@ -14,6 +14,8 @@ import org.springframework.kafka.core.KafkaTemplate;
 import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Component;
 
+import java.math.BigDecimal;
+import java.math.RoundingMode;
 import java.util.List;
 
 /**
@@ -357,6 +359,9 @@ public class MarketDataPublisher {
     }
 
     // ========== 消息构建方法 ==========
+    
+    private static final long PRICE_SCALE = 100_000_000L;
+    private static final BigDecimal SCALE_BD = BigDecimal.valueOf(PRICE_SCALE);
 
     private JSONObject buildTradeMessage(Trade trade) {
         JSONObject msg = new JSONObject();
@@ -364,8 +369,8 @@ public class MarketDataPublisher {
         msg.put("E", System.currentTimeMillis());  // event time
         msg.put("s", trade.getSymbol());
         msg.put("t", trade.getTradeId());
-        msg.put("p", trade.getPrice());
-        msg.put("q", trade.getQuantity());
+        msg.put("p", formatScaled(trade.getPrice()));
+        msg.put("q", formatScaled(trade.getQuantity()));
         msg.put("T", trade.getTimestamp());
         msg.put("m", trade.isBuyerMaker());
         return msg;
@@ -382,16 +387,16 @@ public class MarketDataPublisher {
         k.put("T", kline.getCloseTime());
         k.put("s", kline.getSymbol());
         k.put("i", kline.getInterval());
-        k.put("o", kline.getOpenPrice());
-        k.put("c", kline.getClosePrice());
-        k.put("h", kline.getHighPrice());
-        k.put("l", kline.getLowPrice());
-        k.put("v", kline.getVolume());
+        k.put("o", formatScaled(kline.getOpenPrice()));
+        k.put("c", formatScaled(kline.getClosePrice()));
+        k.put("h", formatScaled(kline.getHighPrice()));
+        k.put("l", formatScaled(kline.getLowPrice()));
+        k.put("v", formatScaled(kline.getVolume()));
         k.put("n", kline.getTradeCount());
         k.put("x", false);  // not closed yet
-        k.put("q", kline.getQuoteVolume());
-        k.put("V", kline.getTakerBuyVolume());
-        k.put("Q", kline.getTakerBuyQuoteVolume());
+        k.put("q", formatScaled(kline.getQuoteVolume()));
+        k.put("V", formatScaled(kline.getTakerBuyVolume()));
+        k.put("Q", formatScaled(kline.getTakerBuyQuoteVolume()));
         
         msg.put("k", k);
         return msg;
@@ -402,21 +407,21 @@ public class MarketDataPublisher {
         msg.put("e", "24hrTicker");
         msg.put("E", System.currentTimeMillis());
         msg.put("s", symbol);
-        msg.put("p", stats.getPriceChange());
+        msg.put("p", formatScaled(stats.getPriceChange()));
         msg.put("P", stats.getPriceChangePercent());
-        msg.put("w", stats.getWeightedAvgPrice());
-        msg.put("x", stats.getOpenPrice()); // 使用开盘价作为前收盘价
-        msg.put("c", stats.getLastPrice());
-        msg.put("Q", stats.getLastQty());
-        msg.put("b", 0L); // BBO需要从OrderBook获取，这里暂时为0
-        msg.put("B", 0L);
-        msg.put("a", 0L);
-        msg.put("A", 0L);
-        msg.put("o", stats.getOpenPrice());
-        msg.put("h", stats.getHighPrice());
-        msg.put("l", stats.getLowPrice());
-        msg.put("v", stats.getVolume());
-        msg.put("q", stats.getQuoteVolume());
+        msg.put("w", formatScaled(stats.getWeightedAvgPrice()));
+        msg.put("x", formatScaled(stats.getOpenPrice()));
+        msg.put("c", formatScaled(stats.getLastPrice()));
+        msg.put("Q", formatScaled(stats.getLastQty()));
+        msg.put("b", formatScaled(0L)); // BBO需要从OrderBook获取，这里暂时为0
+        msg.put("B", formatScaled(0L));
+        msg.put("a", formatScaled(0L));
+        msg.put("A", formatScaled(0L));
+        msg.put("o", formatScaled(stats.getOpenPrice()));
+        msg.put("h", formatScaled(stats.getHighPrice()));
+        msg.put("l", formatScaled(stats.getLowPrice()));
+        msg.put("v", formatScaled(stats.getVolume()));
+        msg.put("q", formatScaled(stats.getQuoteVolume()));
         msg.put("O", stats.getOpenTime());
         msg.put("C", stats.getCloseTime());
         msg.put("F", stats.getFirstId());
@@ -433,9 +438,24 @@ public class MarketDataPublisher {
         msg.put("U", depthUpdate.getFirstUpdateId());
         msg.put("u", depthUpdate.getLastUpdateId());
         msg.put("pu", depthUpdate.getLastUpdateId() - 1);  // prev update id
-        msg.put("b", depthUpdate.getBids());
-        msg.put("a", depthUpdate.getAsks());
+        // 深度数据从 Money 格式（8位小数）转换为 double
+        msg.put("b", convertDepthLevels(depthUpdate.getBids()));
+        msg.put("a", convertDepthLevels(depthUpdate.getAsks()));
         return msg;
+    }
+    
+    /**
+     * 转换深度档位从 Money 格式（long）到 double
+     */
+    private String[][] convertDepthLevels(List<long[]> levels) {
+        if (levels == null) return new String[0][];
+        String[][] result = new String[levels.size()][2];
+        for (int i = 0; i < levels.size(); i++) {
+            long[] level = levels.get(i);
+            result[i][0] = formatScaled(level[0]);  // price
+            result[i][1] = formatScaled(level[1]);  // qty
+        }
+        return result;
     }
 
     private JSONObject buildMarkPriceMessage(MarkPrice markPrice) {
@@ -443,12 +463,18 @@ public class MarketDataPublisher {
         msg.put("e", "markPriceUpdate");
         msg.put("E", System.currentTimeMillis());
         msg.put("s", markPrice.getSymbol());
-        msg.put("p", markPrice.getMarkPrice());
-        msg.put("i", markPrice.getIndexPrice());
-        msg.put("P", markPrice.getEstimatedSettlePrice());
-        msg.put("r", markPrice.getLastFundingRate());
+        msg.put("p", formatScaled(markPrice.getMarkPrice()));
+        msg.put("i", formatScaled(markPrice.getIndexPrice()));
+        msg.put("P", formatScaled(markPrice.getEstimatedSettlePrice()));
+        msg.put("r", formatScaled(markPrice.getLastFundingRate()));
         msg.put("T", markPrice.getNextFundingTime());
         return msg;
+    }
+
+    private String formatScaled(long value) {
+        return BigDecimal.valueOf(value)
+                .divide(SCALE_BD, 8, RoundingMode.HALF_UP)
+                .toPlainString();
     }
 
     // ========== 聚合计算 ==========

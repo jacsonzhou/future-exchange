@@ -36,7 +36,7 @@ public interface PositionClient {
 /**
  * 持仓统计DTO
  */
-class PositionStatsDTO {
+public class PositionStatsDTO {
     private String symbol;
     private Long totalLongQty;   // 多头总持仓量
     private Long totalShortQty;  // 空头总持仓量

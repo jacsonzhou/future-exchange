@@ -45,6 +45,7 @@ import java.math.RoundingMode;
 @Slf4j
 @Service
 public class OrderServiceImpl implements OrderService {
+    private static final BigDecimal SCALE_BD = BigDecimal.valueOf(Money.SCALE);
 
     @Autowired
     private OrderMapper orderMapper;
@@ -467,16 +468,25 @@ public class OrderServiceImpl implements OrderService {
         if (command.getCommandType() == OrderCommand.CommandType.NEW_ORDER) {
             kafkaCommand.setSide(command.getSide().name());
             kafkaCommand.setOrderType(command.getOrderType().name());
-            kafkaCommand.setPrice(String.valueOf(command.getPrice()));
-            kafkaCommand.setQuantity(String.valueOf(command.getQuantity()));
+            // Kafka 统一发送 8 位小数字符串，避免上下游缩放歧义。
+            kafkaCommand.setPrice(formatScaledAmount(command.getPrice()));
+            kafkaCommand.setQuantity(formatScaledAmount(command.getQuantity()));
         }
 
         kafkaCommand.setEventTime(command.getTimestamp());
 
         return kafkaCommand;
     }
-}
 
+    private String formatScaledAmount(Long raw) {
+        if (raw == null) {
+            return null;
+        }
+        return BigDecimal.valueOf(raw)
+                .divide(SCALE_BD, 8, RoundingMode.HALF_UP)
+                .toPlainString();
+    }
+}
 
 
 

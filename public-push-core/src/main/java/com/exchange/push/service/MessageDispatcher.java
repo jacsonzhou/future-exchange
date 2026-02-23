@@ -224,27 +224,30 @@ public class MessageDispatcher {
             
             // 首次消息或快照后的第一条消息
             if (lastSeq == 0) {
-                // 允许首次消息：U <= 1 && u >= 1
-                if (firstUpdateId > 1 || lastUpdateId < 1) {
+                // 对首次增量不强制要求从 1 开始，直接接受并对齐到当前 u。
+                if (lastUpdateId <= 0 || firstUpdateId <= 0) {
                     allValid = false;
-                    log.warn("[Dispatcher] Invalid first depth message for {}: U={}, u={}, expected U<=1 && u>=1", 
+                    log.warn("[Dispatcher] Invalid first depth message for {}: U={}, u={}, expected positive update ids",
                             sessionId, firstUpdateId, lastUpdateId);
                 } else {
                     // 更新序列号
                     metadata.updateSequence(channel, lastUpdateId);
                 }
             } else {
-                // 后续消息：必须连续
-                if (firstUpdateId != lastSeq + 1 && lastUpdateId != lastSeq + 1) {
-                    // 检查是否在允许范围内（允许一定的容错）
-                    if (firstUpdateId > lastSeq + 1 || lastUpdateId < lastSeq + 1) {
-                        allValid = false;
-                        log.warn("[Dispatcher] Sequence gap for {}: lastSeq={}, U={}, u={}", 
-                                sessionId, lastSeq, firstUpdateId, lastUpdateId);
-                    }
-                } else {
-                    // 更新序列号
+                // 后续消息：
+                // - 允许重叠区间（U <= lastSeq+1 <= u）
+                // - 只在出现真正缺口（U > lastSeq+1）时判定 gap
+                long expected = lastSeq + 1;
+                if (firstUpdateId > expected) {
+                    allValid = false;
+                    log.warn("[Dispatcher] Sequence gap for {}: lastSeq={}, U={}, u={}",
+                            sessionId, lastSeq, firstUpdateId, lastUpdateId);
+                } else if (lastUpdateId >= expected) {
                     metadata.updateSequence(channel, lastUpdateId);
+                } else {
+                    // 过期/重复消息，忽略但不视为错误
+                    log.debug("[Dispatcher] Ignore stale depth update for {}: lastSeq={}, U={}, u={}",
+                            sessionId, lastSeq, firstUpdateId, lastUpdateId);
                 }
             }
         }
@@ -300,8 +303,16 @@ public class MessageDispatcher {
                 
                 // 更新序列号
                 ConnectionMetadata metadata = connectionManager.getMetadata(sessionId);
-                if (metadata != null && snapshot.containsKey("lastUpdateId")) {
-                    metadata.updateSequence(channel, snapshot.getLongValue("lastUpdateId"));
+                if (metadata != null) {
+                    long seq = 0L;
+                    if (snapshot.containsKey("lastUpdateId")) {
+                        seq = snapshot.getLongValue("lastUpdateId");
+                    } else if (snapshot.containsKey("u")) {
+                        seq = snapshot.getLongValue("u");
+                    }
+                    if (seq > 0) {
+                        metadata.updateSequence(channel, seq);
+                    }
                 }
             }
             

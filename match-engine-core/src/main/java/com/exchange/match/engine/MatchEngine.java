@@ -6,6 +6,7 @@ import com.exchange.match.orderbook.OrderBook;
 import lombok.extern.slf4j.Slf4j;
 
 import java.math.BigDecimal;
+import java.math.RoundingMode;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -21,6 +22,8 @@ import java.util.concurrent.ConcurrentHashMap;
  */
 @Slf4j
 public class MatchEngine {
+
+    private static final BigDecimal MONEY_SCALE = BigDecimal.valueOf(100_000_000L);
     
     /**
      * 每个交易对对应一个OrderBook
@@ -68,9 +71,9 @@ public class MatchEngine {
         order.setSide("BUY".equals(command.getSide()) ? 0 : 1);
         order.setType("LIMIT".equals(command.getOrderType()) ? 0 : 1);
         if (command.getPrice() != null) {
-            order.setPrice(new BigDecimal(command.getPrice()));
+            order.setPrice(normalizeFromCommand(command.getPrice()));
         }
-        order.setQuantity(new BigDecimal(command.getQuantity()));
+        order.setQuantity(normalizeFromCommand(command.getQuantity()));
         order.setFilledQuantity(BigDecimal.ZERO);
         order.setCreateTimeNano(System.nanoTime());
         
@@ -80,6 +83,14 @@ public class MatchEngine {
         log.info("Order matched: orderId={}, trades={}", order.getOrderId(), trades.size());
         
         return trades;
+    }
+
+    private BigDecimal normalizeFromCommand(String raw) {
+        BigDecimal value = new BigDecimal(raw);
+        if (raw.indexOf('.') < 0 && value.abs().compareTo(MONEY_SCALE) >= 0) {
+            return value.divide(MONEY_SCALE, 8, RoundingMode.HALF_UP);
+        }
+        return value;
     }
     
     /**

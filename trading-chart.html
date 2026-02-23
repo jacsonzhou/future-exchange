@@ -685,8 +685,8 @@
                 div.className = 'trade-item';
                 div.innerHTML = `
                     <span class="trade-time">${time}</span>
-                    <span class="trade-price ${isBuy ? 'trade-buy' : 'trade-sell'}">${price}</span>
-                    <span class="trade-qty">${qty}</span>
+                    <span class="trade-price ${isBuy ? 'trade-buy' : 'trade-sell'}">${price.toFixed(2)}</span>
+                    <span class="trade-qty">${qty.toFixed(4)}</span>
                 `;
                 
                 tradeList.insertBefore(div, tradeList.firstChild);
@@ -722,9 +722,9 @@
             changeEl.textContent = (priceChange >= 0 ? '+' : '') + priceChange.toFixed(2) + '%';
             changeEl.style.color = priceChange >= 0 ? '#3fb950' : '#f85149';
             
-            document.getElementById('high24h').textContent = high24h;
-            document.getElementById('low24h').textContent = low24h;
-            document.getElementById('volume24h').textContent = volume + ' BTC';
+            document.getElementById('high24h').textContent = high24h.toFixed(2);
+            document.getElementById('low24h').textContent = low24h.toFixed(2);
+            document.getElementById('volume24h').textContent = volume.toFixed(4) + ' BTC';
             document.getElementById('quoteVolume24h').textContent = quoteVolume + ' USDT';
             document.getElementById('tradeCount24h').textContent = count.toLocaleString();
         }
@@ -746,12 +746,11 @@
             state.orderbook.asks.forEach(([price, qty]) => {
                 const priceVal = formatPrice(price);
                 const qtyVal = formatQty(qty);
-                const amount = parseFloat(priceVal) * parseFloat(qtyVal);
-                cumulative += parseFloat(qtyVal);
+                cumulative += qtyVal;
                 html += `
                     <div class="orderbook-row orderbook-ask">
                         <span>${priceVal.toFixed(2)}</span>
-                        <span>${qtyVal}</span>
+                        <span>${qtyVal.toFixed(4)}</span>
                         <span>${cumulative.toFixed(4)}</span>
                     </div>
                 `;
@@ -777,12 +776,11 @@
             state.orderbook.bids.forEach(([price, qty]) => {
                 const priceVal = formatPrice(price);
                 const qtyVal = formatQty(qty);
-                const amount = parseFloat(priceVal) * parseFloat(qtyVal);
-                cumulative += parseFloat(qtyVal);
+                cumulative += qtyVal;
                 html += `
                     <div class="orderbook-row orderbook-bid">
                         <span>${priceVal.toFixed(2)}</span>
-                        <span>${qtyVal}</span>
+                        <span>${qtyVal.toFixed(4)}</span>
                         <span>${cumulative.toFixed(4)}</span>
                     </div>
                 `;
@@ -889,8 +887,12 @@
         })(100000000));
         
         function formatPrice(price) {
+            // 如果是字符串且包含小数点，说明是已格式化的 HTTP 数据
+            if (typeof price === 'string' && price.includes('.')) {
+                return parseFloat(price);
+            }
             let num = parseFloat(price);
-            // 内部格式是8位小数，需要转换
+            // Money 格式（8位小数）需要转换
             if (Math.abs(num) >= PRICE_SCALE) {
                 num = num / PRICE_SCALE;
             }
@@ -898,10 +900,16 @@
         }
 
         function formatQty(qty) {
+            // 如果是字符串且包含小数点，说明是已格式化的 HTTP 数据
+            if (typeof qty === 'string' && qty.includes('.')) {
+                return parseFloat(qty);
+            }
             let num = parseFloat(qty);
-            // 🔥 V3 FIX: 强制除以 1e8，不使用条件判断
-            num = num / 100000000;
-            return num.toFixed(4);
+            // Money 格式（8位小数）需要转换
+            if (Math.abs(num) >= PRICE_SCALE) {
+                num = num / PRICE_SCALE;
+            }
+            return num;
         }
 
         function formatMoney(amount) {

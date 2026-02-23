@@ -37,3 +37,10 @@ management:
       enabled: true
   server:
     port: ${MANAGEMENT_PORT:8083}
+
+match:
+  recovery:
+    enabled: ${MATCH_RECOVERY_ENABLED:true}
+    wal-file: ${MATCH_WAL_FILE:./data/wal/match.log}
+    snapshot-file: ${MATCH_SNAPSHOT_FILE:./data/wal/orderbook.snapshot.json}
+    max-commands: ${MATCH_RECOVERY_MAX_COMMANDS:10000000}

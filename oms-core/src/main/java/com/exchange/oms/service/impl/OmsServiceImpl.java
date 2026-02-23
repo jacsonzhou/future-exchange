@@ -23,6 +23,7 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.DigestUtils;
 
 import java.math.BigDecimal;
+import java.math.RoundingMode;
 import java.nio.charset.StandardCharsets;
 import java.util.List;
 
@@ -38,6 +39,7 @@ import java.util.List;
 @Slf4j
 @Service
 public class OmsServiceImpl implements OmsService {
+    private static final BigDecimal SCALE_BD = BigDecimal.valueOf(100_000_000L);
     
     @Autowired
     private OmsOrderMapper orderMapper;
@@ -103,8 +105,10 @@ public class OmsServiceImpl implements OmsService {
             order.setSymbol(request.getSymbol());
             order.setSide(mapSide(request.getSide()));
             order.setType(mapType(request.getType()));
-            order.setPrice(new BigDecimal(request.getPrice()));
-            order.setQuantity(new BigDecimal(request.getQuantity()));
+            if (request.getPrice() != null) {
+                order.setPrice(normalizeToScaled(request.getPrice()));
+            }
+            order.setQuantity(normalizeToScaled(request.getQuantity()));
             order.setFilledQuantity(BigDecimal.ZERO);
             order.setStatus(0); // NEW
             order.setTimeInForce(request.getTimeInForce());
@@ -147,8 +151,8 @@ public class OmsServiceImpl implements OmsService {
             
             // 9. 调用Ledger Service冻结保证金（同步）
             BigDecimal requiredMargin = calculateRequiredMargin(
-                new BigDecimal(request.getPrice()),
-                new BigDecimal(request.getQuantity()),
+                order.getPrice() != null ? order.getPrice() : BigDecimal.ZERO,
+                order.getQuantity(),
                 request.getLeverage() != null ? request.getLeverage() : 10 // 默认10倍杠杆
             );
             
@@ -421,7 +425,7 @@ public class OmsServiceImpl implements OmsService {
             return;
         }
         
-        BigDecimal delta = new BigDecimal(filledQuantity);
+        BigDecimal delta = normalizeToScaled(filledQuantity);
         BigDecimal newFilled = order.getFilledQuantity().add(delta);
         
         // 判断新状态
@@ -592,15 +596,13 @@ public class OmsServiceImpl implements OmsService {
         }
         
         // 精度系数：8位小数 = 10^8
-        BigDecimal SCALE = new BigDecimal("100000000");
-        
         // 转换为实际金额：price 和 quantity 都是 8 位小数的整数格式
-        BigDecimal actualPrice = price.divide(SCALE, 8, java.math.RoundingMode.HALF_UP);
-        BigDecimal actualQuantity = quantity.divide(SCALE, 8, java.math.RoundingMode.HALF_UP);
+        BigDecimal actualPrice = price.divide(SCALE_BD, 8, RoundingMode.HALF_UP);
+        BigDecimal actualQuantity = quantity.divide(SCALE_BD, 8, RoundingMode.HALF_UP);
         
         // 计算保证金：价格 * 数量 / 杠杆
         BigDecimal margin = actualPrice.multiply(actualQuantity)
-            .divide(BigDecimal.valueOf(leverage), 8, java.math.RoundingMode.HALF_UP);
+            .divide(BigDecimal.valueOf(leverage), 8, RoundingMode.HALF_UP);
         
         log.debug("[OMS] Calculate margin: price={} (actual={}), quantity={} (actual={}), leverage={}, margin={}",
             price, actualPrice, quantity, actualQuantity, leverage, margin);
@@ -619,17 +621,10 @@ public class OmsServiceImpl implements OmsService {
         command.setSymbol(order.getSymbol());
         command.setSide(mapOrderSide(order.getSide()));
         command.setOrderType(mapOrderType(order.getType()));
-        // 🔥 修复：发送未缩放的价格（如 50000.00），让 Match Engine 自己乘以 PRICE_SCALE
-        // 避免重复缩放导致溢出
         if (order.getPrice() != null) {
-            // 将已缩放的价格（5000000000000）还原为原始价格（50000.00）
-            BigDecimal scaledPrice = order.getPrice();
-            BigDecimal originalPrice = scaledPrice.divide(new BigDecimal(100_000_000), 8, BigDecimal.ROUND_HALF_UP);
-            command.setPrice(originalPrice.toPlainString());
+            command.setPrice(toDecimalString(order.getPrice()));
         }
-        // 🔥 数量保持原始值（如 1.00），不要除以 PRICE_SCALE
-        // Match Engine 会处理数量的显示
-        command.setQuantity(order.getQuantity().divide(new BigDecimal(100_000_000), 8, BigDecimal.ROUND_HALF_UP).toPlainString());
+        command.setQuantity(toDecimalString(order.getQuantity()));
         command.setEventTime(System.currentTimeMillis());
         return command;
     }
@@ -646,5 +641,31 @@ public class OmsServiceImpl implements OmsService {
         command.setEventTime(System.currentTimeMillis());
         return command;
     }
-}
 
+    /**
+     * 将请求价格/数量归一化为内部缩放格式（1e8）。
+     * 支持两类输入：
+     * 1) 十进制字符串（如 50000.00 / 1.25）
+     * 2) 已缩放整数字符串（如 5000000000000 / 125000000）
+     */
+    private BigDecimal normalizeToScaled(String raw) {
+        if (raw == null || raw.isBlank()) {
+            return BigDecimal.ZERO;
+        }
+        BigDecimal value = new BigDecimal(raw);
+        if (raw != null && raw.contains(".")) {
+            return value.multiply(SCALE_BD).setScale(0, RoundingMode.HALF_UP);
+        }
+        if (value.abs().compareTo(SCALE_BD) >= 0) {
+            return value;
+        }
+        return value.multiply(SCALE_BD).setScale(0, RoundingMode.HALF_UP);
+    }
+
+    private String toDecimalString(BigDecimal scaled) {
+        if (scaled == null) {
+            return null;
+        }
+        return scaled.divide(SCALE_BD, 8, RoundingMode.HALF_UP).toPlainString();
+    }
+}

@@ -34,7 +34,7 @@ import java.util.concurrent.TimeUnit;
 @Component
 public class JwtTokenProvider {
 
-    @Value("${jwt.secret:future-exchange-user-core-secret-key-2024}")
+    @Value("${private.push.jwt.secret:${jwt.secret:future-exchange-user-core-secret-key-2024}}")
     private String jwtSecret;
 
     @Value("${private.push.jwt.expiration-minutes:30}")

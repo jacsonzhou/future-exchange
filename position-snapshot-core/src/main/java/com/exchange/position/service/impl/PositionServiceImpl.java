@@ -43,6 +43,7 @@ import java.util.concurrent.TimeUnit;
 @Slf4j
 @Service
 public class PositionServiceImpl implements PositionService {
+    private static final Integer USER_POSITION_MARGIN_ACCOUNT_TYPE = 3;
     
     @Autowired
     private PositionSnapshotMapper positionSnapshotMapper;
@@ -124,54 +125,66 @@ public class PositionServiceImpl implements PositionService {
             event.getPrice(), event.getQuantity());
 
         try {
-            // 验证必要的成交信息
-            if (event.getPrice() == null || event.getPrice().compareTo(BigDecimal.ZERO) <= 0) {
-                log.error("[PositionService] ❌ Invalid price in event, tradeId={}, price={}",
-                    event.getTradeId(), event.getPrice());
-                throw new IllegalArgumentException("Invalid price in TradeEntryEvent");
-            }
-
-            if (event.getQuantity() == null || event.getQuantity().compareTo(BigDecimal.ZERO) <= 0) {
-                log.error("[PositionService] ❌ Invalid quantity in event, tradeId={}, quantity={}",
-                    event.getTradeId(), event.getQuantity());
-                throw new IllegalArgumentException("Invalid quantity in TradeEntryEvent");
-            }
-
             if (event.getEntries() == null || event.getEntries().isEmpty()) {
                 log.warn("[PositionService] ⚠️ Empty entries, tradeId={}", event.getTradeId());
                 return;
             }
 
+            // SYSTEM事件（如冻结/解冻）不涉及持仓变更，直接跳过
+            if ("SYSTEM".equalsIgnoreCase(event.getSymbol())) {
+                log.debug("[PositionService] Skip non-position system event, tradeId={}", event.getTradeId());
+                return;
+            }
+
+            boolean hasPositionEntry = event.getEntries().stream()
+                .anyMatch(this::isPositionImpactEntry);
+            if (!hasPositionEntry) {
+                log.debug("[PositionService] Skip event without position entry, tradeId={}", event.getTradeId());
+                return;
+            }
+
+            // 验证必要的成交信息
+            if (event.getPrice() == null || event.getPrice().compareTo(BigDecimal.ZERO) <= 0) {
+                log.warn("[PositionService] ⚠️ Invalid price in event, skip. tradeId={}, price={}",
+                    event.getTradeId(), event.getPrice());
+                return;
+            }
+
+            if (event.getQuantity() == null || event.getQuantity().compareTo(BigDecimal.ZERO) <= 0) {
+                log.warn("[PositionService] ⚠️ Invalid quantity in event, skip. tradeId={}, quantity={}",
+                    event.getTradeId(), event.getQuantity());
+                return;
+            }
+
+            boolean makerIsBuy = Boolean.TRUE.equals(event.getIsBuyerMaker());
+            boolean takerIsBuy = !makerIsBuy;
+
             // 1. 处理Maker持仓
             if (event.getMakerUserId() != null) {
-                // 双向持仓模式：Maker买入→操作LONG持仓，Maker卖出→操作SHORT持仓
-                int positionSide = event.getIsBuyerMaker() ? POSITION_SIDE_LONG : POSITION_SIDE_SHORT;
-                updatePositionByTradeHedgeMode(
+                updatePositionNetMode(
                     event.getMakerUserId(),
                     event.getSymbol(),
                     event.getPrice(),
                     event.getQuantity(),
-                    positionSide,
+                    makerIsBuy,
                     event.getTradeId()
                 );
-                log.info("[PositionService] ✅ Maker position updated, userId={}, positionSide={}",
-                    event.getMakerUserId(), positionSide);
+                log.info("[PositionService] ✅ Maker position updated, userId={}, isBuy={}",
+                    event.getMakerUserId(), makerIsBuy);
             }
 
             // 2. 处理Taker持仓
             if (event.getTakerUserId() != null) {
-                // 双向持仓模式：Taker买入→操作LONG持仓，Taker卖出→操作SHORT持仓
-                int positionSide = !event.getIsBuyerMaker() ? POSITION_SIDE_LONG : POSITION_SIDE_SHORT;
-                updatePositionByTradeHedgeMode(
+                updatePositionNetMode(
                     event.getTakerUserId(),
                     event.getSymbol(),
                     event.getPrice(),
                     event.getQuantity(),
-                    positionSide,
+                    takerIsBuy,
                     event.getTradeId()
                 );
-                log.info("[PositionService] ✅ Taker position updated, userId={}, positionSide={}",
-                    event.getTakerUserId(), positionSide);
+                log.info("[PositionService] ✅ Taker position updated, userId={}, isBuy={}",
+                    event.getTakerUserId(), takerIsBuy);
             }
 
             log.info("[PositionService] ✅ Trade entry event processed, tradeId={}", event.getTradeId());
@@ -413,6 +426,31 @@ public class PositionServiceImpl implements PositionService {
     // ==================== 私有辅助方法 ====================
 
     /**
+     * 净持仓更新逻辑：
+     * 1. 先冲减反向仓位（如果存在）
+     * 2. 剩余数量再开/加同向仓位
+     */
+    private void updatePositionNetMode(Long userId, String symbol, BigDecimal price,
+                                       BigDecimal quantity, boolean isBuy, String tradeId) {
+        int sameSide = isBuy ? POSITION_SIDE_LONG : POSITION_SIDE_SHORT;
+        int oppositeSide = isBuy ? POSITION_SIDE_SHORT : POSITION_SIDE_LONG;
+        BigDecimal remaining = quantity;
+
+        PositionSnapshot oppositePosition = positionSnapshotMapper.selectByUserAndSymbolAndSide(userId, symbol, oppositeSide);
+        if (oppositePosition != null && oppositePosition.getSize().compareTo(BigDecimal.ZERO) > 0) {
+            BigDecimal closeQty = remaining.min(oppositePosition.getSize());
+            if (closeQty.compareTo(BigDecimal.ZERO) > 0) {
+                decreaseOrClosePosition(oppositePosition, price, closeQty, tradeId);
+                remaining = remaining.subtract(closeQty);
+            }
+        }
+
+        if (remaining.compareTo(BigDecimal.ZERO) > 0) {
+            increasePosition(userId, symbol, price, remaining, sameSide, tradeId);
+        }
+    }
+
+    /**
      * 双向持仓模式：根据Trade更新持仓
      * 
      * 🔥 核心逻辑：
@@ -518,6 +556,84 @@ public class PositionServiceImpl implements PositionService {
         // 检查风险并发布事件
         checkRiskAndPublishEvent(position);
     }
+
+    private void increasePosition(Long userId, String symbol, BigDecimal price,
+                                  BigDecimal quantity, int positionSide, String tradeId) {
+        PositionSnapshot position = positionSnapshotMapper.selectByUserAndSymbolAndSide(userId, symbol, positionSide);
+        String changeType;
+
+        if (position == null) {
+            position = new PositionSnapshot();
+            position.setUserId(userId);
+            position.setSymbol(symbol);
+            position.setPositionSide(positionSide);
+            position.setSize(quantity);
+            position.setEntryPrice(price);
+            position.setUnrealizedPnl(BigDecimal.ZERO);
+            position.setRealizedPnl(BigDecimal.ZERO);
+            position.setLastTradeId(tradeId);
+            position.setLastUpdateSeq(IdGenerator.generate());
+            position.setVersion(0);
+            position.setCreatedAt(System.currentTimeMillis());
+            position.setUpdatedAt(System.currentTimeMillis());
+            positionSnapshotMapper.insert(position);
+            changeType = PositionChangePublisher.CHANGE_TYPE_OPEN;
+        } else {
+            BigDecimal oldSize = position.getSize();
+            BigDecimal newSize = oldSize.add(quantity);
+
+            if (oldSize.compareTo(BigDecimal.ZERO) == 0) {
+                changeType = PositionChangePublisher.CHANGE_TYPE_OPEN;
+                position.setEntryPrice(price);
+            } else {
+                changeType = PositionChangePublisher.CHANGE_TYPE_INCREASE;
+                BigDecimal oldValue = position.getEntryPrice().multiply(oldSize);
+                BigDecimal addValue = price.multiply(quantity);
+                position.setEntryPrice(oldValue.add(addValue).divide(newSize, 8, RoundingMode.HALF_UP));
+            }
+
+            position.setSize(newSize);
+            position.setLastTradeId(tradeId);
+            position.setLastUpdateSeq(IdGenerator.generate());
+            position.setUpdatedAt(System.currentTimeMillis());
+            int updated = positionSnapshotMapper.updateWithOptimisticLock(position);
+            if (updated == 0) {
+                throw new RuntimeException("Increase position failed, version conflict");
+            }
+        }
+
+        publishPositionChangeEvent(userId, position, changeType, quantity, price);
+        updateRedisSnapshot(position);
+        checkRiskAndPublishEvent(position);
+    }
+
+    private void decreaseOrClosePosition(PositionSnapshot position, BigDecimal price,
+                                         BigDecimal closeQty, String tradeId) {
+        BigDecimal oldSize = position.getSize();
+        BigDecimal newSize = oldSize.subtract(closeQty);
+        BigDecimal realizedPnl = calculateRealizedPnl(position.getPositionSide(), position.getEntryPrice(), price, closeQty);
+
+        position.setRealizedPnl(position.getRealizedPnl().add(realizedPnl));
+        position.setSize(newSize);
+        if (newSize.compareTo(BigDecimal.ZERO) == 0) {
+            position.setEntryPrice(BigDecimal.ZERO);
+        }
+        position.setLastTradeId(tradeId);
+        position.setLastUpdateSeq(IdGenerator.generate());
+        position.setUpdatedAt(System.currentTimeMillis());
+
+        int updated = positionSnapshotMapper.updateWithOptimisticLock(position);
+        if (updated == 0) {
+            throw new RuntimeException("Decrease position failed, version conflict");
+        }
+
+        String changeType = newSize.compareTo(BigDecimal.ZERO) == 0
+            ? PositionChangePublisher.CHANGE_TYPE_CLOSE
+            : PositionChangePublisher.CHANGE_TYPE_DECREASE;
+        publishPositionChangeEvent(position.getUserId(), position, changeType, closeQty, price);
+        updateRedisSnapshot(position);
+        checkRiskAndPublishEvent(position);
+    }
     
     /**
      * 发布持仓变更事件
@@ -553,9 +669,20 @@ public class PositionServiceImpl implements PositionService {
      */
     private void updatePositionByTrade(Long userId, String symbol, BigDecimal price, 
                                        BigDecimal quantity, Boolean isBuy, String tradeId) {
-        // 双向持仓模式：根据买卖方向确定是操作LONG还是SHORT
-        int positionSide = isBuy ? POSITION_SIDE_LONG : POSITION_SIDE_SHORT;
-        updatePositionByTradeHedgeMode(userId, symbol, price, quantity, positionSide, tradeId);
+        updatePositionNetMode(userId, symbol, price, quantity, Boolean.TRUE.equals(isBuy), tradeId);
+    }
+
+    private boolean isPositionImpactEntry(TradeEntryEvent.LedgerEntry entry) {
+        if (entry == null) {
+            return false;
+        }
+
+        if (entry.isPositionAssetEntry()) {
+            return true;
+        }
+
+        return "TRADE".equalsIgnoreCase(entry.getBusinessType())
+            && USER_POSITION_MARGIN_ACCOUNT_TYPE.equals(entry.getAccountType());
     }
     
     /**

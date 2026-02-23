@@ -7,14 +7,19 @@ import com.exchange.match.model.Trade;
 import com.exchange.match.orderbook.OrderBook;
 import com.exchange.match.pool.OrderPool;
 import com.exchange.match.publisher.TradePublisher;
+import com.exchange.match.recovery.OrderBookRecoveryManager;
+import com.exchange.match.wal.MatchWAL;
 import com.lmax.disruptor.EventHandler;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 
 import jakarta.annotation.PostConstruct;
+import jakarta.annotation.PreDestroy;
 import java.math.BigDecimal;
+import java.math.RoundingMode;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -37,6 +42,8 @@ import java.util.concurrent.atomic.AtomicLong;
 @Component
 public class MatchingProcessor implements EventHandler<MatchEvent> {
 
+    private static final BigDecimal MONEY_SCALE = BigDecimal.valueOf(100_000_000L);
+
     @Autowired
     private OrderBook orderBook;
 
@@ -45,6 +52,12 @@ public class MatchingProcessor implements EventHandler<MatchEvent> {
     
     @Autowired
     private com.exchange.match.publisher.DepthPublisher depthPublisher;
+
+    @Autowired(required = false)
+    private OrderBookRecoveryManager recoveryManager;
+
+    @Autowired(required = false)
+    private MatchWAL matchWAL;
 
     /**
      * Phase 1.2: Order 对象池
@@ -61,6 +74,11 @@ public class MatchingProcessor implements EventHandler<MatchEvent> {
      * 上次发送深度数据的序列号（用于控制频率）
      */
     private AtomicLong lastDepthPublishSequence = new AtomicLong(0);
+
+    /**
+     * 最近处理的事件序列号（用于深度心跳快照）
+     */
+    private AtomicLong lastProcessedSequence = new AtomicLong(0);
     
     /**
      * 每N个事件发送一次深度数据
@@ -70,11 +88,24 @@ public class MatchingProcessor implements EventHandler<MatchEvent> {
 
     @PostConstruct
     public void init() {
+        if (recoveryManager != null) {
+            OrderBookRecoveryManager.RecoveryStats stats = recoveryManager.recover(orderBook);
+            log.info("[MatchingProcessor] Recovery stats: snapshotLoaded={}, replayed={}, recoveredOrders={}, durationMs={}",
+                stats.isSnapshotLoaded(), stats.getReplayCommands(), stats.getRecoveredOrderCount(), stats.getDurationMs());
+        }
+
         if (orderPoolEnabled) {
             this.orderPool = new OrderPool(orderPoolSize);
             log.info("[MatchingProcessor] Order pool enabled, size={}", orderPoolSize);
         } else {
             log.info("[MatchingProcessor] Order pool disabled");
+        }
+    }
+
+    @PreDestroy
+    public void shutdown() {
+        if (recoveryManager != null) {
+            recoveryManager.persistSnapshot(orderBook);
         }
     }
     
@@ -103,6 +134,8 @@ public class MatchingProcessor implements EventHandler<MatchEvent> {
                 default:
                     log.warn("[MatchingProcessor] Unknown event type: {}", eventType);
             }
+
+            lastProcessedSequence.set(sequence);
             
         } catch (Exception e) {
             log.error("[MatchingProcessor] Process event error, seq={}", sequence, e);
@@ -120,6 +153,11 @@ public class MatchingProcessor implements EventHandler<MatchEvent> {
 
         // 添加到订单簿并撮合
         List<Trade> trades = orderBook.addOrder(order);
+
+        // 写入WAL（恢复链路的唯一事实来源）
+        if (matchWAL != null) {
+            matchWAL.append(command, trades, sequence);
+        }
 
         // 发布成交事件
         for (Trade trade : trades) {
@@ -166,6 +204,11 @@ public class MatchingProcessor implements EventHandler<MatchEvent> {
         boolean success = orderBook.cancelOrder(command.getOrderId());
 
         if (success) {
+            // 撤单也需要落WAL，保证恢复一致性
+            if (matchWAL != null) {
+                matchWAL.append(command, java.util.Collections.emptyList(), sequence);
+            }
+
             // 发布订单状态事件
             OrderStateEvent stateEvent = new OrderStateEvent();
             stateEvent.setEventId(generateEventId(sequence));
@@ -201,6 +244,19 @@ public class MatchingProcessor implements EventHandler<MatchEvent> {
         // 强制撤单逻辑与普通撤单类似，但可能有额外的审计要求
         handleCancel(command, sequence);
     }
+
+    /**
+     * 周期性发布深度快照，确保 market-price-core 重启后也能自动恢复盘口。
+     */
+    @Scheduled(fixedDelayString = "${match.depth.heartbeat-interval-ms:1000}")
+    public void publishDepthHeartbeat() {
+        if (depthPublisher == null) {
+            return;
+        }
+        long seq = lastProcessedSequence.get();
+        depthPublisher.publishDepth(orderBook.getSymbol(), orderBook, seq);
+        lastDepthPublishSequence.set(seq);
+    }
     
     /**
      * 转换为内部Order对象
@@ -217,15 +273,28 @@ public class MatchingProcessor implements EventHandler<MatchEvent> {
         order.setType("LIMIT".equals(command.getOrderType()) ? 0 : 1);
 
         if (command.getPrice() != null) {
-            order.setPrice(new BigDecimal(command.getPrice()));
+            order.setPrice(normalizeFromCommand(command.getPrice()));
         }
-        order.setQuantity(new BigDecimal(command.getQuantity()));
+        order.setQuantity(normalizeFromCommand(command.getQuantity()));
 
         // 初始化成交相关字段
         order.setRemainingQuantity(order.getQuantity());
         order.setFilledQuantity(BigDecimal.ZERO);
 
         return order;
+    }
+
+    /**
+     * 兼容两种上游格式：
+     * 1) 已缩放 long 字符串（如 5000000000000, 100000000）
+     * 2) 未缩放十进制字符串（如 50000.00000000, 1.00000000）
+     */
+    private BigDecimal normalizeFromCommand(String raw) {
+        BigDecimal value = new BigDecimal(raw);
+        if (raw.indexOf('.') < 0 && value.abs().compareTo(MONEY_SCALE) >= 0) {
+            return value.divide(MONEY_SCALE, 8, RoundingMode.HALF_UP);
+        }
+        return value;
     }
     
     /**
@@ -269,6 +338,3 @@ public class MatchingProcessor implements EventHandler<MatchEvent> {
         return "EVT-" + System.currentTimeMillis() + "-" + sequence;
     }
 }
-
-
-

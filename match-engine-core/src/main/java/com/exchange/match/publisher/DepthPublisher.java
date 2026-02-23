@@ -96,7 +96,8 @@ public class DepthPublisher {
             message.put("E", System.currentTimeMillis()); // 事件时间
             message.put("s", symbol);                   // 交易对
             message.put("U", lastSeq);                  // 第一个更新ID
-            message.put("u", lastSeq + 1);              // 最后一个更新ID
+            message.put("u", lastSeq);                  // 最后一个更新ID
+            message.put("isSnapshot", true);            // 当前发布为完整快照
             message.put("b", bids != null ? bids : new ArrayList<>());    // 买盘
             message.put("a", asks != null ? asks : new ArrayList<>());    // 卖盘
             

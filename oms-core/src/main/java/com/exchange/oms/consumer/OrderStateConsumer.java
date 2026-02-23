@@ -19,6 +19,7 @@ import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
+import java.math.RoundingMode;
 
 /**
  * 订单状态消费者（Match Engine → OMS）
@@ -47,6 +48,7 @@ import java.math.BigDecimal;
 @Slf4j
 @Component
 public class OrderStateConsumer {
+    private static final BigDecimal SCALE_BD = BigDecimal.valueOf(100_000_000L);
     
     @Autowired
     private OmsOrderMapper orderMapper;
@@ -101,12 +103,12 @@ public class OrderStateConsumer {
             String status = eventNode.get("status").asText();
             
             // 解析成交相关信息
-            BigDecimal filledQuantityDelta = eventNode.has("filledQuantityDelta") 
-                ? new BigDecimal(eventNode.get("filledQuantityDelta").asText())
+            BigDecimal filledQuantityDelta = eventNode.has("filledQuantityDelta")
+                ? normalizeToScaled(eventNode.get("filledQuantityDelta").asText())
                 : BigDecimal.ZERO;
             
             BigDecimal lastFilledPrice = eventNode.has("lastFilledPrice")
-                ? new BigDecimal(eventNode.get("lastFilledPrice").asText())
+                ? normalizeToScaled(eventNode.get("lastFilledPrice").asText())
                 : BigDecimal.ZERO;
                 
             Long tradeId = eventNode.has("tradeId") ? eventNode.get("tradeId").asLong() : null;
@@ -136,15 +138,25 @@ public class OrderStateConsumer {
             
             // 更新订单
             if (newStatus != null && !newStatus.equals(oldStatus)) {
-                // 🔥 修复：使用乐观锁更新方法，避免version冲突
-                // @Version注解会自动处理version，不需要手动+1
-                int updated = orderMapper.updateStatus(
-                    orderId,
-                    oldStatus,
-                    newStatus,
-                    System.currentTimeMillis(),
-                    order.getVersion()
-                );
+                // 有成交增量时，状态和已成交数量一起更新，避免 FILLED 但 filled_quantity 仍为0
+                int updated;
+                if (filledQuantityDelta.compareTo(BigDecimal.ZERO) > 0) {
+                    updated = orderMapper.updateFilledQuantity(
+                        orderId,
+                        filledQuantityDelta,
+                        newStatus,
+                        System.currentTimeMillis(),
+                        order.getVersion()
+                    );
+                } else {
+                    updated = orderMapper.updateStatus(
+                        orderId,
+                        oldStatus,
+                        newStatus,
+                        System.currentTimeMillis(),
+                        order.getVersion()
+                    );
+                }
                 
                 if (updated > 0) {
                     // 记录状态变更日志
@@ -152,8 +164,7 @@ public class OrderStateConsumer {
                         "MATCH_ENGINE_REPORT", "Match engine reported: " + status);
                     
                     log.info("[OrderStateConsumer] ✅ Order state updated, orderId={}, {}→{}, filled={}",
-                        orderId, mapStatusName(oldStatus), mapStatusName(newStatus), 
-                        order.getFilledQuantity());
+                        orderId, mapStatusName(oldStatus), mapStatusName(newStatus), newFilledQty);
                     
                     // 🔥 发布到私有推送系统
                     publishToPrivatePush(order, status, filledQuantityDelta, lastFilledPrice, 
@@ -291,5 +302,16 @@ public class OrderStateConsumer {
         stateLog.setOperator("MATCH_ENGINE");
         stateLog.setCreatedAt(System.currentTimeMillis());
         stateLogMapper.insert(stateLog);
+    }
+
+    private BigDecimal normalizeToScaled(String raw) {
+        BigDecimal value = new BigDecimal(raw);
+        if (raw != null && raw.contains(".")) {
+            return value.multiply(SCALE_BD).setScale(0, RoundingMode.HALF_UP);
+        }
+        if (value.abs().compareTo(SCALE_BD) >= 0) {
+            return value;
+        }
+        return value.multiply(SCALE_BD).setScale(0, RoundingMode.HALF_UP);
     }
 }

@@ -373,6 +373,10 @@ public class OrderBook {
     public Long getBestAskPrice() {
         return bestAskPrice == Long.MAX_VALUE ? null : bestAskPrice;
     }
+
+    public String getSymbol() {
+        return symbol;
+    }
     
     /**
      * 🔥 更新最优买价（遍历HashMap找最高价）
@@ -461,8 +465,9 @@ public class OrderBook {
             PriceLevel level = askBook.get(price);
             if (level != null && !level.isEmpty()) {
                 BigDecimal priceValue = new BigDecimal(price).divide(new BigDecimal(PRICE_SCALE), 8, RoundingMode.HALF_UP);
-                // 🔥 修复：数量已经是原始值（如 1），不要再除以 PRICE_SCALE
-                BigDecimal qtyValue = new BigDecimal(level.getTotalQuantity());
+                // 🔥 FIX: totalQuantity 是缩放后的值，需要除以 PRICE_SCALE
+                BigDecimal qtyValue = new BigDecimal(level.getTotalQuantity())
+                    .divide(new BigDecimal(PRICE_SCALE), 8, RoundingMode.HALF_UP);
                 asks.add(Arrays.asList(
                     priceValue.toPlainString(),
                     qtyValue.toPlainString()
@@ -514,5 +519,60 @@ public class OrderBook {
     private String generateTradeId(long sequence) {
         return symbol + "-" + System.currentTimeMillis() + "-" + sequence;
     }
-}
 
+    /**
+     * 导出当前未完成挂单快照（用于重启恢复）
+     */
+    public synchronized List<Order> snapshotOpenOrders() {
+        List<Order> snapshot = new ArrayList<>(orderMap.size());
+        for (Order order : orderMap.values()) {
+            Order copy = new Order();
+            copy.setOrderId(order.getOrderId());
+            copy.setUserId(order.getUserId());
+            copy.setSymbol(order.getSymbol());
+            copy.setSide(order.getSide());
+            copy.setType(order.getType());
+            copy.setPriceScaled(order.getPriceScaled());
+            copy.setPrice(order.getPrice());
+            copy.setQuantity(order.getQuantity());
+            copy.setRemainingQuantity(order.getRemainingQuantity());
+            copy.setFilledQuantity(order.getFilledQuantity());
+            copy.setSequence(order.getSequence());
+            copy.setCreateTimeNano(order.getCreateTimeNano());
+            snapshot.add(copy);
+        }
+        snapshot.sort(Comparator.comparing(Order::getCreateTimeNano, Comparator.nullsLast(Long::compareTo)));
+        return snapshot;
+    }
+
+    /**
+     * 使用快照恢复订单簿（会清空当前内存态）
+     */
+    public synchronized void restoreOpenOrders(List<Order> orders) {
+        clearOrderBook();
+        if (orders == null || orders.isEmpty()) {
+            return;
+        }
+        for (Order order : orders) {
+            if (order == null || order.getOrderId() == null || order.getPrice() == null
+                || order.getRemainingQuantity() == null || order.getRemainingQuantity().compareTo(BigDecimal.ZERO) <= 0) {
+                continue;
+            }
+            if (order.getPriceScaled() == null) {
+                order.setPriceScaled(scalePrice(order.getPrice()));
+            }
+            addToOrderBook(order);
+        }
+    }
+
+    /**
+     * 清空订单簿（恢复前使用）
+     */
+    public synchronized void clearOrderBook() {
+        bidBook.clear();
+        askBook.clear();
+        orderMap.clear();
+        bestBidPrice = 0L;
+        bestAskPrice = Long.MAX_VALUE;
+    }
+}

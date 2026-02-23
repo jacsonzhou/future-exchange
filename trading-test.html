@@ -557,8 +557,8 @@
                     <div class="card">
                         <div class="card-title">📝 下单交易</div>
                         <div class="trade-tabs">
-                            <button class="trade-tab buy active" onclick="switchTradeSide('BUY')">买入/做多</button>
-                            <button class="trade-tab sell" onclick="switchTradeSide('SELL')">卖出/做空</button>
+                            <button class="trade-tab buy active" onclick="switchTradeSide('BUY', this)">买入/做多</button>
+                            <button class="trade-tab sell" onclick="switchTradeSide('SELL', this)">卖出/做空</button>
                         </div>
                         
                         <div class="form-group">
@@ -584,7 +584,7 @@
                         
                         <div class="form-group">
                             <label>数量 (BTC)</label>
-                            <input type="number" id="quantity" placeholder="输入数量" step="0.001">
+                            <input type="number" id="quantity" placeholder="输入数量" step="0.01">
                         </div>
                         
                         <div class="form-group">
@@ -643,6 +643,15 @@
             currentBottomTab: 'orders',  // orders | positions
             currentOrderFilter: 'active' // active | history
         };
+
+        let positionRefreshTimer = null;
+
+        // 清理历史残留的无效 token（例如字符串 "undefined"/"null"）
+        state.token = normalizeToken(state.token);
+        if (!isLikelyJwt(state.token)) {
+            state.token = null;
+            localStorage.removeItem('token');
+        }
         
         // ==================== 缓存数据 ====================
         let orderCache = new Map();      // orderId -> order
@@ -679,6 +688,21 @@
         });
 
         // ==================== 认证相关 ====================
+        function normalizeToken(rawToken) {
+            if (rawToken === undefined || rawToken === null) return null;
+            let token = String(rawToken).trim();
+            if (!token || token === 'undefined' || token === 'null') return null;
+            if (token.startsWith('Bearer ')) {
+                token = token.substring(7).trim();
+            }
+            return token || null;
+        }
+
+        function isLikelyJwt(token) {
+            if (!token || typeof token !== 'string') return false;
+            return /^[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/.test(token);
+        }
+
         function switchTab(tab) {
             document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
             event.target.classList.add('active');
@@ -742,8 +766,18 @@
                 if (data.code === 0 || data.code === 200) {
                     alert('注册成功！初始资金: 100,000 USDT');
                     const userData = data.data || data;
-                    saveAuth(userData);
-                    showMainApp();
+                    if (isLikelyJwt(normalizeToken(userData.token))) {
+                        saveAuth(userData);
+                        showMainApp();
+                    } else {
+                        localStorage.removeItem('token');
+                        state.token = null;
+                        state.isAuthenticated = false;
+                        document.getElementById('loginUsername').value = username;
+                        document.getElementById('loginPassword').value = password;
+                        document.getElementById('loginForm').classList.remove('hidden');
+                        document.getElementById('registerForm').classList.add('hidden');
+                    }
                 } else {
                     alert(data.message || '注册失败');
                 }
@@ -753,16 +787,25 @@
         }
 
         function saveAuth(data) {
-            state.token = data.token;
+            const token = normalizeToken(data.token);
+            state.token = isLikelyJwt(token) ? token : null;
             state.userId = data.userId || data.id;
             state.username = data.username;
-            state.isAuthenticated = true;
-            
-            localStorage.setItem('token', state.token);
+            state.isAuthenticated = Boolean(state.token && state.userId);
+
+            if (state.token) {
+                localStorage.setItem('token', state.token);
+            } else {
+                localStorage.removeItem('token');
+            }
             localStorage.setItem('userId', state.userId);
             localStorage.setItem('username', state.username);
             
-            log('success', `登录成功，用户: ${state.username}, ID: ${state.userId}`);
+            if (state.token) {
+                log('success', `登录成功，用户: ${state.username}, ID: ${state.userId}`);
+            } else {
+                log('warn', `用户信息已保存但未获取有效Token，用户: ${state.username}, ID: ${state.userId}`);
+            }
         }
 
         function logout() {
@@ -808,6 +851,22 @@
                 loadOrders('active');
             }, 1000);
         }
+
+        function triggerPositionRefresh(reason) {
+            log('info', `触发持仓刷新: ${reason}`);
+            if (positionRefreshTimer) {
+                clearTimeout(positionRefreshTimer);
+                positionRefreshTimer = null;
+            }
+
+            // 成交后分层重试，覆盖账本/持仓异步链路延迟
+            const delays = [200, 800, 1500];
+            delays.forEach((delay) => {
+                setTimeout(() => {
+                    loadPositions();
+                }, delay);
+            });
+        }
         
         // ==================== 盘口数据 ====================
         // 从 WebSocket 接收的深度数据
@@ -829,15 +888,14 @@
             try {
                 const symbol = document.getElementById('symbol').value || 'BTCUSDT';
                 log('info', '初始加载盘口数据（HTTP）...');
-                const res = await fetch(`${CONFIG.API_GATEWAY}/api/v1/match/orderbook/depth/${symbol}?depth=20`);
-                
-                if (res.ok) {
-                    const data = await res.json();
+                const data = await fetchDepthSnapshot(symbol);
+
+                if (data) {
                     currentOrderBook = data;
                     updateOrderBookDisplay(data);
                     log('success', '盘口数据初始加载成功，等待 WebSocket 推送...');
                 } else {
-                    log('warn', '盘口数据查询失败: ' + res.status);
+                    log('warn', '盘口数据查询失败');
                 }
             } catch (err) {
                 log('error', '盘口查询异常: ' + err.message);
@@ -874,23 +932,29 @@
                 let asksHtml = '';
                 asks.forEach((item) => {
                     // 支持数组格式 [price, qty] 或对象格式
-                    const price = Array.isArray(item) ? item[0] : (item.price || item[0]);
-                    const qty = Array.isArray(item) ? item[1] : (item.qty || item[1]);
+                    const price = Array.isArray(item)
+                        ? item[0]
+                        : (item.price ?? item.p ?? item.askPrice ?? item.offerPrice);
+                    const qty = Array.isArray(item)
+                        ? item[1]
+                        : (item.qty ?? item.q ?? item.quantity ?? item.size ?? item.volume ?? item.askQty);
                     
-                    // 转换为数字（深度数据已经是格式化字符串，直接 parseFloat 即可）
-                    const priceNum = parseFloat(price);
-                    const qtyNum = parseFloat(qty);
+                    const priceNum = normalizePriceNumber(price);
+                    const qtyNum = normalizeQtyNumber(qty);
                     
                     if (isNaN(priceNum) || isNaN(qtyNum)) {
                         log('warn', `无效的深度数据: price=${price}, qty=${qty}`);
                         return;
                     }
+                    const displayPrice = Number(priceNum.toFixed(2));
+                    const displayQty = Number(qtyNum.toFixed(2));
+                    const displayTotal = Number((displayPrice * displayQty).toFixed(2));
                     
                     asksHtml += `
                         <div class="orderbook-row orderbook-ask">
-                            <span class="orderbook-price">${formatPrice(priceNum)}</span>
-                            <span class="orderbook-qty">${formatQty(qtyNum)}</span>
-                            <span class="orderbook-total">${(priceNum * qtyNum).toFixed(2)}</span>
+                            <span class="orderbook-price">${displayPrice.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+                            <span class="orderbook-qty">${displayQty.toFixed(2)}</span>
+                            <span class="orderbook-total">${displayTotal.toFixed(2)}</span>
                         </div>
                     `;
                 });
@@ -905,23 +969,29 @@
                 let bidsHtml = '';
                 bids.forEach((item) => {
                     // 支持数组格式 [price, qty] 或对象格式
-                    const price = Array.isArray(item) ? item[0] : (item.price || item[0]);
-                    const qty = Array.isArray(item) ? item[1] : (item.qty || item[1]);
+                    const price = Array.isArray(item)
+                        ? item[0]
+                        : (item.price ?? item.p ?? item.bidPrice);
+                    const qty = Array.isArray(item)
+                        ? item[1]
+                        : (item.qty ?? item.q ?? item.quantity ?? item.size ?? item.volume ?? item.bidQty);
                     
-                    // 转换为数字（深度数据已经是格式化字符串，直接 parseFloat 即可）
-                    const priceNum = parseFloat(price);
-                    const qtyNum = parseFloat(qty);
+                    const priceNum = normalizePriceNumber(price);
+                    const qtyNum = normalizeQtyNumber(qty);
                     
                     if (isNaN(priceNum) || isNaN(qtyNum)) {
                         log('warn', `无效的深度数据: price=${price}, qty=${qty}`);
                         return;
                     }
+                    const displayPrice = Number(priceNum.toFixed(2));
+                    const displayQty = Number(qtyNum.toFixed(2));
+                    const displayTotal = Number((displayPrice * displayQty).toFixed(2));
                     
                     bidsHtml += `
                         <div class="orderbook-row orderbook-bid">
-                            <span class="orderbook-price">${formatPrice(priceNum)}</span>
-                            <span class="orderbook-qty">${formatQty(qtyNum)}</span>
-                            <span class="orderbook-total">${(priceNum * qtyNum).toFixed(2)}</span>
+                            <span class="orderbook-price">${displayPrice.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+                            <span class="orderbook-qty">${displayQty.toFixed(2)}</span>
+                            <span class="orderbook-total">${displayTotal.toFixed(2)}</span>
                         </div>
                     `;
                 });
@@ -932,10 +1002,14 @@
             
             // 价差计算（数据已从WebSocket接收，已是格式化后的价格）
             if (data.asks && data.bids && data.asks[0] && data.bids[0]) {
-                const bestAsk = parseFloat(data.asks[0][0]);
-                const bestBid = parseFloat(data.bids[0][0]);
-                const spread = bestAsk - bestBid;
-                document.getElementById('orderbookSpread').textContent = `价差: ${spread.toFixed(2)} USDT`;
+                const ask = Array.isArray(data.asks[0]) ? data.asks[0][0] : data.asks[0]?.price;
+                const bid = Array.isArray(data.bids[0]) ? data.bids[0][0] : data.bids[0]?.price;
+                const bestAsk = normalizePriceNumber(ask);
+                const bestBid = normalizePriceNumber(bid);
+                if (isFinite(bestAsk) && isFinite(bestBid)) {
+                    const spread = bestAsk - bestBid;
+                    document.getElementById('orderbookSpread').textContent = `价差: ${spread.toFixed(2)} USDT`;
+                }
             }
         }
 
@@ -946,10 +1020,9 @@
             // 方法1: 从 HTTP 接口获取
             try {
                 const symbol = document.getElementById('symbol').value || 'BTCUSDT';
-                const res = await fetch(`${CONFIG.API_GATEWAY}/api/v1/match/orderbook/depth/${symbol}?depth=20`);
-                
-                if (res.ok) {
-                    const data = await res.json();
+                const data = await fetchDepthSnapshot(symbol);
+
+                if (data) {
                     log('info', `📥 HTTP 盘口数据: bids=${data.bids?.length}, asks=${data.asks?.length}`);
                     
                     wsOrderBookData = {
@@ -974,6 +1047,38 @@
             } else {
                 log('warn', '⚠️ 无数据可刷新');
             }
+        }
+
+        // 优先使用 market-price-core，兼容网关旧路由
+        async function fetchDepthSnapshot(symbol) {
+            // 1) market-price-core: /api/v1/depth?symbol=BTCUSDT&limit=20
+            try {
+                const res = await fetch(`${CONFIG.MARKET_PRICE_API}/api/v1/depth?symbol=${encodeURIComponent(symbol)}&limit=20`);
+                if (res.ok) {
+                    const payload = await res.json();
+                    const data = payload.data || payload;
+                    return {
+                        bids: data.bids || [],
+                        asks: data.asks || [],
+                        timestamp: data.messageOutputTime || Date.now()
+                    };
+                }
+            } catch (_) {}
+
+            // 2) gateway fallback: /api/v1/match/orderbook/depth/{symbol}?depth=20
+            try {
+                const res = await fetch(`${CONFIG.API_GATEWAY}/api/v1/match/orderbook/depth/${symbol}?depth=20`);
+                if (res.ok) {
+                    const data = await res.json();
+                    return {
+                        bids: data.bids || [],
+                        asks: data.asks || [],
+                        timestamp: data.timestamp || Date.now()
+                    };
+                }
+            } catch (_) {}
+
+            return null;
         }
         
         function resubscribeDepth() {
@@ -1062,10 +1167,15 @@
         }
 
         // ==================== 交易相关 ====================
-        function switchTradeSide(side) {
+        function switchTradeSide(side, tabEl) {
             state.tradeSide = side;
             document.querySelectorAll('.trade-tab').forEach(t => t.classList.remove('active'));
-            event.target.classList.add('active');
+            if (tabEl) {
+                tabEl.classList.add('active');
+            } else {
+                const fallback = document.querySelector(`.trade-tab.${side === 'BUY' ? 'buy' : 'sell'}`);
+                if (fallback) fallback.classList.add('active');
+            }
             
             const btn = document.getElementById('submitOrderBtn');
             btn.textContent = side === 'BUY' ? '买入下单' : '卖出下单';
@@ -1075,19 +1185,22 @@
         async function submitOrder() {
             const symbol = document.getElementById('symbol').value;
             const orderType = document.getElementById('orderType').value;
-            const price = parseFloat(document.getElementById('price').value);
-            const quantity = parseFloat(document.getElementById('quantity').value);
+            const rawPrice = parseFloat(document.getElementById('price').value);
+            const rawQuantity = parseFloat(document.getElementById('quantity').value);
             const leverage = parseInt(document.getElementById('leverage').value);
             
-            if (!quantity || quantity <= 0) {
+            if (!rawQuantity || rawQuantity <= 0) {
                 alert('请输入有效数量');
                 return;
             }
             
-            if (orderType === 'LIMIT' && (!price || price <= 0)) {
+            if (orderType === 'LIMIT' && (!rawPrice || rawPrice <= 0)) {
                 alert('限价单请输入有效价格');
                 return;
             }
+
+            const price = orderType === 'MARKET' ? 0 : Number(rawPrice.toFixed(2));
+            const quantity = Number(rawQuantity.toFixed(2));
 
             // 转换为系统内部精度 (8位小数)
             const priceInt = orderType === 'MARKET' ? 0 : Math.round(price * 100000000);
@@ -1105,6 +1218,8 @@
             };
 
             try {
+                const btnText = document.getElementById('submitOrderBtn')?.textContent || '';
+                log('info', `下单方向确认: side=${state.tradeSide}, 按钮=${btnText}`);
                 log('info', `提交订单: ${state.tradeSide} ${symbol} ${orderType} 价格:${price} 数量:${quantity}`);
                 
                 // 使用 API Gateway 路由路径 /api/order/create
@@ -1117,10 +1232,19 @@
                     },
                     body: JSON.stringify(request)
                 });
-                
-                const data = await res.json();
-                if (data.success || data.code === 0 || data.code === 200) {
-                    const orderId = data.orderId || data.data?.orderId;
+
+                const data = await res.json().catch(() => ({}));
+                const apiCode = Number(data.code ?? data.status ?? data.data?.code);
+                const success = res.ok && (
+                    data.success === true ||
+                    apiCode === 0 ||
+                    apiCode === 200 ||
+                    data.code === "SUCCESS" ||
+                    data.status === "OK"
+                );
+
+                if (success) {
+                    const orderId = data.orderId || data.data?.orderId || data.data?.id;
                     log('success', `订单提交成功: ${orderId}`);
                     
                     // 跟踪用户挂单（用于K线显示）
@@ -1141,8 +1265,9 @@
                     refreshBalance();
                     // 盘口数据会通过 WebSocket 自动更新，无需手动刷新
                 } else {
-                    log('error', `订单提交失败: ${data.message || data.errorMsg}`);
-                    alert('订单提交失败: ' + (data.message || data.errorMsg));
+                    const errMsg = data.message || data.errorMsg || data.msg || data.data?.message || `HTTP ${res.status}`;
+                    log('error', `订单提交失败: ${errMsg}`);
+                    alert('订单提交失败: ' + errMsg);
                 }
             } catch (err) {
                 log('error', '下单异常: ' + err.message);
@@ -1203,9 +1328,11 @@
 
         function connectPrivateWS() {
             // 检查 token 是否存在
-            if (!state.token) {
+            if (!isLikelyJwt(state.token)) {
                 log('warn', '未登录，跳过私有推送连接');
                 updateWsStatus('private', 'disconnected');
+                localStorage.removeItem('token');
+                state.token = null;
                 return;
             }
             
@@ -1216,7 +1343,7 @@
             
             try {
                 // 通过 query 参数传递 token
-                const wsUrl = `${CONFIG.PRIVATE_PUSH_WS}?token=${state.token}`;
+                const wsUrl = `${CONFIG.PRIVATE_PUSH_WS}?token=${encodeURIComponent(state.token)}`;
                 log('info', `WebSocket URL: ${wsUrl.replace(state.token, '***')}`);
                 state.privateWs = new WebSocket(wsUrl);
                 
@@ -1281,6 +1408,11 @@
             if (msg.pong) {
                 return;
             }
+            // 服务端心跳（避免 public-push-core 判定 zombie 断连）
+            if (msg.ping && state.publicWs && state.publicWs.readyState === WebSocket.OPEN) {
+                state.publicWs.send(JSON.stringify({ pong: msg.ping }));
+                return;
+            }
             
             // 处理批量消息格式（batch: true）
             if (msg.batch === true && Array.isArray(msg.messages)) {
@@ -1324,6 +1456,16 @@
                     lastOrderBookUpdate = Date.now();
                     currentOrderBook = wsOrderBookData;
                     updateOrderBookDisplay(wsOrderBookData);
+                } else if (channel && (channel.includes('trade') || channel.includes('TRADE'))) {
+                    log('success', '收到成交快照数据');
+                    const tradeSnapshot = msg.data || msg;
+                    if (Array.isArray(tradeSnapshot)) {
+                        updateTrades(tradeSnapshot);
+                    } else if (Array.isArray(tradeSnapshot.trades)) {
+                        updateTrades(tradeSnapshot.trades);
+                    } else {
+                        updateTrades(tradeSnapshot);
+                    }
                 }
                 return;
             }
@@ -1382,7 +1524,10 @@
                     return [item[0], item[1]];
                 }
                 if (typeof item === 'object' && item !== null) {
-                    return [item.price || item.p, item.qty || item.q || item.quantity];
+                    return [
+                        item.price ?? item.p ?? item.askPrice ?? item.bidPrice,
+                        item.qty ?? item.q ?? item.quantity ?? item.size ?? item.volume ?? item.askQty ?? item.bidQty
+                    ];
                 }
                 return item;
             };
@@ -1401,10 +1546,14 @@
             
             // 调试信息
             if (bids.length > 0) {
-                log('debug', `买一: price=${bids[0][0]}, qty=${bids[0][1]}`);
+                const bPrice = normalizePriceNumber(bids[0][0]);
+                const bQty = normalizeQtyNumber(bids[0][1]);
+                log('debug', `买一: rawPrice=${bids[0][0]}, rawQty=${bids[0][1]}, normPrice=${bPrice}, normQty=${bQty}`);
             }
             if (asks.length > 0) {
-                log('debug', `卖一: price=${asks[0][0]}, qty=${asks[0][1]}`);
+                const aPrice = normalizePriceNumber(asks[0][0]);
+                const aQty = normalizeQtyNumber(asks[0][1]);
+                log('debug', `卖一: rawPrice=${asks[0][0]}, rawQty=${asks[0][1]}, normPrice=${aPrice}, normQty=${aQty}`);
             }
             
             updateOrderBookDisplay(wsOrderBookData);
@@ -1412,6 +1561,12 @@
         }
 
         function handlePrivateMessage(msg) {
+            // ACK 消息序号，避免服务端重复重发同一执行报告
+            const seq = msg.seq ?? msg.data?.seq;
+            if (seq !== undefined && seq !== null) {
+                sendPrivateAck(seq);
+            }
+
             // 连接确认
             if (msg.e === 'connectionAck') {
                 log('success', `私有连接确认, userId: ${msg.userId}`);
@@ -1453,24 +1608,30 @@
             log('info', '私有消息: ' + JSON.stringify(msg).substring(0, 100));
         }
 
+        function sendPrivateAck(seq) {
+            if (!state.privateWs || state.privateWs.readyState !== WebSocket.OPEN) {
+                return;
+            }
+            state.privateWs.send(JSON.stringify({
+                method: 'ACK',
+                seq: seq
+            }));
+        }
+
         // ==================== 数据更新 ====================
         // 成交数据专用格式化函数（数据来自 Kafka，是内部 long 格式）
         function formatTradePrice(price) {
             if (price === null || price === undefined) return '0.00';
-            let num = typeof price === 'string' ? parseFloat(price) : price;
-            if (isNaN(num)) return '0.00';
-            // 成交数据一定是内部 long 格式，需要除以 10^8
-            num = num / 100000000;
+            const num = normalizePriceNumber(price);
+            if (!isFinite(num)) return '0.00';
             return num.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
         }
         
         function formatTradeQty(qty) {
-            if (qty === null || qty === undefined) return '0.0000';
-            let num = typeof qty === 'string' ? parseFloat(qty) : qty;
-            if (isNaN(num)) return '0.0000';
-            // 成交数据一定是内部 long 格式，需要除以 10^8
-            num = num / 100000000;
-            return num.toFixed(4);
+            if (qty === null || qty === undefined) return '0.00';
+            const num = normalizeQtyNumber(qty);
+            if (!isFinite(num)) return '0.00';
+            return num.toFixed(2);
         }
 
         function updateTrades(data) {
@@ -1571,10 +1732,12 @@
             
             // 价差计算（数据已从WebSocket接收，已是格式化后的价格）
             if (data.asks && data.bids && data.asks[0] && data.bids[0]) {
-                const bestAsk = parseFloat(data.asks[0][0]);
-                const bestBid = parseFloat(data.bids[0][0]);
-                const spread = bestAsk - bestBid;
-                document.getElementById('orderbookSpread').textContent = `价差: ${spread.toFixed(2)} USDT`;
+                const bestAsk = normalizePriceNumber(data.asks[0][0]);
+                const bestBid = normalizePriceNumber(data.bids[0][0]);
+                if (isFinite(bestAsk) && isFinite(bestBid)) {
+                    const spread = bestAsk - bestBid;
+                    document.getElementById('orderbookSpread').textContent = `价差: ${spread.toFixed(2)} USDT`;
+                }
             }
         }
 
@@ -1627,7 +1790,7 @@
             
             try {
                 const symbol = document.getElementById('symbol').value || 'BTCUSDT';
-                let url = `${CONFIG.API_GATEWAY}/api/v1/oms/order/list?limit=50`;
+                let url = `${CONFIG.API_GATEWAY}/api/v1/oms/order/list?limit=50&symbol=${encodeURIComponent(symbol)}`;
                 
                 if (filter === 'active') {
                     url += '&status=NEW,PENDING_RISK,FROZEN,PARTIALLY_FILLED';
@@ -1635,13 +1798,24 @@
                     url += '&status=FILLED,CANCELED,REJECTED';
                 }
                 
-                const res = await fetch(url, {
-                    headers: { 'Authorization': `Bearer ${state.token}` }
-                });
+                const headers = {
+                    'Authorization': `Bearer ${state.token}`,
+                    'X-User-Id': String(state.userId),
+                    'X-Trace-Id': `web_trace_${Date.now()}`,
+                    'X-Request-Id': `web_req_${Date.now()}`
+                };
+
+                let res = await fetch(url, { headers });
+                if (!res.ok && (res.status === 404 || res.status === 405)) {
+                    const fallbackUrl = url.replace('/api/v1/oms/order/list', '/api/order/list');
+                    log('warn', `订单列表主路由不可用，尝试回退: ${fallbackUrl}`);
+                    res = await fetch(fallbackUrl, { headers });
+                }
                 
                 if (res.ok) {
                     const data = await res.json();
-                    const orders = data.orders || [];
+                    const orders = data.orders || data.data?.orders || data.data || [];
+                    log('info', `订单列表返回: userId=${state.userId}, count=${orders.length}, code=${data.code ?? 'N/A'}`);
                     
                     // 更新缓存
                     orders.forEach(order => {
@@ -1650,6 +1824,7 @@
                     
                     renderOrders(orders, filter);
                 } else {
+                    log('error', `订单列表请求失败: status=${res.status}, url=${url}`);
                     container.innerHTML = `<div style="text-align:center;color:#f85149;padding:30px;">加载失败</div>`;
                 }
             } catch (err) {
@@ -1756,22 +1931,22 @@
             summaryEl.textContent = '--';
             
             try {
-                const res = await fetch(`${CONFIG.API_GATEWAY}/api/v1/position/list?userId=${state.userId}`, {
-                    headers: { 'Authorization': `Bearer ${state.token}` }
-                });
+                const res = await fetchPositionList(state.userId);
                 
                 if (res.ok) {
                     const data = await res.json();
-                    const positions = data.positions || [];
+                    const positions = data.positions || data.data?.positions || data.data || [];
                     
                     // 更新缓存
                     positionCache.clear();
                     positions.forEach(pos => {
-                        positionCache.set(pos.symbol, pos);
+                        const side = (pos.side || (String(pos.positionSide) === '1' ? 'LONG' : 'SHORT'));
+                        const key = `${pos.symbol || 'UNKNOWN'}:${side}`;
+                        positionCache.set(key, pos);
                     });
                     
                     // 更新总盈亏
-                    const totalPnl = parseFloat(data.totalUnrealizedPnl || 0);
+                    const totalPnl = parseFloat(data.totalUnrealizedPnl || data.data?.totalUnrealizedPnl || 0);
                     summaryEl.textContent = (totalPnl >= 0 ? '+' : '') + formatMoneyDirect(totalPnl).replace(' USDT', '');
                     summaryEl.style.color = totalPnl >= 0 ? '#3fb950' : '#f85149';
                     
@@ -1783,6 +1958,43 @@
                 log('error', '加载持仓失败: ' + err.message);
                 container.innerHTML = `<div style="text-align:center;color:#f85149;padding:30px;">加载失败: ${err.message}</div>`;
             }
+        }
+
+        async function fetchPositionList(userId) {
+            const candidates = [
+                `${CONFIG.API_GATEWAY}/api/v1/position/list?userId=${userId}`,
+                `http://localhost:8082/api/v1/position/list?userId=${userId}`,
+                `http://localhost:8086/api/v1/position/list?userId=${userId}`
+            ];
+
+            const headers = {};
+            if (state.token) {
+                headers['Authorization'] = `Bearer ${state.token}`;
+            }
+
+            let lastRes = null;
+            for (const url of candidates) {
+                try {
+                    const res = await fetch(url, { headers });
+                    if (res.ok) {
+                        return res;
+                    }
+                    // 404 常见于打到错误端口或网关缺路由，继续回退
+                    if (res.status === 404) {
+                        log('warn', `持仓接口 404，尝试回退: ${url}`);
+                        lastRes = res;
+                        continue;
+                    }
+                    lastRes = res;
+                } catch (err) {
+                    log('warn', `持仓接口请求失败，尝试回退: ${url}, err=${err.message}`);
+                }
+            }
+
+            if (lastRes) {
+                return lastRes;
+            }
+            throw new Error('All position endpoints unavailable');
         }
         
         function renderPositions(positions) {
@@ -1800,14 +2012,18 @@
             
             let html = '';
             positions.forEach(pos => {
-                const pnlClass = pos.unrealizedPnl >= 0 ? 'pnl-positive' : 'pnl-negative';
-                const pnlSign = pos.unrealizedPnl >= 0 ? '+' : '';
+                const side = (pos.side || (String(pos.positionSide) === '1' ? 'LONG' : 'SHORT')).toUpperCase();
+                const pnl = Number(pos.unrealizedPnl || 0);
+                const pnlClass = pnl >= 0 ? 'pnl-positive' : 'pnl-negative';
+                const pnlSign = pnl >= 0 ? '+' : '';
+                const leverage = pos.leverage || '--';
+                const marginRatioNum = Number(pos.marginRatio || 0);
                 
                 html += `
                     <div class="position-card">
                         <div class="position-header">
                             <span class="position-symbol">${pos.symbol}</span>
-                            <span class="position-side ${pos.side.toLowerCase()}">${pos.side === 'LONG' ? '做多' : '做空'} ${pos.leverage}x</span>
+                            <span class="position-side ${side.toLowerCase()}">${side === 'LONG' ? '做多' : '做空'} ${leverage}x</span>
                         </div>
                         <div class="position-details">
                             <div class="position-detail-item">
@@ -1832,7 +2048,7 @@
                             </div>
                             <div class="position-detail-item">
                                 <span class="position-detail-label">保证金率</span>
-                                <span class="position-detail-value">${(parseFloat(pos.marginRatio) * 100).toFixed(2)}%</span>
+                                <span class="position-detail-value">${(marginRatioNum * 100).toFixed(2)}%</span>
                             </div>
                         </div>
                     </div>
@@ -1844,29 +2060,41 @@
         
         // ==================== WebSocket 消息处理增强 ====================
         function handleExecutionReport(msg) {
-            log('info', `📨 订单执行报告: orderId=${msg.i}, status=${msg.X}, filled=${msg.z}/${msg.q}`);
+            const orderId = String(msg.i ?? msg.orderId ?? '');
+            const statusRaw = msg.X ?? msg.x ?? msg.status ?? 'UNKNOWN';
+            const status = String(statusRaw).toUpperCase();
+            const execTypeRaw = msg.x ?? msg.executionType ?? msg.eventType ?? '';
+            const execType = String(execTypeRaw).toUpperCase();
+            const filledQuantity = msg.z ?? msg.Z ?? msg.cumQty ?? msg.filledQuantity ?? '0';
+            const lastFilledQty = msg.l ?? msg.lastFilledQty ?? msg.tradeQty ?? '0';
+            const quantity = msg.q ?? msg.Q ?? msg.origQty ?? msg.quantity ?? '0';
+            const symbol = msg.s ?? msg.S ?? msg.symbol ?? '';
+            const side = msg.side ?? msg.SIDE ?? msg.S ?? '';
+            const price = msg.p ?? msg.P ?? msg.price ?? '';
+            const createTime = msg.T ?? msg.E ?? Date.now();
+
+            log('info', `📨 订单执行报告: orderId=${orderId}, status=${status}, filled=${filledQuantity}/${quantity}`);
             
             // 更新订单缓存
-            const orderId = String(msg.i);
             const existingOrder = orderCache.get(orderId);
             
             if (existingOrder) {
-                existingOrder.status = msg.X;
-                existingOrder.filledQuantity = msg.z; // 累计已成交
-                log('info', `📝 更新订单缓存: ${orderId} -> ${msg.X}`);
+                existingOrder.status = status;
+                existingOrder.filledQuantity = filledQuantity; // 累计已成交
+                log('info', `📝 更新订单缓存: ${orderId} -> ${status}`);
             } else {
                 // 新订单，添加到缓存
                 orderCache.set(orderId, {
                     orderId: orderId,
-                    symbol: msg.s,
-                    side: msg.S,
-                    price: msg.p,
-                    quantity: msg.q,
-                    filledQuantity: msg.z,
-                    status: msg.X,
-                    createTime: msg.T
+                    symbol: symbol,
+                    side: side,
+                    price: price,
+                    quantity: quantity,
+                    filledQuantity: filledQuantity,
+                    status: status,
+                    createTime: createTime
                 });
-                log('info', `📝 新增订单缓存: ${orderId} -> ${msg.X}`);
+                log('info', `📝 新增订单缓存: ${orderId} -> ${status}`);
             }
             
             // 🔥 修复：收到成交报告后，强制刷新订单列表（无论当前在哪个Tab）
@@ -1876,24 +2104,31 @@
                 loadOrders(state.currentOrderFilter);
                 
                 // 如果订单已成交或撤销，同时刷新另一个Tab（可能订单状态已变更）
-                if (msg.X === 'FILLED' || msg.X === 'CANCELED' || msg.X === 'REJECTED') {
+                if (status === 'FILLED' || status === 'CANCELED' || status === 'REJECTED') {
                     // 延迟刷新，确保后端数据已更新
                     setTimeout(() => {
-                        log('info', `🔄 订单${msg.X}，重新加载当前Tab`);
+                        log('info', `🔄 订单${status}，重新加载当前Tab`);
                         loadOrders(state.currentOrderFilter);
                     }, 300);
                 }
             }
             
             // 如果完全成交或撤销，刷新余额和持仓
-            if (msg.X === 'FILLED' || msg.X === 'CANCELED') {
+            if (status === 'FILLED' || status === 'CANCELED') {
                 setTimeout(() => {
                     refreshBalance();
                     // 刷新持仓（成交后持仓会变化）
-                    if (msg.X === 'FILLED') {
-                        loadPositions();
+                    if (status === 'FILLED') {
+                        triggerPositionRefresh(`order ${orderId} FILLED`);
                     }
                 }, 500);
+            }
+
+            const hasTradeDelta = Number(lastFilledQty) > 0;
+            const isTradeExec = execType === 'TRADE' || execType === 'FILLED' || execType === 'PARTIALLY_FILLED';
+            const isTradeStatus = status === 'FILLED' || status === 'PARTIALLY_FILLED';
+            if (hasTradeDelta || isTradeExec || isTradeStatus) {
+                triggerPositionRefresh(`executionReport trade event: order=${orderId}, execType=${execType}, status=${status}`);
             }
         }
         
@@ -1913,9 +2148,7 @@
             });
             
             // 如果当前在持仓Tab，刷新显示
-            if (state.currentBottomTab === 'positions') {
-                loadPositions();
-            }
+            triggerPositionRefresh(`private position event: ${msg.s}`);
         }
         
         // ==================== K线图表挂单显示 ====================
@@ -2352,17 +2585,11 @@
                 return '市价';
             }
             
-            let num = typeof price === "string" ? parseFloat(price) : price;
+            let num = normalizePriceNumber(price);
             
             // 检查是否为无效数值
             if (isNaN(num) || num === 0) {
                 return orderType === 'MARKET' ? '市价' : '0.00';
-            }
-            
-            // 智能判断：如果数值 > 1亿 (100,000,000)，说明是内部 long 格式（如 5000000000000 表示 50000）
-            // 如果数值 <= 1亿，说明已经是格式化后的价格（如 50000.00）
-            if (num > 100000000) {
-                num = num / 100000000;
             }
             
             return num.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -2370,23 +2597,56 @@
 
         function formatQty(qty) {
             if (qty === null || qty === undefined || qty === '') {
-                return '0.0000';
+                return '0.00';
             }
             
-            let num = typeof qty === 'string' ? parseFloat(qty) : qty;
+            let num = normalizeQtyNumber(qty);
             
             // 检查是否为无效数值
             if (isNaN(num)) {
-                return '0.0000';
+                return '0.00';
             }
             
-            // 智能判断：如果数值 > 1亿 (100,000,000)，说明是内部 long 格式（如 10000000 表示 0.1）
-            // 如果数值 <= 1亿，说明已经是格式化后的数量（如 1.5000）
-            if (num > 100000000) {
-                num = num / 100000000;
+            return num.toFixed(2);
+        }
+
+        function normalizeRawNumber(value) {
+            if (value === null || value === undefined || value === '') {
+                return NaN;
             }
-            
-            return num.toFixed(4);
+            const raw = String(value).trim();
+            if (!raw) {
+                return NaN;
+            }
+            const num = Number(raw);
+            if (!Number.isFinite(num)) {
+                return NaN;
+            }
+            return num;
+        }
+
+        function normalizePriceNumber(value) {
+            const num = normalizeRawNumber(value);
+            if (!Number.isFinite(num)) {
+                return NaN;
+            }
+            // 价格的 8 位精度 long 一般远大于正常展示价格
+            if (Number.isInteger(num) && Math.abs(num) >= 100000000) {
+                return num / 100000000;
+            }
+            return num;
+        }
+
+        function normalizeQtyNumber(value) {
+            const num = normalizeRawNumber(value);
+            if (!Number.isFinite(num)) {
+                return NaN;
+            }
+            // 数量可能是混合格式；当值很大且为整数时按 8 位精度转换（兼容 80000000 -> 0.80）
+            if (Number.isInteger(num) && Math.abs(num) >= 1000000) {
+                return num / 100000000;
+            }
+            return num;
         }
 
         // 心跳

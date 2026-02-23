@@ -1,6 +1,8 @@
 package com.exchange.match.event;
 
 import com.exchange.match.model.Order;
+import com.fasterxml.jackson.annotation.JsonAlias;
+import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import lombok.Data;
 
 /**
@@ -9,6 +11,7 @@ import lombok.Data;
  * 来自OMS的订单事件
  */
 @Data
+@JsonIgnoreProperties(ignoreUnknown = true)
 public class OrderCommand {
     
     /**
@@ -44,6 +47,7 @@ public class OrderCommand {
     /**
      * 订单类型
      */
+    @JsonAlias({"type"})
     private String orderType; // LIMIT / MARKET
     
     /**
@@ -76,6 +80,5 @@ public class OrderCommand {
      */
     private String ext;
 }
-
 
 
