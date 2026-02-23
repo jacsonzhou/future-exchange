@@ -1,0 +1,167 @@
+server:
+  port: 8096
+
+spring:
+  application:
+    name: public-push-service
+
+  # WebSocket配置
+  websocket:
+    # 最大连接数
+    max-connections: 100000
+    # 心跳间隔(秒)
+    heartbeat-interval: 30
+    # 心跳超时(秒)
+    heartbeat-timeout: 5
+    # 消息大小限制(字节)
+    max-message-size: 65536
+    # 发送超时(毫秒)
+    send-timeout: 5000
+
+  # Redis配置
+  redis:
+    host: ${REDIS_HOST:localhost}
+    port: ${REDIS_PORT:6379}
+    password: ${REDIS_PASSWORD:}
+    database: 0
+    timeout: 2000ms
+    lettuce:
+      pool:
+        max-active: 100
+        max-idle: 50
+        min-idle: 10
+        max-wait: 1000ms
+
+  # Kafka配置
+  kafka:
+    bootstrap-servers: ${KAFKA_SERVERS:localhost:9092}
+    consumer:
+      group-id: ${spring.application.name}
+      auto-offset-reset: latest
+      enable-auto-commit: false
+      max-poll-records: 500
+      fetch-min-bytes: 1
+      fetch-max-wait-ms: 10
+      key-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+      value-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+    producer:
+      acks: 1
+      retries: 3
+      batch-size: 16384
+      linger-ms: 5
+      key-serializer: org.apache.kafka.common.serialization.StringSerializer
+      value-serializer: org.apache.kafka.common.serialization.StringSerializer
+
+# 公有推送服务配置
+public-push:
+  # WebSocket配置
+  websocket:
+    # 最大连接数(单节点)
+    max-connections: 100000
+    # 单IP最大连接数
+    max-connections-per-ip: 50
+    # 连接建立速率限制(每IP每分钟)
+    connection-rate-limit: 10
+    # 心跳间隔(毫秒)
+    heartbeat-interval-ms: 30000
+    # 心跳超时(毫秒)
+    heartbeat-timeout-ms: 5000
+    # 发送缓冲区大小
+    send-buffer-size: 32768
+    # 接收缓冲区大小
+    receive-buffer-size: 32768
+  
+  # 订阅配置
+  subscription:
+    # 单连接最大订阅数
+    max-subscriptions-per-session: 1024
+    # 订阅变更频率限制(每秒)
+    subscription-rate-limit: 10
+    # 是否启用自动订阅恢复
+    auto-resubscribe: true
+  
+  # 消息推送配置
+  push:
+    # 批量发送间隔(毫秒)
+    batch-interval-ms: 50
+    # 单批次最大消息数
+    batch-size: 100
+    # 批量发送队列大小
+    batch-queue-size: 10000
+    # 是否启用消息压缩
+    compression-enabled: false
+    # 压缩阈值(字节)
+    compression-threshold: 1024
+  
+  # 限流配置
+  rate-limit:
+    # 全局启用
+    enabled: true
+    # IP连接限流
+    ip-connection:
+      enabled: true
+      max-connections: 50
+      rate-per-minute: 10
+    # Session消息限流
+    session-message:
+      enabled: true
+      max-messages-per-second: 1000
+      max-messages-per-minute: 10000
+    # 频道限流
+    channel:
+      enabled: true
+      max-messages-per-second: 10000
+  
+  # Kafka消费配置
+  kafka:
+    # 消费者线程数
+    consumer-threads: 8
+    # 消费者批次大小
+    consumer-batch-size: 500
+    # 消费者拉取超时(毫秒)
+    poll-timeout-ms: 100
+    # 动态消费者配置
+    dynamic-consumer:
+      enabled: true
+      # 空闲消费者自动关闭时间(分钟)
+      idle-timeout-minutes: 5
+    # Topic配置（与market-price-core保持一致）
+    topics:
+      trade: "market.trade.{symbol}"
+      agg-trade: "market.aggtrade.{symbol}"
+      depth: "market.depth.{symbol}"
+      kline: "market.kline.{symbol}.{interval}"
+      ticker: "market.ticker.{symbol}"
+      ticker-all: "market.ticker.all"
+      mark-price: "market.markprice.{symbol}"
+      mark-price-all: "market.markprice.all"
+
+# 监控配置
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics,prometheus
+  endpoint:
+    health:
+      show-details: always
+    metrics:
+      enabled: true
+  metrics:
+    export:
+      prometheus:
+        enabled: true
+    tags:
+      application: ${spring.application.name}
+
+# 日志配置
+logging:
+  level:
+    com.exchange.push: INFO
+    org.apache.kafka: WARN
+    io.netty: WARN
+  pattern:
+    console: "%d{yyyy-MM-dd HH:mm:ss.SSS} [%thread] %-5level %logger{36} - %msg%n"
+  file:
+    name: logs/public-push.log
+    pattern: "%d{yyyy-MM-dd HH:mm:ss.SSS} [%thread] %-5level %logger{36} - %msg%n"

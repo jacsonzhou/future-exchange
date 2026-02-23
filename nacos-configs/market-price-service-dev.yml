@@ -1,0 +1,86 @@
+# ============================================
+# Market Price Core (行情生成服务) 配置 (dev环境)
+# 端口: 8095
+# ============================================
+
+server:
+  port: 8095
+
+spring:
+  application:
+    name: market-price-service
+
+  # 数据源配置
+  datasource:
+    url: jdbc:mysql://localhost:3306/exchange_market?useSSL=false&serverTimezone=UTC&allowPublicKeyRetrieval=true&characterEncoding=utf8mb4
+    username: root
+    password: ${MYSQL_PASSWORD:root}
+    driver-class-name: com.mysql.cj.jdbc.Driver
+    type: com.alibaba.druid.pool.DruidDataSource
+    druid:
+      initial-size: 10
+      min-idle: 10
+      max-active: 50
+      max-wait: 60000
+      validation-query: SELECT 1
+      test-while-idle: true
+
+  # MyBatis Plus配置
+  mybatis-plus:
+    configuration:
+      log-impl: org.apache.ibatis.logging.stdout.StdOutImpl
+    mapper-locations: classpath:mapper/*.xml
+    type-aliases-package: com.exchange.market.entity
+
+  # Kafka配置
+  kafka:
+    producer:
+      acks: 1
+      linger-ms: 0
+      retries: 3
+    consumer:
+      group-id: ${spring.application.name}
+      auto-offset-reset: latest
+      enable-auto-commit: false
+      fetch-min-bytes: 1
+      fetch-max-wait-ms: 0
+      max-poll-records: 500
+
+# 行情数据输出配置
+market-data:
+  kafka:
+    enabled: true
+  redis:
+    pubsub-enabled: true
+    snapshot-enabled: true
+
+# 行情服务配置
+market-price:
+  # K线配置
+  kline:
+    intervals: 1s,1m,5m,15m,30m,1h,2h,4h,6h,8h,12h,1d,3d,1w,1M
+    cache-size: 1000
+  # 深度配置
+  depth:
+    default-limit: 100
+    max-limit: 1000
+  # Ticker配置
+  ticker:
+    update-interval: 1000
+    window-size: 86400
+  # WebSocket配置
+  websocket:
+    max-connections: 100000
+    heartbeat-interval: 30
+
+# Kafka Topic配置
+kafka:
+  topic:
+    match-event: trade-event
+    depth-prefix: orderbook-delta-
+
+# Logging配置
+logging:
+  level:
+    com.exchange.market: INFO
+    org.apache.kafka: WARN

@@ -1,0 +1,126 @@
+package com.exchange.tpsl.service.impl;
+
+import com.exchange.tpsl.entity.TpSlOrder;
+import com.exchange.tpsl.mapper.TpSlOrderMapper;
+import com.exchange.tpsl.service.TpSlService;
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.stereotype.Service;
+
+import java.util.List;
+
+/**
+ * 止盈止损服务实现
+ */
+@Slf4j
+@Service
+public class TpSlServiceImpl implements TpSlService {
+    
+    @Autowired
+    private TpSlOrderMapper tpSlOrderMapper;
+    
+    @Override
+    public Long createTpSlOrder(TpSlOrder order) {
+        tpSlOrderMapper.insert(order);
+        return order.getOrderId();
+    }
+    
+    @Override
+    public boolean modifyTpSlOrder(Long orderId, Long newTriggerPrice, Long newQuantity) {
+        TpSlOrder order = tpSlOrderMapper.selectById(orderId);
+        if (order == null) {
+            return false;
+        }
+        if (newTriggerPrice != null) {
+            order.setTriggerPrice(newTriggerPrice);
+        }
+        if (newQuantity != null) {
+            order.setQuantity(newQuantity);
+        }
+        tpSlOrderMapper.updateById(order);
+        return true;
+    }
+    
+    @Override
+    public boolean cancelTpSlOrder(Long orderId) {
+        TpSlOrder order = tpSlOrderMapper.selectById(orderId);
+        if (order == null) {
+            return false;
+        }
+        order.setStatus("CANCELLED");
+        tpSlOrderMapper.updateById(order);
+        return true;
+    }
+    
+    @Override
+    public int cancelBatch(Long userId, String symbol, Long positionId) {
+        return 0;
+    }
+    
+    @Override
+    public List<TpSlOrder> getByPosition(Long positionId) {
+        return tpSlOrderMapper.selectByPositionId(positionId);
+    }
+    
+    @Override
+    public List<TpSlOrder> getByUser(Long userId, String symbol, String status) {
+        return tpSlOrderMapper.selectByUserAndSymbol(userId, symbol, status);
+    }
+    
+    @Override
+    public void checkAndTrigger(String symbol, Long markPrice) {
+        List<TpSlOrder> activeOrders = tpSlOrderMapper.selectActiveBySymbol(symbol);
+        
+        for (TpSlOrder order : activeOrders) {
+            try {
+                if (checkTriggerCondition(order, markPrice)) {
+                    triggerOrder(order, markPrice);
+                }
+            } catch (Exception e) {
+                log.error("Failed to check TP/SL order: {}", order.getOrderId(), e);
+            }
+        }
+    }
+    
+    @Override
+    public void cancelByPositionClose(Long positionId) {
+        List<TpSlOrder> orders = tpSlOrderMapper.selectActiveByPositionId(positionId);
+        for (TpSlOrder order : orders) {
+            order.setStatus("CANCELLED");
+            tpSlOrderMapper.updateById(order);
+        }
+    }
+    
+    @Override
+    public void updateTrailingStop(String symbol, Long markPrice) {
+        // 更新移动止损的触发价格
+    }
+    
+    /**
+     * 供MarkPriceConsumer调用
+     */
+    public void onMarkPrice(String symbol, Long markPrice) {
+        checkAndTrigger(symbol, markPrice);
+        updateTrailingStop(symbol, markPrice);
+    }
+    
+    private boolean checkTriggerCondition(TpSlOrder order, Long markPrice) {
+        Long triggerPrice = order.getTriggerPrice();
+        String orderType = order.getOrderType();
+        
+        if (orderType != null && orderType.startsWith("TP")) {
+            return markPrice >= triggerPrice;
+        } else {
+            return markPrice <= triggerPrice;
+        }
+    }
+    
+    private void triggerOrder(TpSlOrder order, Long markPrice) {
+        order.setStatus("TRIGGERED");
+        order.setTriggerTime(System.currentTimeMillis());
+        tpSlOrderMapper.updateById(order);
+        
+        log.info("TP/SL order triggered: orderId={}, symbol={}, price={}", 
+                order.getOrderId(), order.getSymbol(), markPrice);
+    }
+}

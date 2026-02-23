@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.exchange.ledger.mapper.LedgerEntryMapper">
+    
+    <!-- 批量插入 LedgerEntry -->
+    <insert id="batchInsert" parameterType="java.util.List">
+        INSERT INTO t_ledger_entry (
+            entry_id, user_id, account_type, currency,
+            debit, credit, balance_before, balance_after,
+            business_type, ref_trade_id, ref_order_id, ref_event_id,
+            pair_entry_id, biz_seq, idempotent_key, created_at
+        ) VALUES
+        <foreach collection="list" item="item" separator=",">
+            (
+                #{item.entryId},
+                #{item.userId},
+                #{item.accountType},
+                #{item.currency},
+                #{item.debit},
+                #{item.credit},
+                #{item.balanceBefore},
+                #{item.balanceAfter},
+                #{item.businessType},
+                #{item.refTradeId},
+                #{item.refOrderId},
+                #{item.refEventId},
+                #{item.pairEntryId},
+                #{item.bizSeq},
+                #{item.idempotentKey},
+                #{item.createdAt}
+            )
+        </foreach>
+    </insert>
+    
+</mapper>
+

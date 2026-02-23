@@ -1,0 +1,274 @@
+package com.exchange.gateway.controller;
+
+import com.exchange.common.proto.request.CancelOrderRequest;
+import com.exchange.common.proto.request.CreateOrderRequest;
+import com.exchange.common.proto.response.CreateOrderResponse;
+import com.exchange.gateway.audit.ApiAuditLogger;
+import com.exchange.gateway.client.OmsClient;
+import com.exchange.gateway.context.TraceContext;
+import com.exchange.gateway.model.UserContext;
+import jakarta.servlet.http.HttpServletRequest;
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.web.bind.annotation.*;
+
+/**
+ * 订单路由控制器
+ * 
+ * 职责：
+ * 1. 接收外部请求
+ * 2. 参数校验
+ * 3. 转发到OMS
+ * 4. 审计日志
+ * 
+ * 注意：
+ * - 不做业务决策
+ * - 不维护业务状态
+ * - 只负责路由转发
+ */
+@Slf4j
+@RestController
+@RequestMapping("/api/order")
+public class OrderController {
+    
+    @Autowired
+    private OmsClient omsClient;
+    
+    @Autowired
+    private ApiAuditLogger auditLogger;
+    
+    /**
+     * 创建订单
+     */
+    @PostMapping("/create")
+    public CreateOrderResponse createOrder(
+            @RequestBody CreateOrderRequest request,
+            @RequestAttribute(required = false) UserContext userContext,
+            HttpServletRequest httpRequest) {
+        
+        long startTime = System.currentTimeMillis();
+        
+        log.info("Create order request: userId={}, symbol={}, side={}, price={}, quantity={}, traceId={}", 
+            request.getUserId(), request.getSymbol(), request.getSide(), 
+            request.getPrice(), request.getQuantity(), TraceContext.getTraceId());
+        
+        CreateOrderResponse response;
+        
+        try {
+            // 1. 设置用户信息（从认证Filter传递）
+            if (userContext != null) {
+                request.setUserId(userContext.getUserId());
+            }
+            
+            // 2. 设置追踪信息
+            request.setTimestamp(System.currentTimeMillis());
+            
+            // 3. 参数校验
+            validateCreateOrderRequest(request);
+            
+            // 4. 调用OMS服务
+            response = omsClient.createOrder(request);
+            
+            log.info("Create order success: orderId={}, traceId={}", 
+                response.getOrderId(), TraceContext.getTraceId());
+            
+        } catch (IllegalArgumentException e) {
+            log.warn("Invalid create order request: {}, traceId={}", 
+                e.getMessage(), TraceContext.getTraceId());
+            response = CreateOrderResponse.fail("Invalid request: " + e.getMessage());
+            
+        } catch (Exception e) {
+            log.error("Create order failed: traceId=" + TraceContext.getTraceId(), e);
+            response = CreateOrderResponse.fail("Internal error: " + e.getMessage());
+        }
+        
+        // 5. 记录审计日志
+        recordAudit(httpRequest, request, response, startTime);
+        
+        return response;
+    }
+    
+    /**
+     * 撤销订单
+     */
+    @PostMapping("/cancel")
+    public CreateOrderResponse cancelOrder(
+            @RequestBody CancelOrderRequest request,
+            @RequestAttribute(required = false) UserContext userContext,
+            HttpServletRequest httpRequest) {
+        
+        long startTime = System.currentTimeMillis();
+        
+        log.info("Cancel order request: userId={}, orderId={}, traceId={}", 
+            request.getUserId(), request.getOrderId(), TraceContext.getTraceId());
+        
+        CreateOrderResponse response;
+        
+        try {
+            // 1. 设置用户信息
+            if (userContext != null) {
+                request.setUserId(userContext.getUserId());
+            }
+            
+            // 2. 设置追踪信息
+            request.setTimestamp(System.currentTimeMillis());
+            
+            // 3. 参数校验
+            validateCancelOrderRequest(request);
+            
+            // 4. 调用OMS服务
+            response = omsClient.cancelOrder(request);
+            
+            log.info("Cancel order success: orderId={}, traceId={}", 
+                request.getOrderId(), TraceContext.getTraceId());
+            
+        } catch (IllegalArgumentException e) {
+            log.warn("Invalid cancel order request: {}, traceId={}", 
+                e.getMessage(), TraceContext.getTraceId());
+            response = CreateOrderResponse.fail("Invalid request: " + e.getMessage());
+            
+        } catch (Exception e) {
+            log.error("Cancel order failed: traceId=" + TraceContext.getTraceId(), e);
+            response = CreateOrderResponse.fail("Internal error: " + e.getMessage());
+        }
+        
+        // 5. 记录审计日志
+        recordCancelAudit(httpRequest, request, response, startTime);
+        
+        return response;
+    }
+    
+    /**
+     * 健康检查
+     */
+    @GetMapping("/health")
+    public String health() {
+        return "OK";
+    }
+    
+    /**
+     * 校验创建订单请求
+     */
+    private void validateCreateOrderRequest(CreateOrderRequest request) {
+        if (request.getUserId() == null) {
+            throw new IllegalArgumentException("userId is required");
+        }
+        
+        if (request.getSymbol() == null || request.getSymbol().isEmpty()) {
+            throw new IllegalArgumentException("symbol is required");
+        }
+        
+        if (request.getSide() == null) {
+            throw new IllegalArgumentException("side is required");
+        }
+        
+        if (request.getOrderType() == null) {
+            throw new IllegalArgumentException("orderType is required");
+        }
+        
+        if (request.getQuantity() == null || request.getQuantity() <= 0) {
+            throw new IllegalArgumentException("quantity must be positive");
+        }
+        
+        // 限价单必须有价格
+        if (request.getOrderType().name().equals("LIMIT")) {
+            if (request.getPrice() == null || request.getPrice() <= 0) {
+                throw new IllegalArgumentException("price is required for limit order");
+            }
+        }
+    }
+    
+    /**
+     * 校验撤单请求
+     */
+    private void validateCancelOrderRequest(CancelOrderRequest request) {
+        if (request.getUserId() == null) {
+            throw new IllegalArgumentException("userId is required");
+        }
+        
+        if (request.getOrderId() == null) {
+            throw new IllegalArgumentException("orderId is required");
+        }
+    }
+    
+    /**
+     * 记录审计日志
+     */
+    private void recordAudit(HttpServletRequest httpRequest, 
+                           CreateOrderRequest request,
+                           CreateOrderResponse response,
+                           long startTime) {
+        try {
+            ApiAuditLogger.ApiCallInfo info = new ApiAuditLogger.ApiCallInfo();
+            info.setTraceId(TraceContext.getTraceId());
+            info.setRequestId(TraceContext.getRequestId());
+            info.setUserId(request.getUserId());
+            info.setApi("/api/order/create");
+            info.setMethod("POST");
+            info.setSymbol(request.getSymbol());
+            info.setSide(request.getSide() != null ? request.getSide().name() : null);
+            info.setPrice(request.getPrice());
+            info.setQuantity(request.getQuantity());
+            info.setClientIp(getClientIp(httpRequest));
+            info.setUserAgent(httpRequest.getHeader("User-Agent"));
+            info.setLatency(System.currentTimeMillis() - startTime);
+            info.setStatusCode(200);
+            info.setSuccess(response.getSuccess());
+            info.setErrorMessage(response.getErrorMessage());
+            info.setTimestamp(System.currentTimeMillis());
+            
+            auditLogger.logApiCall(info);
+            
+        } catch (Exception e) {
+            log.error("Failed to record audit log", e);
+        }
+    }
+    
+    /**
+     * 记录撤单审计日志
+     */
+    private void recordCancelAudit(HttpServletRequest httpRequest,
+                                  CancelOrderRequest request,
+                                  CreateOrderResponse response,
+                                  long startTime) {
+        try {
+            ApiAuditLogger.ApiCallInfo info = new ApiAuditLogger.ApiCallInfo();
+            info.setTraceId(TraceContext.getTraceId());
+            info.setRequestId(TraceContext.getRequestId());
+            info.setUserId(request.getUserId());
+            info.setApi("/api/order/cancel");
+            info.setMethod("POST");
+            info.setSymbol(request.getSymbol());
+            info.setClientIp(getClientIp(httpRequest));
+            info.setUserAgent(httpRequest.getHeader("User-Agent"));
+            info.setLatency(System.currentTimeMillis() - startTime);
+            info.setStatusCode(200);
+            info.setSuccess(response.getSuccess());
+            info.setErrorMessage(response.getErrorMessage());
+            info.setTimestamp(System.currentTimeMillis());
+            
+            auditLogger.logApiCall(info);
+            
+        } catch (Exception e) {
+            log.error("Failed to record audit log", e);
+        }
+    }
+    
+    /**
+     * 获取客户端IP
+     */
+    private String getClientIp(HttpServletRequest request) {
+        String ip = request.getHeader("X-Forwarded-For");
+        if (ip == null || ip.isEmpty() || "unknown".equalsIgnoreCase(ip)) {
+            ip = request.getHeader("X-Real-IP");
+        }
+        if (ip == null || ip.isEmpty() || "unknown".equalsIgnoreCase(ip)) {
+            ip = request.getRemoteAddr();
+        }
+        if (ip != null && ip.contains(",")) {
+            ip = ip.split(",")[0].trim();
+        }
+        return ip;
+    }
+}
+

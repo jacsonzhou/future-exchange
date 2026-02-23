@@ -1,0 +1,26 @@
+server:
+  port: 8091
+
+spring:
+  application:
+    name: adl-core
+  
+  datasource:
+    url: jdbc:mysql://localhost:3306/exchange_adl?useUnicode=true&characterEncoding=utf8&useSSL=false&serverTimezone=Asia/Shanghai
+    username: ${DB_USERNAME:root}
+    password: ${DB_PASSWORD:root}
+    driver-class-name: com.mysql.cj.jdbc.Driver
+  
+  kafka:
+    bootstrap-servers: localhost:9092
+    consumer:
+      group-id: adl-group
+      auto-offset-reset: earliest
+
+mybatis-plus:
+  mapper-locations: classpath*:/mapper/**/*.xml
+  type-aliases-package: com.exchange.adl.entity
+
+logging:
+  level:
+    com.exchange.adl: INFO

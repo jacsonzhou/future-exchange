@@ -1,0 +1,121 @@
+server:
+  port: 8099
+
+spring:
+  application:
+    name: binance-data-source
+  
+  # Kafka配置
+  kafka:
+    bootstrap-servers: localhost:9092
+    producer:
+      key-serializer: org.apache.kafka.common.serialization.StringSerializer
+      value-serializer: org.apache.kafka.common.serialization.StringSerializer
+      acks: 1
+      retries: 3
+      batch-size: 16384
+      buffer-memory: 33554432
+      linger-ms: 5
+      compression-type: lz4
+    consumer:
+      group-id: binance-data-source
+      auto-offset-reset: latest
+      key-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+      value-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+  
+  # Redis配置
+  redis:
+    host: localhost
+    port: 6379
+    password: 
+    database: 0
+    timeout: 5000ms
+    lettuce:
+      pool:
+        max-active: 8
+        max-idle: 8
+        min-idle: 0
+        max-wait: -1ms
+
+# 币安数据源配置
+binance:
+  datasource:
+    # WebSocket连接地址
+    # 中国用户可能需要使用代理：wss://stream.binance.com:9443/ws
+    ws-url: wss://data-stream.binance.com/ws
+    
+    # 订阅的交易对列表
+    symbols:
+      - BTCUSDT
+      - ETHUSDT
+      - BNBUSDT
+      - SOLUSDT
+      - XRPUSDT
+    
+    # 深度档位（5, 10, 20）
+    depth-levels: 20
+    
+    # 深度更新频率（100ms, 250ms, 500ms）
+    depth-speed: 100ms
+    
+    # 批量聚合窗口（毫秒），0表示不聚合
+    batch-window-ms: 100
+    
+    # 是否启用成交数据
+    trade-enabled: true
+    
+    # 是否启用聚合成交
+    agg-trade-enabled: false
+    
+    # 是否启用Ticker
+    ticker-enabled: true
+    
+    # 重连配置
+    reconnect:
+      max-attempts: 10
+      base-delay-ms: 1000
+      max-delay-ms: 30000
+      multiplier: 2.0
+    
+    # 心跳配置
+    heartbeat:
+      enabled: true
+      interval-sec: 30
+      timeout-sec: 10
+    
+    # Kafka输出配置
+    kafka:
+      enabled: true
+      topic-prefix: market
+      depth-topic-format: "market.depth.%s"
+      trade-topic-format: "market.trade.%s"
+      agg-trade-topic-format: "market.aggtrade.%s"
+      ticker-topic-format: "market.ticker.%s"
+
+# 日志配置
+logging:
+  level:
+    com.exchange.binance: INFO
+    com.exchange.binance.client: INFO
+    com.exchange.binance.handler: DEBUG
+    com.exchange.binance.publisher: DEBUG
+  pattern:
+    console: "%d{yyyy-MM-dd HH:mm:ss.SSS} [%thread] %-5level %logger{36} - %msg%n"
+  file:
+    name: logs/binance-data-source.log
+    max-size: 100MB
+    max-history: 7
+
+# 管理端点
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics,prometheus
+  endpoint:
+    health:
+      show-details: always
+  metrics:
+    export:
+      prometheus:
+        enabled: true

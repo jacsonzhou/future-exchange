@@ -1,0 +1,15 @@
+# Nacos 配置中心引导配置
+spring:
+  application:
+    name: api-gateway
+  cloud:
+    nacos:
+      config:
+        server-addr: 127.0.0.1:8848
+        file-extension: yml
+        refresh-enabled: true
+      discovery:
+        server-addr: 127.0.0.1:8848
+        metadata:
+          version: v1
+          protocol: reactive

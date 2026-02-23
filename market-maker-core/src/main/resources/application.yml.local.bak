@@ -1,0 +1,119 @@
+server:
+  port: 8092
+
+spring:
+  application:
+    name: market-maker-core
+  
+  # 数据源配置
+  datasource:
+    driver-class-name: com.mysql.cj.jdbc.Driver
+    url: jdbc:mysql://localhost:3306/exchange_mm?useUnicode=true&characterEncoding=utf8&serverTimezone=Asia/Shanghai&useSSL=false
+    username: root
+    password: 123456
+    hikari:
+      minimum-idle: 5
+      maximum-pool-size: 20
+      connection-timeout: 30000
+      idle-timeout: 600000
+      max-lifetime: 1800000
+  
+  # MyBatis Plus配置
+  mybatis-plus:
+    mapper-locations: classpath*:/mapper/**/*.xml
+    type-aliases-package: com.exchange.marketmaker.entity
+    configuration:
+      map-underscore-to-camel-case: true
+      log-impl: org.apache.ibatis.logging.slf4j.Slf4jImpl
+  
+  # Kafka配置
+  kafka:
+    bootstrap-servers: localhost:9092
+    
+    # Producer配置
+    producer:
+      acks: 1
+      retries: 3
+      linger-ms: 0
+      compression-type: none
+      batch-size: 16384
+      buffer-memory: 33554432
+      key-serializer: org.apache.kafka.common.serialization.StringSerializer
+      value-serializer: org.apache.kafka.common.serialization.StringSerializer
+      max-in-flight-requests-per-connection: 5
+      request-timeout-ms: 30000
+    
+    # Consumer配置
+    consumer:
+      group-id: market-maker-group
+      enable-auto-commit: true
+      auto-commit-interval-ms: 1000
+      auto-offset-reset: earliest
+      fetch-min-bytes: 1
+      fetch-max-wait-ms: 0
+      max-poll-records: 500
+      key-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+      value-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+      session-timeout-ms: 30000
+      heartbeat-interval-ms: 3000
+  
+  # Nacos配置
+  cloud:
+    nacos:
+      discovery:
+        server-addr: localhost:8848
+        namespace: dev
+        group: DEFAULT_GROUP
+      config:
+        server-addr: localhost:8848
+        namespace: dev
+        group: DEFAULT_GROUP
+        file-extension: yml
+
+# OMS服务配置
+oms:
+  service:
+    url: http://localhost:9091
+
+# 做市商服务配置
+market-maker:
+  # 考核配置
+  evaluation:
+    # 挂单时间占比阈值（8位精度）
+    min-quote-time-ratio: 80000000
+    # 最大买卖价差阈值（8位精度）
+    max-spread: 100000
+    # 最小挂单深度（USDT）
+    min-depth: 50000000000
+    # 最小成交率（8位精度）
+    min-fill-rate: 50000000
+  
+  # 费率配置（8位精度）
+  fee:
+    # 等级1费率
+    level-1-maker: 20000
+    level-1-taker: 50000
+    # 等级2费率
+    level-2-maker: 10000
+    level-2-taker: 40000
+    # 等级3费率
+    level-3-maker: 5000
+    level-3-taker: 30000
+    # 等级4费率
+    level-4-maker: 0
+    level-4-taker: 20000
+  
+  # 奖励配置
+  reward:
+    # 达标奖励基础金额（USDT）
+    base-qualified-reward: 10000000000
+    # 优秀奖励基础金额（USDT）
+    base-excellent-reward: 50000000000
+
+# Logging配置
+logging:
+  level:
+    com.exchange.marketmaker: INFO
+    com.exchange.marketmaker.mapper: DEBUG
+  pattern:
+    console: "%d{yyyy-MM-dd HH:mm:ss.SSS} [%thread] %-5level %logger{50} - %msg%n"

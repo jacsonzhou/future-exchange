@@ -1,0 +1,102 @@
+package com.exchange.gateway.filter;
+
+import com.exchange.gateway.context.TraceContext;
+import jakarta.servlet.*;
+import jakarta.servlet.http.HttpServletRequest;
+import jakarta.servlet.http.HttpServletResponse;
+import lombok.extern.slf4j.Slf4j;
+import org.slf4j.MDC;
+import org.springframework.core.annotation.Order;
+import org.springframework.stereotype.Component;
+
+import java.io.IOException;
+import java.util.UUID;
+
+/**
+ * 链路追踪上下文Filter
+ * 
+ * 职责：
+ * 1. 生成或提取 traceId
+ * 2. 生成 requestId
+ * 3. 记录请求开始时间
+ * 4. 绑定到 MDC 供日志使用
+ * 5. 透传到下游服务
+ */
+@Slf4j
+@Component
+@Order(1) // 最先执行
+public class TraceContextFilter implements Filter {
+    
+    private static final String HEADER_TRACE_ID = "X-Trace-Id";
+    private static final String HEADER_REQUEST_ID = "X-Request-Id";
+    private static final String HEADER_USER_ID = "X-User-Id";
+    
+    @Override
+    public void doFilter(ServletRequest request, ServletResponse response, FilterChain chain)
+            throws IOException, ServletException {
+        
+        HttpServletRequest httpRequest = (HttpServletRequest) request;
+        HttpServletResponse httpResponse = (HttpServletResponse) response;
+        
+        try {
+            // 1. 生成或提取 traceId
+            String traceId = httpRequest.getHeader(HEADER_TRACE_ID);
+            if (traceId == null || traceId.isEmpty()) {
+                traceId = generateTraceId();
+            }
+            
+            // 2. 生成 requestId
+            String requestId = generateRequestId();
+            
+            // 3. 记录开始时间
+            long startTime = System.currentTimeMillis();
+            
+            // 4. 设置到上下文
+            TraceContext.setTraceId(traceId);
+            TraceContext.setRequestId(requestId);
+            TraceContext.setStartTime(startTime);
+            
+            // 5. 绑定到 MDC（日志）
+            MDC.put("traceId", traceId);
+            MDC.put("requestId", requestId);
+            
+            // 6. 添加到响应头（方便前端追踪）
+            httpResponse.setHeader(HEADER_TRACE_ID, traceId);
+            httpResponse.setHeader(HEADER_REQUEST_ID, requestId);
+            
+            log.info("Request started: method={}, uri={}, traceId={}, requestId={}",
+                httpRequest.getMethod(), httpRequest.getRequestURI(), traceId, requestId);
+            
+            // 继续执行
+            chain.doFilter(request, response);
+            
+            // 记录请求完成
+            long duration = System.currentTimeMillis() - startTime;
+            log.info("Request completed: traceId={}, requestId={}, duration={}ms, status={}",
+                traceId, requestId, duration, httpResponse.getStatus());
+            
+        } finally {
+            // 清理上下文
+            TraceContext.clear();
+            MDC.clear();
+        }
+    }
+    
+    /**
+     * 生成 traceId
+     */
+    private String generateTraceId() {
+        return UUID.randomUUID().toString().replace("-", "");
+    }
+    
+    /**
+     * 生成 requestId
+     */
+    private String generateRequestId() {
+        return UUID.randomUUID().toString().replace("-", "");
+    }
+}
+
+
+
+

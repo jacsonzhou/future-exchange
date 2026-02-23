@@ -1,0 +1,147 @@
+server:
+  port: 8084
+
+spring:
+  application:
+    name: ledger-core
+  
+  cloud:
+    nacos:
+      discovery:
+        server-addr: 127.0.0.1:8848
+        namespace: dev
+  
+  # 数据源配置
+  datasource:
+    driver-class-name: com.mysql.cj.jdbc.Driver
+    url: jdbc:mysql://127.0.0.1:3306/exchange_ledger?useUnicode=true&characterEncoding=utf8&useSSL=false&serverTimezone=Asia/Shanghai&rewriteBatchedStatements=true
+    username: root
+    password: root
+    type: com.alibaba.druid.pool.DruidDataSource
+    druid:
+      initial-size: 10
+      min-idle: 10
+      max-active: 50
+      max-wait: 60000
+      time-between-eviction-runs-millis: 60000
+      min-evictable-idle-time-millis: 300000
+      validation-query: SELECT 1
+      test-while-idle: true
+      test-on-borrow: false
+      test-on-return: false
+  
+  # Kafka配置（消费TradeEvent）
+  # 🔥 P0修复：改为手动ACK模式，防止消息丢失
+  kafka:
+    bootstrap-servers: localhost:9092
+    consumer:
+      group-id: ledger-service
+      auto-offset-reset: earliest
+      enable-auto-commit: false  # 🔥 改为false，使用手动ACK
+      key-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+      # 修复：使用 ByteArrayDeserializer 支持 match-engine-core 的 byte[] 格式
+      value-deserializer: org.apache.kafka.common.serialization.ByteArrayDeserializer
+      properties:
+        max.poll.records: 500
+        fetch.min.bytes: 1024
+        fetch.max.wait.ms: 500
+        max.poll.interval.ms: 300000  # 5分钟处理超时
+        session.timeout.ms: 30000     # 30秒心跳超时
+    producer:
+      acks: all         # 🔥 金融级别必须使用all
+      retries: 3
+      batch-size: 16384
+      buffer-memory: 33554432
+    listener:
+      concurrency: 4
+      ack-mode: manual_immediate  # 🔥 改为手动立即确认
+  
+  # Redis配置（biz_seq生成器+分布式锁）
+  redis:
+    host: localhost
+    port: 6379
+    database: 0
+    timeout: 3000ms
+    lettuce:
+      pool:
+        max-active: 20
+        max-idle: 10
+        min-idle: 5
+        max-wait: 3000ms
+
+# MyBatis Plus配置
+mybatis-plus:
+  mapper-locations: classpath*:/mapper/**/*.xml
+  type-aliases-package: com.exchange.ledger.entity
+  configuration:
+    map-underscore-to-camel-case: true
+    log-impl: org.apache.ibatis.logging.slf4j.Slf4jImpl
+    cache-enabled: true
+  global-config:
+    db-config:
+      id-type: input
+      logic-delete-field: deleted
+      logic-delete-value: 1
+      logic-not-delete-value: 0
+
+# Logging配置
+logging:
+  level:
+    root: INFO
+    com.exchange: INFO
+    com.exchange.ledger.mapper: DEBUG
+  pattern:
+    console: "%clr(%d{yyyy-MM-dd HH:mm:ss.SSS}){faint} %clr([%thread]){magenta} %clr(%-5level){highlight} %clr(%logger{36}){cyan} %clr(-){faint} %msg%n"
+    file: "%d{yyyy-MM-dd HH:mm:ss.SSS} [%thread] %-5level %logger{36} - %msg%n"
+  file:
+    name: logs/ledger-core.log
+    max-size: 100MB
+    max-history: 30
+
+# 任务调度配置
+spring.task.scheduling.pool.size: 5
+
+# 🍀 P1: 监控与链路追踪配置
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics,prometheus
+  endpoint:
+    health:
+      show-details: always
+  metrics:
+    export:
+      prometheus:
+        enabled: true
+    tags:
+      application: ${spring.application.name}
+  tracing:
+    sampling:
+      probability: 1.0
+  zipkin:
+    tracing:
+      endpoint: http://localhost:9411/api/v2/spans
+
+# Ledger核心配置
+ledger:
+  # 默认币种
+  default-currency: USDT
+  
+  # 分表策略
+  sharding:
+    db-count: 128
+    table-months: 12
+  
+  # Replay批次大小
+  replay:
+    batch-size: 10000
+    thread-pool-size: 4
+  
+  # 对账配置
+  reconciliation:
+    enabled: true
+    cron: "0 0 2 * * ?"
+    diff-threshold: 0.00000001
+
+

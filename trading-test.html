@@ -1,0 +1,2404 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>合约交易所验证系统</title>
+    <!-- TradingView Lightweight Charts -->
+    <script src="https://unpkg.com/lightweight-charts@4.1.0/dist/lightweight-charts.standalone.production.js"></script>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: #0d1117;
+            color: #c9d1d9;
+            min-height: 100vh;
+        }
+        .container { max-width: 1400px; margin: 0 auto; padding: 20px; }
+        
+        /* Header */
+        .header {
+            background: #161b22;
+            border-bottom: 1px solid #30363d;
+            padding: 15px 20px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        .header h1 { color: #58a6ff; font-size: 20px; }
+        .user-info { display: flex; align-items: center; gap: 15px; }
+        .btn {
+            padding: 8px 16px;
+            border: none;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 14px;
+            transition: all 0.2s;
+        }
+        .btn-primary { background: #238636; color: white; }
+        .btn-primary:hover { background: #2ea043; }
+        .btn-danger { background: #da3633; color: white; }
+        .btn-danger:hover { background: #f85149; }
+        .btn-secondary { background: #30363d; color: #c9d1d9; }
+        .btn-secondary:hover { background: #484f58; }
+        
+        /* Layout */
+        .main-layout {
+            display: grid;
+            grid-template-columns: 300px 1fr 350px;
+            gap: 20px;
+            margin-top: 20px;
+        }
+        
+        /* Card */
+        .card {
+            background: #161b22;
+            border: 1px solid #30363d;
+            border-radius: 12px;
+            padding: 20px;
+            margin-bottom: 20px;
+        }
+        .card-title {
+            font-size: 14px;
+            font-weight: 600;
+            color: #8b949e;
+            margin-bottom: 15px;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+        
+        /* Forms */
+        .form-group { margin-bottom: 15px; }
+        .form-group label {
+            display: block;
+            font-size: 12px;
+            color: #8b949e;
+            margin-bottom: 5px;
+        }
+        .form-group input, .form-group select {
+            width: 100%;
+            padding: 10px 12px;
+            background: #0d1117;
+            border: 1px solid #30363d;
+            border-radius: 6px;
+            color: #c9d1d9;
+            font-size: 14px;
+        }
+        .form-group input:focus, .form-group select:focus {
+            outline: none;
+            border-color: #58a6ff;
+        }
+        
+        /* Auth Modal */
+        .modal-overlay {
+            position: fixed;
+            top: 0; left: 0; right: 0; bottom: 0;
+            background: rgba(0,0,0,0.8);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            z-index: 1000;
+        }
+        .modal {
+            background: #161b22;
+            border: 1px solid #30363d;
+            border-radius: 12px;
+            padding: 30px;
+            width: 400px;
+            max-width: 90%;
+        }
+        .modal h2 { margin-bottom: 20px; color: #58a6ff; }
+        .tabs {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 20px;
+        }
+        .tab {
+            padding: 8px 16px;
+            background: transparent;
+            border: 1px solid #30363d;
+            border-radius: 6px;
+            color: #8b949e;
+            cursor: pointer;
+        }
+        .tab.active {
+            background: #238636;
+            color: white;
+            border-color: #238636;
+        }
+        
+        /* Balance Display */
+        .balance-item {
+            display: flex;
+            justify-content: space-between;
+            padding: 12px 0;
+            border-bottom: 1px solid #21262d;
+        }
+        .balance-item:last-child { border-bottom: none; }
+        .balance-label { color: #8b949e; font-size: 13px; }
+        .balance-value { font-weight: 600; color: #3fb950; }
+        
+        /* Order Book */
+        .orderbook {
+            font-family: monospace;
+            font-size: 13px;
+        }
+        .orderbook-header {
+            display: grid;
+            grid-template-columns: 1fr 1fr 1fr;
+            color: #8b949e;
+            font-size: 11px;
+            padding: 8px 0;
+            border-bottom: 1px solid #30363d;
+        }
+        .orderbook-row {
+            display: grid;
+            grid-template-columns: 1fr 1fr 1fr;
+            padding: 4px 0;
+            cursor: pointer;
+        }
+        .orderbook-row:hover { background: #21262d; }
+        .orderbook-ask { color: #f85149; }
+        .orderbook-bid { color: #3fb950; }
+        .orderbook-spread {
+            text-align: center;
+            padding: 8px 0;
+            color: #8b949e;
+            font-size: 12px;
+            border-top: 1px solid #30363d;
+            border-bottom: 1px solid #30363d;
+        }
+        
+        /* Trading Form */
+        .trade-tabs {
+            display: flex;
+            margin-bottom: 15px;
+        }
+        .trade-tab {
+            flex: 1;
+            padding: 12px;
+            text-align: center;
+            background: #21262d;
+            border: none;
+            color: #8b949e;
+            cursor: pointer;
+            font-weight: 600;
+        }
+        .trade-tab.buy { border-radius: 6px 0 0 6px; }
+        .trade-tab.sell { border-radius: 0 6px 6px 0; }
+        .trade-tab.active.buy { background: #238636; color: white; }
+        .trade-tab.active.sell { background: #da3633; color: white; }
+        
+        /* Log Panel */
+        .log-panel {
+            height: 300px;
+            overflow-y: auto;
+            background: #0d1117;
+            border: 1px solid #30363d;
+            border-radius: 6px;
+            padding: 10px;
+            font-family: monospace;
+            font-size: 12px;
+        }
+        .log-entry {
+            padding: 3px 0;
+            border-bottom: 1px solid #21262d;
+        }
+        .log-time { color: #8b949e; }
+        .log-info { color: #58a6ff; }
+        .log-success { color: #3fb950; }
+        .log-error { color: #f85149; }
+        .log-warn { color: #d29922; }
+        
+        /* WebSocket Status */
+        .ws-status {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            font-size: 12px;
+            padding: 4px 10px;
+            border-radius: 12px;
+            background: #21262d;
+        }
+        .ws-status::before {
+            content: '';
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+        }
+        .ws-status.connected { color: #3fb950; }
+        .ws-status.connected::before { background: #3fb950; }
+        .ws-status.disconnected { color: #f85149; }
+        .ws-status.disconnected::before { background: #f85149; }
+        .ws-status.connecting { color: #d29922; }
+        .ws-status.connecting::before { background: #d29922; }
+        
+        /* Kline Chart */
+        .kline-container {
+            height: 400px;
+            background: #0d1117;
+            border: 1px solid #30363d;
+            border-radius: 6px;
+            position: relative;
+        }
+        .kline-chart {
+            width: 100%;
+            height: 100%;
+        }
+        .kline-toolbar {
+            position: absolute;
+            top: 10px;
+            left: 10px;
+            z-index: 10;
+            display: flex;
+            gap: 5px;
+        }
+        .kline-toolbar button {
+            padding: 4px 10px;
+            background: #21262d;
+            border: 1px solid #30363d;
+            color: #c9d1d9;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 11px;
+        }
+        .kline-toolbar button:hover { background: #30363d; }
+        .kline-toolbar button.active { 
+            background: #238636; 
+            border-color: #238636;
+            color: white;
+        }
+        .kline-price {
+            position: absolute;
+            top: 10px;
+            right: 60px;
+            z-index: 10;
+            font-size: 18px;
+            font-weight: 600;
+            font-family: monospace;
+        }
+        .kline-price.up { color: #3fb950; }
+        .kline-price.down { color: #f85149; }
+        
+        /* Trades */
+        .trade-list {
+            max-height: 300px;
+            overflow-y: auto;
+        }
+        .trade-item {
+            display: flex;
+            justify-content: space-between;
+            padding: 6px 0;
+            font-size: 12px;
+            border-bottom: 1px solid #21262d;
+        }
+        .trade-price { font-family: monospace; }
+        .trade-buy { color: #3fb950; }
+        .trade-sell { color: #f85149; }
+        
+        /* Hidden */
+        .hidden { display: none !important; }
+        
+        /* Order & Position Tables */
+        .data-table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 12px;
+        }
+        .data-table th {
+            text-align: left;
+            padding: 8px;
+            color: #8b949e;
+            font-weight: 500;
+            border-bottom: 1px solid #30363d;
+        }
+        .data-table td {
+            padding: 8px;
+            border-bottom: 1px solid #21262d;
+        }
+        .data-table tr:hover {
+            background: #21262d;
+        }
+        .data-table .side-buy { color: #3fb950; }
+        .data-table .side-sell { color: #f85149; }
+        .data-table .pnl-positive { color: #3fb950; }
+        .data-table .pnl-negative { color: #f85149; }
+        
+        /* Order status badges */
+        .status-badge {
+            display: inline-block;
+            padding: 2px 8px;
+            border-radius: 4px;
+            font-size: 11px;
+            font-weight: 500;
+        }
+        .status-new { background: #1f6feb; color: white; }
+        .status-partial { background: #d29922; color: #0d1117; }
+        .status-filled { background: #238636; color: white; }
+        .status-cancelled { background: #484f58; color: #8b949e; }
+        
+        /* Position card */
+        .position-card {
+            background: #0d1117;
+            border: 1px solid #30363d;
+            border-radius: 8px;
+            padding: 12px;
+            margin-bottom: 10px;
+        }
+        .position-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 10px;
+        }
+        .position-symbol {
+            font-weight: 600;
+            font-size: 14px;
+        }
+        .position-side {
+            padding: 2px 8px;
+            border-radius: 4px;
+            font-size: 11px;
+            font-weight: 500;
+        }
+        .position-side.long { background: #238636; color: white; }
+        .position-side.short { background: #da3633; color: white; }
+        .position-details {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 8px;
+            font-size: 12px;
+        }
+        .position-detail-item {
+            display: flex;
+            justify-content: space-between;
+        }
+        .position-detail-label {
+            color: #8b949e;
+        }
+        .position-detail-value {
+            font-family: monospace;
+            font-weight: 500;
+        }
+    </style>
+</head>
+<body>
+    <!-- Auth Modal -->
+    <div id="authModal" class="modal-overlay">
+        <div class="modal">
+            <h2>合约交易系统</h2>
+            <div class="tabs">
+                <button class="tab active" onclick="switchTab('login')">登录</button>
+                <button class="tab" onclick="switchTab('register')">注册</button>
+            </div>
+            
+            <!-- Login Form -->
+            <div id="loginForm">
+                <div class="form-group">
+                    <label>用户名</label>
+                    <input type="text" id="loginUsername" placeholder="请输入用户名">
+                </div>
+                <div class="form-group">
+                    <label>密码</label>
+                    <input type="password" id="loginPassword" placeholder="请输入密码">
+                </div>
+                <button class="btn btn-primary" style="width:100%" onclick="login()">登录</button>
+            </div>
+            
+            <!-- Register Form -->
+            <div id="registerForm" class="hidden">
+                <div class="form-group">
+                    <label>用户名</label>
+                    <input type="text" id="regUsername" placeholder="请输入用户名">
+                </div>
+                <div class="form-group">
+                    <label>密码</label>
+                    <input type="password" id="regPassword" placeholder="请输入密码">
+                </div>
+                <div class="form-group">
+                    <label>邮箱</label>
+                    <input type="email" id="regEmail" placeholder="请输入邮箱">
+                </div>
+                <button class="btn btn-primary" style="width:100%" onclick="register()">注册</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Main App -->
+    <div id="mainApp" class="hidden">
+        <div class="header">
+            <h1>🚀 合约交易验证系统</h1>
+            <div class="user-info">
+                <span id="currentUser">未登录</span>
+                <span id="publicWsStatus" class="ws-status disconnected">公有推送</span>
+                <span id="privateWsStatus" class="ws-status disconnected">私有推送</span>
+                <button class="btn btn-secondary" onclick="refreshBalance()">刷新余额</button>
+                <button class="btn btn-danger" onclick="logout()">退出</button>
+            </div>
+        </div>
+
+        <div class="container">
+            <div class="main-layout">
+                <!-- Left Column: 盘口深度 + 最新成交 -->
+                <div class="left-column">
+                    <!-- Order Book -->
+                    <div class="card">
+                        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;">
+                            <div class="card-title" style="margin:0;">📗 盘口深度</div>
+                            <div style="display:flex;gap:5px;">
+                                <button onclick="forceRefreshOrderBook()" style="padding:4px 10px;background:#21262d;color:#c9d1d9;border:1px solid #30363d;border-radius:4px;cursor:pointer;font-size:11px;">🔄 刷新</button>
+                                <button onclick="resubscribeDepth()" style="padding:4px 10px;background:#21262d;color:#c9d1d9;border:1px solid #30363d;border-radius:4px;cursor:pointer;font-size:11px;">📡 重连</button>
+                            </div>
+                        </div>
+                        <div class="orderbook">
+                            <div class="orderbook-header">
+                                <span>价格</span>
+                                <span>数量</span>
+                                <span>累计</span>
+                            </div>
+                            <div id="orderbookAsks" style="text-align:center;padding:20px;color:#8b949e;">等待数据...</div>
+                            <div class="orderbook-spread" id="orderbookSpread">--</div>
+                            <div id="orderbookBids" style="text-align:center;padding:20px;color:#8b949e;">等待数据...</div>
+                        </div>
+                    </div>
+
+                    <!-- Recent Trades -->
+                    <div class="card">
+                        <div class="card-title">📊 最新成交</div>
+                        <div class="trade-list" id="tradeList">
+                            <div style="text-align:center;color:#8b949e;padding:20px;">等待数据...</div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Center Column: K线图表 + 订单/持仓 -->
+                <div class="center-column">
+                    <!-- Kline Chart -->
+                    <div class="card">
+                        <div class="card-title">📈 K线图表 (BTCUSDT)</div>
+                        <div class="kline-container" id="klineContainer">
+                            <div class="kline-toolbar">
+                                <button onclick="changeKlineInterval('1m')" class="kline-interval-btn active" data-interval="1m">1m</button>
+                                <button onclick="changeKlineInterval('5m')" class="kline-interval-btn" data-interval="5m">5m</button>
+                                <button onclick="changeKlineInterval('15m')" class="kline-interval-btn" data-interval="15m">15m</button>
+                                <button onclick="changeKlineInterval('1h')" class="kline-interval-btn" data-interval="1h">1h</button>
+                            </div>
+                            <div class="kline-price" id="klineCurrentPrice">--</div>
+                            <div class="kline-chart" id="klineChart"></div>
+                        </div>
+                    </div>
+                    
+                    <!-- 订单 & 持仓 Tab -->
+                    <div class="card">
+                        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:15px;">
+                            <div class="card-title" style="margin:0;">📋 资产与委托</div>
+                            <div style="display:flex;gap:5px;">
+                                <button class="btn btn-sm" id="tabOrdersBtn" onclick="switchBottomTab('orders')" style="padding:6px 16px;background:#238636;color:white;border:none;border-radius:4px;cursor:pointer;">订单</button>
+                                <button class="btn btn-sm" id="tabPositionsBtn" onclick="switchBottomTab('positions')" style="padding:6px 16px;background:#30363d;color:#c9d1d9;border:none;border-radius:4px;cursor:pointer;">持仓</button>
+                            </div>
+                        </div>
+                        
+                        <!-- 订单列表 -->
+                        <div id="ordersPanel">
+                            <div style="display:flex;gap:10px;margin-bottom:10px;">
+                                <button class="btn btn-sm" onclick="loadOrders('active')" style="padding:4px 12px;background:#21262d;color:#c9d1d9;border:1px solid #30363d;border-radius:4px;cursor:pointer;font-size:12px;">当前委托</button>
+                                <button class="btn btn-sm" onclick="loadOrders('history')" style="padding:4px 12px;background:transparent;color:#8b949e;border:1px solid #30363d;border-radius:4px;cursor:pointer;font-size:12px;">历史委托</button>
+                            </div>
+                            <div id="ordersList" style="max-height:250px;overflow-y:auto;">
+                                <div style="text-align:center;color:#8b949e;padding:30px;">
+                                    <div>加载中...</div>
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <!-- 持仓列表 -->
+                        <div id="positionsPanel" style="display:none;">
+                            <div id="positionsSummary" style="display:flex;gap:20px;margin-bottom:15px;padding:10px;background:#0d1117;border-radius:6px;">
+                                <div>
+                                    <div style="font-size:11px;color:#8b949e;">总未实现盈亏</div>
+                                    <div id="totalUnrealizedPnl" style="font-size:16px;font-weight:600;color:#3fb950;">--</div>
+                                </div>
+                            </div>
+                            <div id="positionsList" style="max-height:220px;overflow-y:auto;">
+                                <div style="text-align:center;color:#8b949e;padding:30px;">
+                                    <div>暂无持仓</div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Right Column: 账户余额 + 下单交易 + WebSocket日志 -->
+                <div class="right-column">
+                    <!-- Balance Card (放在下单交易上方) -->
+                    <div class="card">
+                        <div class="card-title">💰 账户余额</div>
+                        <div id="balanceContainer">
+                            <div class="balance-item">
+                                <span class="balance-label">可用余额</span>
+                                <span class="balance-value" id="availableBalance">--</span>
+                            </div>
+                            <div class="balance-item">
+                                <span class="balance-label">冻结金额</span>
+                                <span class="balance-value" id="frozenBalance">--</span>
+                            </div>
+                            <div class="balance-item">
+                                <span class="balance-label">持仓保证金</span>
+                                <span class="balance-value" id="marginBalance">--</span>
+                            </div>
+                            <div class="balance-item">
+                                <span class="balance-label">总资产</span>
+                                <span class="balance-value" id="totalBalance">--</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Trading Form -->
+                    <div class="card">
+                        <div class="card-title">📝 下单交易</div>
+                        <div class="trade-tabs">
+                            <button class="trade-tab buy active" onclick="switchTradeSide('BUY')">买入/做多</button>
+                            <button class="trade-tab sell" onclick="switchTradeSide('SELL')">卖出/做空</button>
+                        </div>
+                        
+                        <div class="form-group">
+                            <label>交易对</label>
+                            <select id="symbol">
+                                <option value="BTCUSDT">BTCUSDT</option>
+                                <option value="ETHUSDT">ETHUSDT</option>
+                            </select>
+                        </div>
+                        
+                        <div class="form-group">
+                            <label>订单类型</label>
+                            <select id="orderType">
+                                <option value="LIMIT">限价单</option>
+                                <option value="MARKET">市价单</option>
+                            </select>
+                        </div>
+                        
+                        <div class="form-group">
+                            <label>价格 (USDT)</label>
+                            <input type="number" id="price" placeholder="输入价格" step="0.01">
+                        </div>
+                        
+                        <div class="form-group">
+                            <label>数量 (BTC)</label>
+                            <input type="number" id="quantity" placeholder="输入数量" step="0.001">
+                        </div>
+                        
+                        <div class="form-group">
+                            <label>杠杆倍数</label>
+                            <select id="leverage">
+                                <option value="1">1x</option>
+                                <option value="5">5x</option>
+                                <option value="10" selected>10x</option>
+                                <option value="20">20x</option>
+                                <option value="50">50x</option>
+                                <option value="100">100x</option>
+                            </select>
+                        </div>
+                        
+                        <button class="btn btn-primary" style="width:100%" id="submitOrderBtn" onclick="submitOrder()">买入下单</button>
+                    </div>
+
+                    <!-- WebSocket Log -->
+                    <div class="card">
+                        <div class="card-title">📡 WebSocket 日志</div>
+                        <div class="log-panel" id="logPanel">
+                            <div class="log-entry"><span class="log-time">系统</span> <span class="log-info">等待连接...</span></div>
+                        </div>
+                        <div style="margin-top:10px;display:flex;gap:10px;">
+                            <button class="btn btn-secondary" style="flex:1" onclick="clearLogs()">清空日志</button>
+                            <button class="btn btn-secondary" style="flex:1" onclick="reconnectWs()">重连WS</button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // ==================== 配置 ====================
+        const CONFIG = {
+            API_GATEWAY: 'http://localhost:8082',
+            MARKET_PRICE_API: 'http://localhost:8095',  // market-price-core 直接访问
+            PUBLIC_PUSH_WS: 'ws://localhost:8096/ws/market',
+            PRIVATE_PUSH_WS: 'ws://localhost:8097/ws/private',
+            SNAPSHOT_ACCOUNT: 'http://localhost:8085'  // 直接查询余额
+        };
+
+        // 临时方案：直接访问 snapshot 服务（绕过 API Gateway）
+        const USE_DIRECT_SNAPSHOT = true;
+
+        // ==================== 状态 ====================
+        let state = {
+            token: localStorage.getItem('token'),
+            userId: localStorage.getItem('userId'),
+            username: localStorage.getItem('username'),
+            tradeSide: 'BUY',
+            publicWs: null,
+            privateWs: null,
+            isAuthenticated: false,
+            currentBottomTab: 'orders',  // orders | positions
+            currentOrderFilter: 'active' // active | history
+        };
+        
+        // ==================== 缓存数据 ====================
+        let orderCache = new Map();      // orderId -> order
+        let positionCache = new Map();   // symbol -> position
+
+        // ==================== 用户挂单跟踪 ====================
+        let userPendingOrders = new Map(); // orderId -> {price, side, quantity}
+        
+        // ==================== 真实盘口数据 ====================
+        let currentOrderBook = {
+            bids: [], // [[price, qty], ...]
+            asks: [], // [[price, qty], ...]
+            timestamp: 0
+        };
+
+        // ==================== K线图表 ====================
+        let klineChart = null;
+        let klineSeries = null;
+        let klineVolumeSeries = null;
+        let currentKlineInterval = '1m';
+        let klineDataMap = new Map(); // interval -> candle data array
+        let lastKlinePrice = 0;
+
+        // ==================== 初始化 ====================
+        document.addEventListener('DOMContentLoaded', () => {
+            log('info', '页面加载完成');
+            
+            if (state.token && state.userId) {
+                log('info', `检测到登录状态，用户ID: ${state.userId}`);
+                showMainApp();
+            } else {
+                log('info', '未登录，请先登录或注册');
+            }
+        });
+
+        // ==================== 认证相关 ====================
+        function switchTab(tab) {
+            document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+            event.target.classList.add('active');
+            
+            if (tab === 'login') {
+                document.getElementById('loginForm').classList.remove('hidden');
+                document.getElementById('registerForm').classList.add('hidden');
+            } else {
+                document.getElementById('loginForm').classList.add('hidden');
+                document.getElementById('registerForm').classList.remove('hidden');
+            }
+        }
+
+        async function login() {
+            const username = document.getElementById('loginUsername').value;
+            const password = document.getElementById('loginPassword').value;
+            
+            if (!username || !password) {
+                alert('请输入用户名和密码');
+                return;
+            }
+
+            try {
+                const res = await fetch(`${CONFIG.API_GATEWAY}/api/v1/user/login`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ username, password })
+                });
+                
+                const data = await res.json();
+                if (data.code === 0 || data.code === 200) {
+                    const userData = data.data || data;
+                    saveAuth(userData);
+                    showMainApp();
+                } else {
+                    alert(data.message || '登录失败');
+                }
+            } catch (err) {
+                alert('网络错误: ' + err.message);
+            }
+        }
+
+        async function register() {
+            const username = document.getElementById('regUsername').value;
+            const password = document.getElementById('regPassword').value;
+            const email = document.getElementById('regEmail').value;
+            
+            if (!username || !password) {
+                alert('请输入用户名和密码');
+                return;
+            }
+
+            try {
+                const res = await fetch(`${CONFIG.API_GATEWAY}/api/v1/user/register`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ username, password, email })
+                });
+                
+                const data = await res.json();
+                if (data.code === 0 || data.code === 200) {
+                    alert('注册成功！初始资金: 100,000 USDT');
+                    const userData = data.data || data;
+                    saveAuth(userData);
+                    showMainApp();
+                } else {
+                    alert(data.message || '注册失败');
+                }
+            } catch (err) {
+                alert('网络错误: ' + err.message);
+            }
+        }
+
+        function saveAuth(data) {
+            state.token = data.token;
+            state.userId = data.userId || data.id;
+            state.username = data.username;
+            state.isAuthenticated = true;
+            
+            localStorage.setItem('token', state.token);
+            localStorage.setItem('userId', state.userId);
+            localStorage.setItem('username', state.username);
+            
+            log('success', `登录成功，用户: ${state.username}, ID: ${state.userId}`);
+        }
+
+        function logout() {
+            // 关闭 WebSocket 连接
+            if (state.publicWs) {
+                state.publicWs.close();
+                state.publicWs = null;
+            }
+            if (state.privateWs) {
+                state.privateWs.close();
+                state.privateWs = null;
+            }
+            
+            localStorage.clear();
+            state = { token: null, userId: null, username: null, tradeSide: 'BUY', publicWs: null, privateWs: null, isAuthenticated: false };
+            location.reload();
+        }
+
+        function showMainApp() {
+            document.getElementById('authModal').classList.add('hidden');
+            document.getElementById('mainApp').classList.remove('hidden');
+            document.getElementById('currentUser').textContent = `用户: ${state.username} (ID: ${state.userId})`;
+            
+            // 初始化K线图表
+            setTimeout(() => initKlineChart(), 100);
+            
+            // 初始加载盘口数据（仅一次，后续通过 WebSocket 推送）
+            refreshOrderBookOnce();
+            
+            refreshBalance();
+            
+            // 连接 WebSocket
+            // 公有推送无需登录，私有推送需要 token
+            connectPublicWS();
+            if (state.token) {
+                connectPrivateWS();
+            } else {
+                log('warn', '未登录，跳过私有推送连接');
+            }
+            
+            // 初始加载订单列表
+            setTimeout(() => {
+                loadOrders('active');
+            }, 1000);
+        }
+        
+        // ==================== 盘口数据 ====================
+        // 从 WebSocket 接收的深度数据
+        let wsOrderBookData = null;
+        let lastOrderBookUpdate = 0;
+        
+        /**
+         * 初始加载盘口数据（仅一次，用于首次显示）
+         * 后续数据完全通过 WebSocket 推送
+         */
+        async function refreshOrderBookOnce() {
+            // 如果 WebSocket 已连接并收到过数据，直接使用
+            if (wsOrderBookData && (Date.now() - lastOrderBookUpdate < 10000)) {
+                updateOrderBookDisplay(wsOrderBookData);
+                return;
+            }
+            
+            // 仅在首次加载或 WebSocket 未连接时使用 HTTP（降级方案）
+            try {
+                const symbol = document.getElementById('symbol').value || 'BTCUSDT';
+                log('info', '初始加载盘口数据（HTTP）...');
+                const res = await fetch(`${CONFIG.API_GATEWAY}/api/v1/match/orderbook/depth/${symbol}?depth=20`);
+                
+                if (res.ok) {
+                    const data = await res.json();
+                    currentOrderBook = data;
+                    updateOrderBookDisplay(data);
+                    log('success', '盘口数据初始加载成功，等待 WebSocket 推送...');
+                } else {
+                    log('warn', '盘口数据查询失败: ' + res.status);
+                }
+            } catch (err) {
+                log('error', '盘口查询异常: ' + err.message);
+            }
+        }
+        
+        /**
+         * 刷新盘口显示（仅用于 WebSocket 数据更新）
+         * 不再使用 HTTP 轮询
+         */
+        function refreshOrderBook() {
+            // 只使用 WebSocket 数据
+            if (wsOrderBookData && (Date.now() - lastOrderBookUpdate < 10000)) {
+                updateOrderBookDisplay(wsOrderBookData);
+            } else if (wsOrderBookData) {
+                // 数据过期，但仍有数据，继续显示
+                updateOrderBookDisplay(wsOrderBookData);
+                log('warn', 'WebSocket 深度数据已过期，等待新数据...');
+            } else {
+                // 没有 WebSocket 数据，显示提示
+                document.getElementById('orderbookAsks').innerHTML = '<div style="text-align:center;padding:20px;color:#8b949e;">等待 WebSocket 数据...</div>';
+                document.getElementById('orderbookBids').innerHTML = '<div style="text-align:center;padding:20px;color:#8b949e;">等待 WebSocket 数据...</div>';
+            }
+        }
+        
+        // 更新盘口显示
+        function updateOrderBookDisplay(data) {
+            if (!data) return;
+            
+            // 卖单 (Asks) - 红色，从高到低显示（最低的卖价在下方，靠近买单）
+            if (data.asks && data.asks.length > 0) {
+                // 只显示最低的8档，倒序显示（价格高的在上面）
+                const asks = data.asks.slice(0, 8).reverse();
+                let asksHtml = '';
+                asks.forEach((item) => {
+                    // 支持数组格式 [price, qty] 或对象格式
+                    const price = Array.isArray(item) ? item[0] : (item.price || item[0]);
+                    const qty = Array.isArray(item) ? item[1] : (item.qty || item[1]);
+                    
+                    // 转换为数字（深度数据已经是格式化字符串，直接 parseFloat 即可）
+                    const priceNum = parseFloat(price);
+                    const qtyNum = parseFloat(qty);
+                    
+                    if (isNaN(priceNum) || isNaN(qtyNum)) {
+                        log('warn', `无效的深度数据: price=${price}, qty=${qty}`);
+                        return;
+                    }
+                    
+                    asksHtml += `
+                        <div class="orderbook-row orderbook-ask">
+                            <span class="orderbook-price">${formatPrice(priceNum)}</span>
+                            <span class="orderbook-qty">${formatQty(qtyNum)}</span>
+                            <span class="orderbook-total">${(priceNum * qtyNum).toFixed(2)}</span>
+                        </div>
+                    `;
+                });
+                document.getElementById('orderbookAsks').innerHTML = asksHtml;
+            } else {
+                document.getElementById('orderbookAsks').innerHTML = '<div style="text-align:center;padding:10px;color:#8b949e;">暂无卖单</div>';
+            }
+            
+            // 买单 (Bids) - 绿色，从高到低显示
+            if (data.bids && data.bids.length > 0) {
+                const bids = data.bids.slice(0, 8);
+                let bidsHtml = '';
+                bids.forEach((item) => {
+                    // 支持数组格式 [price, qty] 或对象格式
+                    const price = Array.isArray(item) ? item[0] : (item.price || item[0]);
+                    const qty = Array.isArray(item) ? item[1] : (item.qty || item[1]);
+                    
+                    // 转换为数字（深度数据已经是格式化字符串，直接 parseFloat 即可）
+                    const priceNum = parseFloat(price);
+                    const qtyNum = parseFloat(qty);
+                    
+                    if (isNaN(priceNum) || isNaN(qtyNum)) {
+                        log('warn', `无效的深度数据: price=${price}, qty=${qty}`);
+                        return;
+                    }
+                    
+                    bidsHtml += `
+                        <div class="orderbook-row orderbook-bid">
+                            <span class="orderbook-price">${formatPrice(priceNum)}</span>
+                            <span class="orderbook-qty">${formatQty(qtyNum)}</span>
+                            <span class="orderbook-total">${(priceNum * qtyNum).toFixed(2)}</span>
+                        </div>
+                    `;
+                });
+                document.getElementById('orderbookBids').innerHTML = bidsHtml;
+            } else {
+                document.getElementById('orderbookBids').innerHTML = '<div style="text-align:center;padding:10px;color:#8b949e;">暂无买单</div>';
+            }
+            
+            // 价差计算（数据已从WebSocket接收，已是格式化后的价格）
+            if (data.asks && data.bids && data.asks[0] && data.bids[0]) {
+                const bestAsk = parseFloat(data.asks[0][0]);
+                const bestBid = parseFloat(data.bids[0][0]);
+                const spread = bestAsk - bestBid;
+                document.getElementById('orderbookSpread').textContent = `价差: ${spread.toFixed(2)} USDT`;
+            }
+        }
+
+        // ==================== 盘口刷新工具 ====================
+        async function forceRefreshOrderBook() {
+            log('info', '🔄 手动刷新盘口...');
+            
+            // 方法1: 从 HTTP 接口获取
+            try {
+                const symbol = document.getElementById('symbol').value || 'BTCUSDT';
+                const res = await fetch(`${CONFIG.API_GATEWAY}/api/v1/match/orderbook/depth/${symbol}?depth=20`);
+                
+                if (res.ok) {
+                    const data = await res.json();
+                    log('info', `📥 HTTP 盘口数据: bids=${data.bids?.length}, asks=${data.asks?.length}`);
+                    
+                    wsOrderBookData = {
+                        bids: data.bids || [],
+                        asks: data.asks || [],
+                        timestamp: Date.now()
+                    };
+                    lastOrderBookUpdate = Date.now();
+                    
+                    updateOrderBookDisplay(wsOrderBookData);
+                    log('success', '✅ 盘口已从 HTTP 刷新');
+                    return;
+                }
+            } catch (err) {
+                log('error', '❌ HTTP 刷新失败: ' + err.message);
+            }
+            
+            // 方法2: 使用缓存数据
+            if (wsOrderBookData && wsOrderBookData.bids && wsOrderBookData.asks) {
+                updateOrderBookDisplay(wsOrderBookData);
+                log('success', '✅ 盘口已从缓存刷新');
+            } else {
+                log('warn', '⚠️ 无数据可刷新');
+            }
+        }
+        
+        function resubscribeDepth() {
+            log('info', '📡 重新订阅深度频道...');
+            
+            // 检查 WebSocket 连接
+            if (!state.publicWs || state.publicWs.readyState !== WebSocket.OPEN) {
+                log('warn', '⚠️ WebSocket 未连接，执行重连...');
+                connectPublicWS();
+                return;
+            }
+            
+            // 取消旧订阅
+            state.publicWs.send(JSON.stringify({
+                method: 'UNSUBSCRIBE',
+                params: ['depth.BTCUSDT'],
+                id: Date.now()
+            }));
+            log('info', '已取消订阅 depth.BTCUSDT');
+            
+            // 延迟后重新订阅
+            setTimeout(() => {
+                if (state.publicWs && state.publicWs.readyState === WebSocket.OPEN) {
+                    state.publicWs.send(JSON.stringify({
+                        method: 'SUBSCRIBE',
+                        params: ['depth.BTCUSDT'],
+                        id: Date.now()
+                    }));
+                    log('success', '✅ 已重新订阅 depth.BTCUSDT');
+                }
+            }, 500);
+        }
+
+        // ==================== 余额查询 ====================
+        async function refreshBalance() {
+            try {
+                // 通过 API Gateway 查询余额
+                const balanceUrl = `${CONFIG.API_GATEWAY}/api/v1/account/balance/${state.userId}`;
+                log('info', `查询余额: ${balanceUrl}`);
+                
+                const res = await fetch(balanceUrl, {
+                    headers: { 'Authorization': `Bearer ${state.token}` }
+                });
+                
+                if (res.ok) {
+                    const data = await res.json();
+                    // 处理直接返回快照数据或统一响应格式
+                    const snapshot = data.data || data;
+                    const available = snapshot.available ? parseFloat(snapshot.available) : 0;
+                    const frozen = snapshot.frozen ? parseFloat(snapshot.frozen) : 0;
+                    const positionMargin = snapshot.positionMargin ? parseFloat(snapshot.positionMargin) : 0;
+                    
+                    // 🔥 查询OMS预扣保证金（从OMS服务）
+                    let preHoldMargin = 0;
+                    try {
+                        const preHoldRes = await fetch(`${CONFIG.API_GATEWAY}/api/v1/oms/prehold/${state.userId}`, {
+                            headers: { 'Authorization': `Bearer ${state.token}` }
+                        });
+                        if (preHoldRes.ok) {
+                            const preHoldData = await preHoldRes.json();
+                            preHoldMargin = preHoldData.data || preHoldData.preHold || 0;
+                        }
+                    } catch (e) {
+                        // OMS预扣查询失败，继续显示已知余额
+                        log('warn', '预扣保证金查询失败: ' + e.message);
+                    }
+                    
+                    // 计算实际可用余额 = 数据库可用余额 - OMS预扣
+                    const actualAvailable = Math.max(0, available - preHoldMargin);
+                    const totalFrozen = frozen + preHoldMargin;
+                    
+                    document.getElementById('availableBalance').textContent = formatMoneyDirect(actualAvailable);
+                    document.getElementById('frozenBalance').textContent = formatMoneyDirect(totalFrozen);
+                    document.getElementById('marginBalance').textContent = formatMoneyDirect(positionMargin);
+                    document.getElementById('totalBalance').textContent = formatMoneyDirect(available + frozen + positionMargin);
+                    
+                    log('success', `余额刷新成功: 可用=${actualAvailable.toFixed(2)} USDT (预扣=${preHoldMargin.toFixed(2)})`);
+                    return;
+                } else {
+                    const error = await res.text();
+                    log('error', '余额查询失败: ' + error);
+                }
+            } catch (err) {
+                log('error', '余额查询异常: ' + err.message);
+            }
+        }
+
+        // ==================== 交易相关 ====================
+        function switchTradeSide(side) {
+            state.tradeSide = side;
+            document.querySelectorAll('.trade-tab').forEach(t => t.classList.remove('active'));
+            event.target.classList.add('active');
+            
+            const btn = document.getElementById('submitOrderBtn');
+            btn.textContent = side === 'BUY' ? '买入下单' : '卖出下单';
+            btn.className = side === 'BUY' ? 'btn btn-primary' : 'btn btn-danger';
+        }
+
+        async function submitOrder() {
+            const symbol = document.getElementById('symbol').value;
+            const orderType = document.getElementById('orderType').value;
+            const price = parseFloat(document.getElementById('price').value);
+            const quantity = parseFloat(document.getElementById('quantity').value);
+            const leverage = parseInt(document.getElementById('leverage').value);
+            
+            if (!quantity || quantity <= 0) {
+                alert('请输入有效数量');
+                return;
+            }
+            
+            if (orderType === 'LIMIT' && (!price || price <= 0)) {
+                alert('限价单请输入有效价格');
+                return;
+            }
+
+            // 转换为系统内部精度 (8位小数)
+            const priceInt = orderType === 'MARKET' ? 0 : Math.round(price * 100000000);
+            const quantityInt = Math.round(quantity * 100000000);
+
+            const request = {
+                symbol: symbol,
+                side: state.tradeSide,
+                type: orderType,  // 注意：OMS期望字段名是 type 而不是 orderType
+                price: String(priceInt),  // 转为字符串
+                quantity: String(quantityInt),  // 转为字符串
+                leverage: leverage,
+                timeInForce: 'GTC',  // 默认有效期类型
+                clientOrderId: `web_${Date.now()}`
+            };
+
+            try {
+                log('info', `提交订单: ${state.tradeSide} ${symbol} ${orderType} 价格:${price} 数量:${quantity}`);
+                
+                // 使用 API Gateway 路由路径 /api/order/create
+                const res = await fetch(`${CONFIG.API_GATEWAY}/api/order/create`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${state.token}`,
+                        'X-Idempotency-Key': `idem_${Date.now()}`
+                    },
+                    body: JSON.stringify(request)
+                });
+                
+                const data = await res.json();
+                if (data.success || data.code === 0 || data.code === 200) {
+                    const orderId = data.orderId || data.data?.orderId;
+                    log('success', `订单提交成功: ${orderId}`);
+                    
+                    // 跟踪用户挂单（用于K线显示）
+                    if (orderType === 'LIMIT' && orderId) {
+                        userPendingOrders.set(String(orderId), {
+                            orderId: String(orderId),
+                            price: parseFloat(price),
+                            side: state.tradeSide,
+                            quantity: parseFloat(quantity),
+                            symbol: symbol
+                        });
+                        log('info', `挂单跟踪: ${state.tradeSide} ${price} @ ${quantity}`);
+                        // 刷新用户挂单显示
+                        refreshUserOrdersOnKline();
+                    }
+                    
+                    alert('订单提交成功！');
+                    refreshBalance();
+                    // 盘口数据会通过 WebSocket 自动更新，无需手动刷新
+                } else {
+                    log('error', `订单提交失败: ${data.message || data.errorMsg}`);
+                    alert('订单提交失败: ' + (data.message || data.errorMsg));
+                }
+            } catch (err) {
+                log('error', '下单异常: ' + err.message);
+                alert('网络错误: ' + err.message);
+            }
+        }
+
+        // ==================== WebSocket ====================
+        function connectWebSockets() {
+            // 公有推送无需登录
+            connectPublicWS();
+            // 私有推送需要 token
+            connectPrivateWS();
+        }
+
+        function connectPublicWS() {
+            if (state.publicWs) state.publicWs.close();
+            
+            updateWsStatus('public', 'connecting');
+            log('info', '正在连接公有推送...');
+            
+            try {
+                state.publicWs = new WebSocket(CONFIG.PUBLIC_PUSH_WS);
+                
+                state.publicWs.onopen = () => {
+                    updateWsStatus('public', 'connected');
+                    log('success', '公有推送已连接');
+                    
+                    // 订阅行情数据（订阅成功后会自动收到快照数据）
+                    subscribePublic(['trade.BTCUSDT', 'depth.BTCUSDT', 'kline.BTCUSDT.1m']);
+                    log('info', '已订阅: trade.BTCUSDT, depth.BTCUSDT, kline.BTCUSDT.1m');
+                    log('info', '等待服务器推送快照数据...');
+                };
+                
+                state.publicWs.onmessage = (e) => {
+                    try {
+                        const msg = JSON.parse(e.data);
+                        log('debug', '收到 WebSocket 消息: ' + JSON.stringify(msg).substring(0, 200));
+                        handlePublicMessage(msg);
+                    } catch (err) {
+                        log('error', '解析 WebSocket 消息失败: ' + err.message + ', data: ' + e.data.substring(0, 200));
+                    }
+                };
+                
+                state.publicWs.onclose = (event) => {
+                    updateWsStatus('public', 'disconnected');
+                    log('warn', `公有推送已断开 (代码: ${event.code})`);
+                    setTimeout(connectPublicWS, 5000);
+                };
+                
+                state.publicWs.onerror = (err) => {
+                    log('error', '公有推送错误: ' + (err.message || 'WebSocket 连接失败，请检查服务是否运行 (public-push-core:8096)'));
+                };
+            } catch (err) {
+                log('error', '公有推送连接失败: ' + err.message);
+            }
+        }
+
+        function connectPrivateWS() {
+            // 检查 token 是否存在
+            if (!state.token) {
+                log('warn', '未登录，跳过私有推送连接');
+                updateWsStatus('private', 'disconnected');
+                return;
+            }
+            
+            if (state.privateWs) state.privateWs.close();
+            
+            updateWsStatus('private', 'connecting');
+            log('info', '正在连接私有推送...');
+            
+            try {
+                // 通过 query 参数传递 token
+                const wsUrl = `${CONFIG.PRIVATE_PUSH_WS}?token=${state.token}`;
+                log('info', `WebSocket URL: ${wsUrl.replace(state.token, '***')}`);
+                state.privateWs = new WebSocket(wsUrl);
+                
+                state.privateWs.onopen = () => {
+                    updateWsStatus('private', 'connected');
+                    log('success', '私有推送已连接');
+                    
+                    // 订阅私有频道
+                    subscribePrivate(['executionReport', 'account', 'position']);
+                };
+                
+                state.privateWs.onmessage = (e) => {
+                    const msg = JSON.parse(e.data);
+                    handlePrivateMessage(msg);
+                };
+                
+                state.privateWs.onclose = (event) => {
+                    updateWsStatus('private', 'disconnected');
+                    if (event.code === 1006) {
+                        log('error', `私有推送异常断开 (代码: ${event.code})`);
+                    } else {
+                        log('warn', `私有推送已断开 (代码: ${event.code}, 原因: ${event.reason || '未知'})`);
+                    }
+                    // 检查是否需要重连
+                    if (state.token) {
+                        setTimeout(connectPrivateWS, 5000);
+                    }
+                };
+                
+                state.privateWs.onerror = (err) => {
+                    log('error', '私有推送错误: ' + (err.message || 'WebSocket 连接失败，请检查服务是否运行'));
+                };
+            } catch (err) {
+                log('error', '私有推送连接失败: ' + err.message);
+            }
+        }
+
+        function subscribePublic(channels) {
+            if (state.publicWs && state.publicWs.readyState === WebSocket.OPEN) {
+                state.publicWs.send(JSON.stringify({
+                    method: 'SUBSCRIBE',
+                    params: channels,
+                    id: Date.now()
+                }));
+                log('info', '订阅公有频道: ' + channels.join(', '));
+            }
+        }
+
+        function subscribePrivate(channels) {
+            if (state.privateWs && state.privateWs.readyState === WebSocket.OPEN) {
+                state.privateWs.send(JSON.stringify({
+                    method: 'SUBSCRIBE',
+                    params: channels,
+                    id: Date.now()
+                }));
+                log('info', '订阅私有频道: ' + channels.join(', '));
+            }
+        }
+
+        function handlePublicMessage(msg) {
+            // 心跳响应
+            if (msg.pong) {
+                return;
+            }
+            
+            // 处理批量消息格式（batch: true）
+            if (msg.batch === true && Array.isArray(msg.messages)) {
+                log('debug', `收到批量消息，包含 ${msg.messages.length} 条`);
+                msg.messages.forEach((messageStr, idx) => {
+                    try {
+                        // 批量消息中的每个元素是 JSON 字符串，需要解析
+                        const innerMsg = typeof messageStr === 'string' ? JSON.parse(messageStr) : messageStr;
+                        log('debug', `处理批量消息 ${idx}: stream=${innerMsg.stream}`);
+                        handlePublicMessage(innerMsg);
+                    } catch (err) {
+                        log('error', '解析批量消息失败: ' + err.message);
+                    }
+                });
+                return;
+            }
+            
+            // 订阅确认
+            if (msg.result === 'subscribed') {
+                const subscribed = msg.data?.subscribed || msg.data || [];
+                log('success', `订阅成功: ${JSON.stringify(subscribed)}`);
+                // 订阅成功后，服务器会自动发送快照数据（snapshot: true）
+                if (subscribed.includes('depth.BTCUSDT')) {
+                    log('info', '深度频道订阅成功，等待服务器推送快照数据...');
+                }
+                return;
+            }
+            
+            // 处理快照数据（首次订阅时服务器会发送）
+            if (msg.snapshot === true || msg.data?.snapshot === true) {
+                const channel = msg.stream || msg.e;
+                // 修复: 使用 includes 而不是 startsWith，更宽松的匹配
+                if (channel && (channel.includes('depth') || channel.includes('DEPTH'))) {
+                    log('success', '收到深度快照数据');
+                    const depthData = msg.data || msg;
+                    wsOrderBookData = {
+                        bids: depthData.b || depthData.bids || [],
+                        asks: depthData.a || depthData.asks || [],
+                        timestamp: depthData.E || msg.E || Date.now()
+                    };
+                    lastOrderBookUpdate = Date.now();
+                    currentOrderBook = wsOrderBookData;
+                    updateOrderBookDisplay(wsOrderBookData);
+                }
+                return;
+            }
+            
+            // 处理不同频道数据
+            let channel = msg.stream || msg.e;
+            
+            // 修复: 如果没有 channel，尝试从 data 中获取
+            if (!channel && msg.data) {
+                channel = msg.data.stream || msg.data.e;
+            }
+            
+            if (!channel) {
+                // 如果没有 channel，检查是否是深度数据（通过字段判断）
+                const data = msg.data || msg;
+                if (data && (data.b || data.a || data.bids || data.asks)) {
+                    log('debug', '收到无频道标识的深度数据，尝试解析...');
+                    handleDepthUpdate(data, 'unknown');
+                } else {
+                    log('warn', '收到无频道标识的消息: ' + JSON.stringify(msg).substring(0, 200));
+                }
+                return;
+            }
+            
+            log('debug', `处理频道数据: channel=${channel}, hasData=${!!msg.data}`);
+            
+            // 修复: 更宽松的频道匹配
+            if (channel.includes('trade') || channel.includes('TRADE')) {
+                const tradeData = msg.data || msg;
+                log('info', `收到成交数据: channel=${channel}, p=${tradeData.p}, q=${tradeData.q}, m=${tradeData.m}`);
+                updateTrades(tradeData);
+            } else if (channel.includes('depth') || channel.includes('DEPTH') || channel.includes('Depth')) {
+                // WebSocket 深度数据更新
+                handleDepthUpdate(msg.data || msg, channel);
+            } else if (channel.includes('kline') || channel.includes('KLINE') || channel.includes('KLine')) {
+                updateKline(msg.data || msg);
+            } else {
+                log('warn', `未知频道: ${channel}`);
+            }
+        }
+        
+        // 新增: 统一的深度数据更新处理函数
+        function handleDepthUpdate(depthData, channel) {
+            if (!depthData) {
+                log('warn', '深度数据为空');
+                return;
+            }
+            
+            // 支持多种字段名
+            let bids = depthData.b || depthData.bids || depthData.B || [];
+            let asks = depthData.a || depthData.asks || depthData.A || [];
+            
+            // 处理数据格式转换
+            const normalizeItem = (item) => {
+                if (Array.isArray(item)) {
+                    return [item[0], item[1]];
+                }
+                if (typeof item === 'object' && item !== null) {
+                    return [item.price || item.p, item.qty || item.q || item.quantity];
+                }
+                return item;
+            };
+            
+            bids = bids.map(normalizeItem);
+            asks = asks.map(normalizeItem);
+            
+            wsOrderBookData = {
+                bids: bids,
+                asks: asks,
+                timestamp: depthData.E || depthData.T || Date.now()
+            };
+            lastOrderBookUpdate = Date.now();
+            
+            log('info', `📊 深度更新: channel=${channel}, bids=${bids.length}, asks=${asks.length}`);
+            
+            // 调试信息
+            if (bids.length > 0) {
+                log('debug', `买一: price=${bids[0][0]}, qty=${bids[0][1]}`);
+            }
+            if (asks.length > 0) {
+                log('debug', `卖一: price=${asks[0][0]}, qty=${asks[0][1]}`);
+            }
+            
+            updateOrderBookDisplay(wsOrderBookData);
+            currentOrderBook = wsOrderBookData;
+        }
+
+        function handlePrivateMessage(msg) {
+            // 连接确认
+            if (msg.e === 'connectionAck') {
+                log('success', `私有连接确认, userId: ${msg.userId}`);
+                return;
+            }
+            
+            // 订阅确认
+            if (msg.result === null && msg.id) {
+                log('success', '私有订阅确认');
+                return;
+            }
+            
+            // 账户更新
+            if (msg.e === 'outboundAccountPosition') {
+                log('info', '账户余额更新');
+                refreshBalance();
+                return;
+            }
+            
+            // 订单更新 (executionReport)
+            // 支持两种格式: {e: 'executionReport', ...} 或 {stream: 'executionReport', data: {e: 'executionReport', ...}}
+            if (msg.e === 'executionReport' || 
+                (msg.data && msg.data.e === 'executionReport') ||
+                msg.stream === 'executionReport') {
+                const data = msg.data || msg;
+                log('info', `📥 收到 executionReport: ${JSON.stringify(data).substring(0, 200)}`);
+                handleExecutionReport(data);
+                return;
+            }
+            
+            // 持仓更新 (position)
+            if (msg.e === 'position' || (msg.data && msg.data.e === 'position')) {
+                const data = msg.data || msg;
+                handlePositionUpdate(data);
+                return;
+            }
+            
+            // 其他私有消息
+            log('info', '私有消息: ' + JSON.stringify(msg).substring(0, 100));
+        }
+
+        // ==================== 数据更新 ====================
+        // 成交数据专用格式化函数（数据来自 Kafka，是内部 long 格式）
+        function formatTradePrice(price) {
+            if (price === null || price === undefined) return '0.00';
+            let num = typeof price === 'string' ? parseFloat(price) : price;
+            if (isNaN(num)) return '0.00';
+            // 成交数据一定是内部 long 格式，需要除以 10^8
+            num = num / 100000000;
+            return num.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+        }
+        
+        function formatTradeQty(qty) {
+            if (qty === null || qty === undefined) return '0.0000';
+            let num = typeof qty === 'string' ? parseFloat(qty) : qty;
+            if (isNaN(num)) return '0.0000';
+            // 成交数据一定是内部 long 格式，需要除以 10^8
+            num = num / 100000000;
+            return num.toFixed(4);
+        }
+
+        function updateTrades(data) {
+            log('info', `updateTrades called with: ${JSON.stringify(data).substring(0, 100)}`);
+            
+            if (!data) {
+                log('warn', 'updateTrades: data is null');
+                return;
+            }
+            
+            // 修复：支持单个对象或数组
+            const trades = Array.isArray(data) ? data : [data];
+            log('info', `updateTrades: ${trades.length} trades to display`);
+            
+            if (trades.length === 0) {
+                log('warn', 'updateTrades: no trades');
+                return;
+            }
+            
+            const list = document.getElementById('tradeList');
+            if (!list) {
+                log('error', 'updateTrades: tradeList element not found!');
+                return;
+            }
+            
+            // 获取现有的 trades（如果存在）
+            let existingHtml = list.innerHTML;
+            if (existingHtml.includes('等待数据...')) {
+                existingHtml = '';
+            }
+            
+            // 添加新的 trades 到顶部
+            let newHtml = '';
+            trades.slice(0, 20).forEach((trade, idx) => {
+                const isBuy = trade.m; // m = isBuyerMaker
+                const side = isBuy ? 'sell' : 'buy';
+                const sideText = isBuy ? '卖出' : '买入';
+                
+                log('debug', `Trade ${idx}: p=${trade.p}, q=${trade.q}, m=${trade.m}, side=${side}`);
+                
+                newHtml += `
+                    <div class="trade-item">
+                        <span class="trade-${side}">${sideText}</span>
+                        <span class="trade-price">${formatTradePrice(trade.p)}</span>
+                        <span>${formatTradeQty(trade.q)}</span>
+                    </div>
+                `;
+            });
+            
+            // 将新数据放在顶部，保留最多 50 条
+            list.innerHTML = newHtml + existingHtml;
+            log('info', `updateTrades: DOM updated, list now has ${list.querySelectorAll('.trade-item').length} items`);
+            
+            // 限制显示数量
+            const items = list.querySelectorAll('.trade-item');
+            if (items.length > 50) {
+                for (let i = 50; i < items.length; i++) {
+                    items[i].remove();
+                }
+            }
+        }
+
+        // 从 WebSocket 更新订单簿 (外部数据)
+        function updateOrderBook(data) {
+            if (!data) return;
+            
+            // 卖单 (Asks) - 红色，倒序显示
+            if (data.asks) {
+                const asks = data.asks.slice(0, 8).reverse();
+                let asksHtml = '';
+                asks.forEach(([price, qty]) => {
+                    asksHtml += `
+                        <div class="orderbook-row orderbook-ask">
+                            <span>${formatPrice(price)}</span>
+                            <span>${formatQty(qty)}</span>
+                            <span>--</span>
+                        </div>
+                    `;
+                });
+                document.getElementById('orderbookAsks').innerHTML = asksHtml;
+            }
+            
+            // 买单 (Bids) - 绿色
+            if (data.bids) {
+                const bids = data.bids.slice(0, 8);
+                let bidsHtml = '';
+                bids.forEach(([price, qty]) => {
+                    bidsHtml += `
+                        <div class="orderbook-row orderbook-bid">
+                            <span>${formatPrice(price)}</span>
+                            <span>${formatQty(qty)}</span>
+                            <span>--</span>
+                        </div>
+                    `;
+                });
+                document.getElementById('orderbookBids').innerHTML = bidsHtml;
+            }
+            
+            // 价差计算（数据已从WebSocket接收，已是格式化后的价格）
+            if (data.asks && data.bids && data.asks[0] && data.bids[0]) {
+                const bestAsk = parseFloat(data.asks[0][0]);
+                const bestBid = parseFloat(data.bids[0][0]);
+                const spread = bestAsk - bestBid;
+                document.getElementById('orderbookSpread').textContent = `价差: ${spread.toFixed(2)} USDT`;
+            }
+        }
+
+        // ==================== 订单 & 持仓 Tab ====================
+        function switchBottomTab(tab) {
+            state.currentBottomTab = tab;
+            
+            // 更新按钮样式
+            const ordersBtn = document.getElementById('tabOrdersBtn');
+            const positionsBtn = document.getElementById('tabPositionsBtn');
+            const ordersPanel = document.getElementById('ordersPanel');
+            const positionsPanel = document.getElementById('positionsPanel');
+            
+            if (tab === 'orders') {
+                ordersBtn.style.background = '#238636';
+                ordersBtn.style.color = 'white';
+                positionsBtn.style.background = '#30363d';
+                positionsBtn.style.color = '#c9d1d9';
+                ordersPanel.style.display = 'block';
+                positionsPanel.style.display = 'none';
+                loadOrders(state.currentOrderFilter);
+            } else {
+                ordersBtn.style.background = '#30363d';
+                ordersBtn.style.color = '#c9d1d9';
+                positionsBtn.style.background = '#238636';
+                positionsBtn.style.color = 'white';
+                ordersPanel.style.display = 'none';
+                positionsPanel.style.display = 'block';
+                loadPositions();
+            }
+        }
+        
+        async function loadOrders(filter) {
+            state.currentOrderFilter = filter;
+            
+            // 更新按钮样式
+            const buttons = document.querySelectorAll('#ordersPanel button');
+            buttons.forEach(btn => {
+                if (btn.textContent.includes(filter === 'active' ? '当前' : '历史')) {
+                    btn.style.background = '#21262d';
+                    btn.style.color = '#c9d1d9';
+                } else {
+                    btn.style.background = 'transparent';
+                    btn.style.color = '#8b949e';
+                }
+            });
+            
+            const container = document.getElementById('ordersList');
+            container.innerHTML = '<div style="text-align:center;color:#8b949e;padding:30px;"><div>加载中...</div></div>';
+            
+            try {
+                const symbol = document.getElementById('symbol').value || 'BTCUSDT';
+                let url = `${CONFIG.API_GATEWAY}/api/v1/oms/order/list?limit=50`;
+                
+                if (filter === 'active') {
+                    url += '&status=NEW,PENDING_RISK,FROZEN,PARTIALLY_FILLED';
+                } else {
+                    url += '&status=FILLED,CANCELED,REJECTED';
+                }
+                
+                const res = await fetch(url, {
+                    headers: { 'Authorization': `Bearer ${state.token}` }
+                });
+                
+                if (res.ok) {
+                    const data = await res.json();
+                    const orders = data.orders || [];
+                    
+                    // 更新缓存
+                    orders.forEach(order => {
+                        orderCache.set(order.orderId, order);
+                    });
+                    
+                    renderOrders(orders, filter);
+                } else {
+                    container.innerHTML = `<div style="text-align:center;color:#f85149;padding:30px;">加载失败</div>`;
+                }
+            } catch (err) {
+                log('error', '加载订单失败: ' + err.message);
+                container.innerHTML = `<div style="text-align:center;color:#f85149;padding:30px;">加载失败: ${err.message}</div>`;
+            }
+        }
+        
+        function renderOrders(orders, filter) {
+            const container = document.getElementById('ordersList');
+            
+            if (orders.length === 0) {
+                container.innerHTML = `
+                    <div style="text-align:center;color:#8b949e;padding:40px;">
+                        <div style="font-size:14px;margin-bottom:8px;">暂无${filter === 'active' ? '委托' : '历史'}</div>
+                        <div style="font-size:12px;">${filter === 'active' ? '您当前没有进行中的订单' : '您还没有成交或取消的订单'}</div>
+                    </div>
+                `;
+                return;
+            }
+            
+            let html = `
+                <table class="data-table">
+                    <thead>
+                        <tr>
+                            <th>时间</th>
+                            <th>交易对</th>
+                            <th>方向</th>
+                            <th>价格</th>
+                            <th>数量</th>
+                            <th>已成交</th>
+                            <th>状态</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+            `;
+            
+            orders.forEach(order => {
+                const time = new Date(order.createTime).toLocaleTimeString('zh-CN');
+                const sideClass = order.side === 'BUY' ? 'side-buy' : 'side-sell';
+                const sideText = order.side === 'BUY' ? '买入' : '卖出';
+                const statusClass = getStatusClass(order.status);
+                const statusText = getStatusText(order.status);
+                // 修复：避免除以零或无效数值导致 NaN
+                const filledQty = parseFloat(order.filledQuantity) || 0;
+                const totalQty = parseFloat(order.quantity) || 1;
+                const filledPct = totalQty > 0 ? (filledQty / totalQty * 100).toFixed(1) : '0.0';
+                
+                html += `
+                    <tr>
+                        <td>${time}</td>
+                        <td>${order.symbol}</td>
+                        <td class="${sideClass}">${sideText}</td>
+                        <td>${formatPrice(order.price, order.type || order.orderType)}</td>
+                        <td>${formatQty(order.quantity)}</td>
+                        <td>${formatQty(order.filledQuantity)} (${filledPct}%)</td>
+                        <td><span class="status-badge ${statusClass}">${statusText}</span></td>
+                    </tr>
+                `;
+            });
+            
+            html += '</tbody></table>';
+            container.innerHTML = html;
+        }
+        
+        function getStatusClass(status) {
+            // 支持字符串和数字状态码
+            const statusMap = {
+                // 字符串状态
+                'NEW': 'status-new', 'PENDING_RISK': 'status-new', 'FROZEN': 'status-new',
+                'PARTIALLY_FILLED': 'status-partial',
+                'FILLED': 'status-filled',
+                'CANCELED': 'status-cancelled', 'REJECTED': 'status-cancelled',
+                // 数字状态 (0=NEW, 1=PENDING_RISK, 2=FROZEN, 3=PARTIALLY_FILLED, 4=FILLED, 5=CANCELED, 6=REJECTED)
+                0: 'status-new', 1: 'status-new', 2: 'status-new',
+                3: 'status-partial',
+                4: 'status-filled',
+                5: 'status-cancelled', 6: 'status-cancelled'
+            };
+            return statusMap[status] || 'status-new';
+        }
+        
+        function getStatusText(status) {
+            // 支持字符串和数字状态码
+            const statusMap = {
+                // 字符串状态
+                'NEW': '新建', 'PENDING_RISK': '风控中', 'FROZEN': '已冻结',
+                'PARTIALLY_FILLED': '部分成交',
+                'FILLED': '完全成交',
+                'CANCELED': '已撤销', 'REJECTED': '已拒绝',
+                // 数字状态
+                0: '新建', 1: '风控中', 2: '已冻结',
+                3: '部分成交',
+                4: '完全成交',
+                5: '已撤销', 6: '已拒绝'
+            };
+            return statusMap[status] || (status !== undefined ? String(status) : '未知');
+        }
+        
+        async function loadPositions() {
+            const container = document.getElementById('positionsList');
+            const summaryEl = document.getElementById('totalUnrealizedPnl');
+            container.innerHTML = '<div style="text-align:center;color:#8b949e;padding:30px;"><div>加载中...</div></div>';
+            summaryEl.textContent = '--';
+            
+            try {
+                const res = await fetch(`${CONFIG.API_GATEWAY}/api/v1/position/list?userId=${state.userId}`, {
+                    headers: { 'Authorization': `Bearer ${state.token}` }
+                });
+                
+                if (res.ok) {
+                    const data = await res.json();
+                    const positions = data.positions || [];
+                    
+                    // 更新缓存
+                    positionCache.clear();
+                    positions.forEach(pos => {
+                        positionCache.set(pos.symbol, pos);
+                    });
+                    
+                    // 更新总盈亏
+                    const totalPnl = parseFloat(data.totalUnrealizedPnl || 0);
+                    summaryEl.textContent = (totalPnl >= 0 ? '+' : '') + formatMoneyDirect(totalPnl).replace(' USDT', '');
+                    summaryEl.style.color = totalPnl >= 0 ? '#3fb950' : '#f85149';
+                    
+                    renderPositions(positions);
+                } else {
+                    container.innerHTML = `<div style="text-align:center;color:#f85149;padding:30px;">加载失败</div>`;
+                }
+            } catch (err) {
+                log('error', '加载持仓失败: ' + err.message);
+                container.innerHTML = `<div style="text-align:center;color:#f85149;padding:30px;">加载失败: ${err.message}</div>`;
+            }
+        }
+        
+        function renderPositions(positions) {
+            const container = document.getElementById('positionsList');
+            
+            if (positions.length === 0) {
+                container.innerHTML = `
+                    <div style="text-align:center;color:#8b949e;padding:40px;">
+                        <div style="font-size:14px;margin-bottom:8px;">暂无持仓</div>
+                        <div style="font-size:12px;">您当前没有开仓</div>
+                    </div>
+                `;
+                return;
+            }
+            
+            let html = '';
+            positions.forEach(pos => {
+                const pnlClass = pos.unrealizedPnl >= 0 ? 'pnl-positive' : 'pnl-negative';
+                const pnlSign = pos.unrealizedPnl >= 0 ? '+' : '';
+                
+                html += `
+                    <div class="position-card">
+                        <div class="position-header">
+                            <span class="position-symbol">${pos.symbol}</span>
+                            <span class="position-side ${pos.side.toLowerCase()}">${pos.side === 'LONG' ? '做多' : '做空'} ${pos.leverage}x</span>
+                        </div>
+                        <div class="position-details">
+                            <div class="position-detail-item">
+                                <span class="position-detail-label">持仓数量</span>
+                                <span class="position-detail-value">${formatQty(pos.size)}</span>
+                            </div>
+                            <div class="position-detail-item">
+                                <span class="position-detail-label">开仓均价</span>
+                                <span class="position-detail-value">${formatPrice(pos.entryPrice)}</span>
+                            </div>
+                            <div class="position-detail-item">
+                                <span class="position-detail-label">未实现盈亏</span>
+                                <span class="position-detail-value ${pnlClass}">${pnlSign}${formatMoneyDirect(pos.unrealizedPnl).replace(' USDT', '')}</span>
+                            </div>
+                            <div class="position-detail-item">
+                                <span class="position-detail-label">已实现盈亏</span>
+                                <span class="position-detail-value">${formatMoneyDirect(pos.realizedPnl).replace(' USDT', '')}</span>
+                            </div>
+                            <div class="position-detail-item">
+                                <span class="position-detail-label">强平价格</span>
+                                <span class="position-detail-value" style="color:#f85149;">${formatPrice(pos.liquidationPrice)}</span>
+                            </div>
+                            <div class="position-detail-item">
+                                <span class="position-detail-label">保证金率</span>
+                                <span class="position-detail-value">${(parseFloat(pos.marginRatio) * 100).toFixed(2)}%</span>
+                            </div>
+                        </div>
+                    </div>
+                `;
+            });
+            
+            container.innerHTML = html;
+        }
+        
+        // ==================== WebSocket 消息处理增强 ====================
+        function handleExecutionReport(msg) {
+            log('info', `📨 订单执行报告: orderId=${msg.i}, status=${msg.X}, filled=${msg.z}/${msg.q}`);
+            
+            // 更新订单缓存
+            const orderId = String(msg.i);
+            const existingOrder = orderCache.get(orderId);
+            
+            if (existingOrder) {
+                existingOrder.status = msg.X;
+                existingOrder.filledQuantity = msg.z; // 累计已成交
+                log('info', `📝 更新订单缓存: ${orderId} -> ${msg.X}`);
+            } else {
+                // 新订单，添加到缓存
+                orderCache.set(orderId, {
+                    orderId: orderId,
+                    symbol: msg.s,
+                    side: msg.S,
+                    price: msg.p,
+                    quantity: msg.q,
+                    filledQuantity: msg.z,
+                    status: msg.X,
+                    createTime: msg.T
+                });
+                log('info', `📝 新增订单缓存: ${orderId} -> ${msg.X}`);
+            }
+            
+            // 🔥 修复：收到成交报告后，强制刷新订单列表（无论当前在哪个Tab）
+            // 因为订单状态可能从 active 变为 history
+            if (state.currentBottomTab === 'orders') {
+                log('info', `🔄 刷新订单列表 (当前filter: ${state.currentOrderFilter})`);
+                loadOrders(state.currentOrderFilter);
+                
+                // 如果订单已成交或撤销，同时刷新另一个Tab（可能订单状态已变更）
+                if (msg.X === 'FILLED' || msg.X === 'CANCELED' || msg.X === 'REJECTED') {
+                    // 延迟刷新，确保后端数据已更新
+                    setTimeout(() => {
+                        log('info', `🔄 订单${msg.X}，重新加载当前Tab`);
+                        loadOrders(state.currentOrderFilter);
+                    }, 300);
+                }
+            }
+            
+            // 如果完全成交或撤销，刷新余额和持仓
+            if (msg.X === 'FILLED' || msg.X === 'CANCELED') {
+                setTimeout(() => {
+                    refreshBalance();
+                    // 刷新持仓（成交后持仓会变化）
+                    if (msg.X === 'FILLED') {
+                        loadPositions();
+                    }
+                }, 500);
+            }
+        }
+        
+        function handlePositionUpdate(msg) {
+            log('info', `持仓更新: ${msg.s}`);
+            
+            // 更新持仓缓存
+            const symbol = msg.s;
+            positionCache.set(symbol, {
+                symbol: symbol,
+                side: msg.ps,
+                size: msg.pa,
+                entryPrice: msg.ep,
+                markPrice: msg.mp,
+                unrealizedPnl: msg.up,
+                leverage: msg.l
+            });
+            
+            // 如果当前在持仓Tab，刷新显示
+            if (state.currentBottomTab === 'positions') {
+                loadPositions();
+            }
+        }
+        
+        // ==================== K线图表挂单显示 ====================
+        async function refreshUserOrdersOnKline() {
+            if (!state.userId) return;
+            
+            try {
+                const symbol = document.getElementById('symbol').value || 'BTCUSDT';
+                const res = await fetch(`${CONFIG.API_GATEWAY}/api/v1/match/orderbook/user-orders/${symbol}?userId=${state.userId}`);
+                
+                if (res.ok) {
+                    const data = await res.json();
+                    if (data.orders) {
+                        // 更新本地挂单跟踪
+                        userPendingOrders.clear();
+                        data.orders.forEach(order => {
+                            userPendingOrders.set(String(order.orderId), order);
+                        });
+                    }
+                    updateKlineWithOrders();
+                }
+            } catch (err) {
+                log('error', '获取用户挂单失败: ' + err.message);
+            }
+        }
+        
+        // 更新K线显示（包含挂单标记）
+        function updateKlineWithOrders() {
+            const container = document.getElementById('klineContainer');
+            const currentPrice = currentOrderBook.bids[0] ? parseFloat(currentOrderBook.bids[0][0]) : 50000;
+            
+            // 获取当前symbol的挂单
+            const symbol = document.getElementById('symbol').value || 'BTCUSDT';
+            const userOrders = Array.from(userPendingOrders.values()).filter(o => o.symbol === symbol);
+            
+            // 构建挂单显示HTML
+            let ordersHtml = '';
+            if (userOrders.length > 0) {
+                ordersHtml = `
+                    <div style="margin-top:15px;padding:10px;background:#21262d;border-radius:6px;">
+                        <div style="font-size:12px;color:#8b949e;margin-bottom:8px;">📍 我的挂单 (${userOrders.length})</div>
+                        <div style="display:flex;flex-direction:column;gap:4px;">
+                            ${userOrders.map(order => `
+                                <div style="display:flex;justify-content:space-between;align-items:center;font-size:13px;">
+                                    <span style="color:${order.side === 'BUY' ? '#3fb950' : '#f85149'}">
+                                        ${order.side === 'BUY' ? '买入' : '卖出'} @ ${formatPrice(order.price)}
+                                    </span>
+                                    <span style="color:#8b949e">${formatQty(order.quantity)} BTC</span>
+                                </div>
+                            `).join('')}
+                        </div>
+                    </div>
+                `;
+            }
+            
+            container.innerHTML = `
+                <div style="width:100%;padding:20px;">
+                    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:20px;">
+                        <div style="text-align:left">
+                            <div style="font-size:32px;font-weight:600;color:${currentPrice >= 50000 ? '#3fb950' : '#f85149'}">
+                                ${formatPrice(currentPrice)}
+                            </div>
+                            <div style="font-size:12px;color:#8b949e;margin-top:4px;">USDT</div>
+                        </div>
+                        <div style="text-align:right">
+                            <div style="font-size:12px;color:#8b949e;">买一</div>
+                            <div style="color:#3fb950;font-weight:600;">${currentOrderBook.bids[0] ? formatPrice(currentOrderBook.bids[0][0]) : '--'}</div>
+                        </div>
+                        <div style="text-align:right">
+                            <div style="font-size:12px;color:#8b949e;">卖一</div>
+                            <div style="color:#f85149;font-weight:600;">${currentOrderBook.asks[0] ? formatPrice(currentOrderBook.asks[0][0]) : '--'}</div>
+                        </div>
+                    </div>
+                    
+                    <!-- 简单的价格走势模拟 -->
+                    <div style="height:200px;background:#0d1117;border-radius:8px;position:relative;overflow:hidden;margin-bottom:15px;">
+                        <svg viewBox="0 0 100 100" preserveAspectRatio="none" style="width:100%;height:100%;">
+                            <defs>
+                                <linearGradient id="chartGradient" x1="0%" y1="0%" x2="0%" y2="100%">
+                                    <stop offset="0%" style="stop-color:#238636;stop-opacity:0.3" />
+                                    <stop offset="100%" style="stop-color:#238636;stop-opacity:0" />
+                                </linearGradient>
+                            </defs>
+                            <path d="M0,80 Q20,70 40,75 T80,60 T100,50" 
+                                  fill="none" 
+                                  stroke="#238636" 
+                                  stroke-width="0.5"/>
+                            <path d="M0,80 Q20,70 40,75 T80,60 T100,50 L100,100 L0,100 Z" 
+                                  fill="url(#chartGradient)"/>
+                        </svg>
+                        
+                        <!-- 在当前价格位置显示标记 -->
+                        <div style="position:absolute;left:0;right:0;top:50%;height:1px;background:#30363d;opacity:0.5;"></div>
+                        <div style="position:absolute;right:10px;top:48%;font-size:10px;color:#8b949e;">当前价</div>
+                        
+                        <!-- 用户挂单标记 -->
+                        ${userOrders.map(order => {
+                            const pct = Math.max(0, Math.min(100, 100 - ((order.price - currentPrice * 0.95) / (currentPrice * 0.1)) * 100));
+                            const color = order.side === 'BUY' ? '#3fb950' : '#f85149';
+                            return `<div style="position:absolute;left:0;right:0;top:${pct}%;height:2px;background:${color};opacity:0.8;">
+                                <div style="position:absolute;right:5px;top:-8px;font-size:9px;color:${color};">${order.side === 'BUY' ? '买' : '卖'} ${formatPrice(order.price)}</div>
+                            </div>`;
+                        }).join('')}
+                    </div>
+                    
+                    ${ordersHtml}
+                    
+                    <div style="text-align:center;color:#8b949e;font-size:12px;margin-top:15px;">
+                        数据每2秒自动刷新 | 挂单实时同步
+                    </div>
+                </div>
+            `;
+        }
+        
+        // ==================== K线图表函数 ====================
+        
+        function initKlineChart() {
+            const chartContainer = document.getElementById('klineChart');
+            if (!chartContainer) return;
+            
+            // 如果已经有图表，先移除
+            if (klineChart) {
+                klineChart.remove();
+            }
+            
+            klineChart = LightweightCharts.createChart(chartContainer, {
+                layout: {
+                    background: { color: '#0d1117' },
+                    textColor: '#8b949e',
+                },
+                grid: {
+                    vertLines: { color: '#161b22' },
+                    horzLines: { color: '#161b22' },
+                },
+                crosshair: {
+                    mode: LightweightCharts.CrosshairMode.Normal,
+                    vertLine: {
+                        color: '#58a6ff',
+                        labelBackgroundColor: '#58a6ff',
+                    },
+                    horzLine: {
+                        color: '#58a6ff',
+                        labelBackgroundColor: '#58a6ff',
+                    },
+                },
+                rightPriceScale: {
+                    borderColor: '#30363d',
+                },
+                timeScale: {
+                    borderColor: '#30363d',
+                    timeVisible: true,
+                    secondsVisible: false,
+                },
+                handleScroll: {
+                    vertTouchDrag: false,
+                },
+            });
+
+            // 创建K线系列
+            klineSeries = klineChart.addCandlestickSeries({
+                upColor: '#3fb950',
+                downColor: '#f85149',
+                borderUpColor: '#3fb950',
+                borderDownColor: '#f85149',
+                wickUpColor: '#3fb950',
+                wickDownColor: '#f85149',
+            });
+
+            // 创建成交量系列
+            klineVolumeSeries = klineChart.addHistogramSeries({
+                color: '#26a69a',
+                priceFormat: {
+                    type: 'volume',
+                },
+                priceScaleId: '',
+                scaleMargins: {
+                    top: 0.85,
+                    bottom: 0,
+                },
+            });
+
+            // 自适应大小
+            const resizeObserver = new ResizeObserver(entries => {
+                if (!klineChart || entries.length === 0) return;
+                const newRect = entries[0].contentRect;
+                klineChart.applyOptions({ width: newRect.width, height: newRect.height });
+            });
+            resizeObserver.observe(chartContainer);
+            
+            // 生成初始数据
+            generateInitialKlineData();
+            
+            log('success', 'K线图表初始化完成');
+        }
+        
+        // 从 API Gateway 获取真实历史K线数据
+        async function fetchHistoricalKlines() {
+            const symbol = document.getElementById('symbol')?.value || 'BTCUSDT';
+            const interval = currentKlineInterval;
+            
+            log('info', `正在加载 ${symbol} ${interval} 历史K线数据...`);
+            
+            try {
+                // 通过 API Gateway 获取K线数据 (网关路由路径)
+                const response = await fetch(
+                    `${CONFIG.API_GATEWAY}/api/v1/klines?symbol=${symbol}&interval=${interval}&limit=200`
+                );
+                
+                if (!response.ok) {
+                    // API可能还没准备好，显示空图表
+                    console.warn(`K线API返回 ${response.status}，等待WebSocket实时数据...`);
+                    showEmptyKlineChart();
+                    return;
+                }
+                
+                const result = await response.json();
+                
+                if (result.code !== 0 && result.code !== 200) {
+                    throw new Error(result.message || '获取K线数据失败');
+                }
+                
+                const klines = result.data || [];
+                
+                if (klines.length === 0) {
+                    log('warn', '暂无历史K线数据，等待实时成交生成...');
+                    showEmptyKlineChart();
+                    return;
+                }
+                
+                // 转换数据格式
+                const candleData = [];
+                const volumeData = [];
+                
+                klines.forEach(k => {
+                    // API返回格式: [openTime, open, high, low, close, volume, closeTime, quoteVolume, count, takerBuyVolume, takerBuyQuoteVolume]
+                    const openTime = Math.floor(k[0] / 1000); // 转换为秒级时间戳
+                    const open = formatPrice(k[1]);
+                    const high = formatPrice(k[2]);
+                    const low = formatPrice(k[3]);
+                    const close = formatPrice(k[4]);
+                    const volume = formatQty(k[5]);
+                    
+                    candleData.push({
+                        time: openTime,
+                        open: open,
+                        high: high,
+                        low: low,
+                        close: close
+                    });
+                    
+                    volumeData.push({
+                        time: openTime,
+                        value: volume,
+                        color: close >= open ? 'rgba(63, 185, 80, 0.5)' : 'rgba(248, 81, 73, 0.5)'
+                    });
+                });
+                
+                // 设置数据
+                klineSeries.setData(candleData);
+                klineVolumeSeries.setData(volumeData);
+                klineDataMap.set(interval, candleData);
+                
+                // 更新当前价格
+                const lastCandle = candleData[candleData.length - 1];
+                lastKlinePrice = lastCandle.close;
+                updateKlinePriceDisplay(lastCandle.close, lastCandle.close);
+                
+                log('success', `已加载 ${klines.length} 根真实K线数据`);
+                
+            } catch (err) {
+                log('warn', `历史K线暂未就绪: ${err.message}，等待WebSocket实时数据...`);
+                showEmptyKlineChart();
+            }
+        }
+        
+        // 显示空K线图表（等待实时数据）
+        function showEmptyKlineChart() {
+            if (klineSeries) {
+                klineSeries.setData([]);
+            }
+            if (klineVolumeSeries) {
+                klineVolumeSeries.setData([]);
+            }
+            // 显示当前价格（从盘口获取）
+            const price = currentOrderBook.bids[0] ? 
+                parseFloat(currentOrderBook.bids[0][0]) / 1e8 : 0;
+            if (price > 0) {
+                updateKlinePriceDisplay(price, price);
+            }
+        }
+        
+        // 兼容旧函数名
+        function generateInitialKlineData() {
+            fetchHistoricalKlines();
+        }
+        
+        function updateKline(data) {
+            if (!data || !data.k || !klineSeries) return;
+            
+            const k = data.k;
+            
+            // 只处理当前周期的K线
+            if (k.i !== currentKlineInterval) return;
+            
+            const candle = {
+                time: Math.floor(k.t / 1000),
+                open: formatPrice(k.o),
+                high: formatPrice(k.h),
+                low: formatPrice(k.l),
+                close: formatPrice(k.c)
+            };
+            
+            const volume = {
+                time: Math.floor(k.t / 1000),
+                value: formatQty(k.v),
+                color: k.c >= k.o ? 'rgba(63, 185, 80, 0.5)' : 'rgba(248, 81, 73, 0.5)'
+            };
+            
+            // 更新图表
+            klineSeries.update(candle);
+            klineVolumeSeries.update(volume);
+            
+            // 更新当前价格显示
+            updateKlinePriceDisplay(candle.close, lastKlinePrice || candle.open);
+            lastKlinePrice = candle.close;
+        }
+        
+        function updateKlinePriceDisplay(price, lastPrice) {
+            const el = document.getElementById('klineCurrentPrice');
+            if (!el) return;
+            
+            el.textContent = price.toLocaleString('en-US', { 
+                minimumFractionDigits: 2, 
+                maximumFractionDigits: 2 
+            });
+            
+            if (price > lastPrice) {
+                el.className = 'kline-price up';
+            } else if (price < lastPrice) {
+                el.className = 'kline-price down';
+            }
+        }
+        
+        function changeKlineInterval(interval) {
+            // 更新按钮状态
+            document.querySelectorAll('.kline-interval-btn').forEach(btn => {
+                btn.classList.toggle('active', btn.dataset.interval === interval);
+            });
+            
+            currentKlineInterval = interval;
+            
+            // 重新订阅
+            if (state.publicWs && state.publicWs.readyState === WebSocket.OPEN) {
+                // 取消旧订阅
+                state.publicWs.send(JSON.stringify({
+                    method: 'UNSUBSCRIBE',
+                    params: [`kline.BTCUSDT.${currentKlineInterval}`],
+                    id: Date.now()
+                }));
+                
+                // 订阅新周期
+                setTimeout(() => {
+                    subscribePublic([`kline.BTCUSDT.${interval}`]);
+                }, 100);
+            }
+            
+            // 重新生成数据
+            generateInitialKlineData();
+            
+            log('info', `切换K线周期: ${interval}`);
+        }
+        
+        function getKlineIntervalMs(interval) {
+            const unit = interval.slice(-1);
+            const value = parseInt(interval.slice(0, -1));
+            const multipliers = { 's': 1000, 'm': 60 * 1000, 'h': 60 * 60 * 1000, 'd': 24 * 60 * 60 * 1000 };
+            return value * (multipliers[unit] || 60000);
+        }
+        
+        // 保留旧的挂单显示函数（简化版）
+        function updateKlineWithOrders() {
+            // 此函数保留兼容性，但不再渲染整个图表
+            // 图表现在由TradingView管理
+        }
+
+        // ==================== 工具函数 ====================
+        function updateWsStatus(type, status) {
+            const el = document.getElementById(type + 'WsStatus');
+            el.className = 'ws-status ' + status;
+            el.textContent = type === 'public' ? '公有推送' : '私有推送';
+        }
+
+        function log(level, message) {
+            const panel = document.getElementById('logPanel');
+            const time = new Date().toLocaleTimeString('zh-CN', { hour12: false });
+            const colors = {
+                info: 'log-info',
+                success: 'log-success',
+                error: 'log-error',
+                warn: 'log-warn'
+            };
+            
+            const entry = document.createElement('div');
+            entry.className = 'log-entry';
+            entry.innerHTML = `<span class="log-time">${time}</span> <span class="${colors[level] || 'log-info'}">${message}</span>`;
+            panel.appendChild(entry);
+            panel.scrollTop = panel.scrollHeight;
+        }
+
+        function clearLogs() {
+            document.getElementById('logPanel').innerHTML = '';
+        }
+
+        function reconnectWs() {
+            log('info', '手动重连 WebSocket...');
+            connectWebSockets();
+        }
+
+        function formatMoney(amount) {
+            // 系统内部是 8位小数，转换为显示格式
+            const num = parseFloat(amount) / 100000000;
+            return num.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 8 }) + ' USDT';
+        }
+
+        function formatMoneyDirect(amount) {
+            // snapshot-account-core 返回的是 BigDecimal 格式（如 100000.00）
+            const num = parseFloat(amount);
+            return num.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' USDT';
+        }
+
+        function formatPrice(price, orderType) {
+            // 处理市价单
+            if (orderType === 'MARKET' || price === null || price === undefined || price === '' || price === '0') {
+                return '市价';
+            }
+            
+            let num = typeof price === "string" ? parseFloat(price) : price;
+            
+            // 检查是否为无效数值
+            if (isNaN(num) || num === 0) {
+                return orderType === 'MARKET' ? '市价' : '0.00';
+            }
+            
+            // 智能判断：如果数值 > 1亿 (100,000,000)，说明是内部 long 格式（如 5000000000000 表示 50000）
+            // 如果数值 <= 1亿，说明已经是格式化后的价格（如 50000.00）
+            if (num > 100000000) {
+                num = num / 100000000;
+            }
+            
+            return num.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+        }
+
+        function formatQty(qty) {
+            if (qty === null || qty === undefined || qty === '') {
+                return '0.0000';
+            }
+            
+            let num = typeof qty === 'string' ? parseFloat(qty) : qty;
+            
+            // 检查是否为无效数值
+            if (isNaN(num)) {
+                return '0.0000';
+            }
+            
+            // 智能判断：如果数值 > 1亿 (100,000,000)，说明是内部 long 格式（如 10000000 表示 0.1）
+            // 如果数值 <= 1亿，说明已经是格式化后的数量（如 1.5000）
+            if (num > 100000000) {
+                num = num / 100000000;
+            }
+            
+            return num.toFixed(4);
+        }
+
+        // 心跳
+        setInterval(() => {
+            const now = Date.now();
+            if (state.publicWs && state.publicWs.readyState === WebSocket.OPEN) {
+                state.publicWs.send(JSON.stringify({ ping: now }));
+            }
+            if (state.privateWs && state.privateWs.readyState === WebSocket.OPEN) {
+                state.privateWs.send(JSON.stringify({ method: 'PING', id: now }));
+            }
+        }, 30000);
+    </script>
+</body>
+</html>

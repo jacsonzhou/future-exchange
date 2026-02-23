@@ -1,0 +1,108 @@
+syntax = "proto3";
+
+package com.exchange.common.proto;
+
+option java_package = "com.exchange.common.proto";
+option java_outer_classname = "TradeProto";
+option java_multiple_files = false;
+
+/**
+ * ============================================
+ * Phase 2.1: Protobuf Schemas
+ * Trade Event 序列化定义
+ * ============================================
+ *
+ * 性能提升：
+ * - 序列化延迟：从 ms 级降到 μs 级（10-50倍）
+ * - 消息体积：减少 30-60%
+ * - CPU 占用：降低
+ *
+ * 用于 Match Engine → Clearing/Market/etc 通信
+ */
+
+/**
+ * 成交事件消息
+ */
+message TradeEvent {
+  // 成交ID
+  string trade_id = 1;
+
+  // 撮合序列号
+  int64 match_sequence = 2;
+
+  // 交易对
+  string symbol = 3;
+
+  // Maker 订单ID
+  int64 maker_order_id = 4;
+
+  // Taker 订单ID
+  int64 taker_order_id = 5;
+
+  // Maker 用户ID
+  int64 maker_user_id = 6;
+
+  // Taker 用户ID
+  int64 taker_user_id = 7;
+
+  // 成交价格（字符串，避免精度问题）
+  string price = 8;
+
+  // 成交数量（字符串，避免精度问题）
+  string quantity = 9;
+
+  // Maker 是否买单
+  bool is_maker_buy = 10;
+
+  // 成交时间（毫秒）
+  int64 trade_time = 11;
+
+  // Maker 手续费（字符串）
+  string maker_fee = 12;
+
+  // Taker 手续费（字符串）
+  string taker_fee = 13;
+
+  // 成交类型（NORMAL, LIQUIDATION, ADL）
+  string trade_type = 14;
+}
+
+/**
+ * 订单状态事件消息
+ */
+message OrderStateEvent {
+  // 事件ID
+  string event_id = 1;
+
+  // 交易对
+  string symbol = 2;
+
+  // 订单ID
+  int64 order_id = 3;
+
+  // 订单状态（NEW, PARTIALLY_FILLED, FILLED, CANCELED）
+  string status = 4;
+
+  // 成交增量（本次事件产生的成交数量）
+  string filled_quantity_delta = 5;
+
+  // 撮合序列号
+  int64 match_sequence = 6;
+
+  // 事件时间（毫秒）
+  int64 event_time = 7;
+}
+
+/**
+ * 批量成交事件（预留，用于批量发布优化）
+ */
+message TradeEventBatch {
+  // 批量成交
+  repeated TradeEvent trades = 1;
+
+  // 批次ID
+  string batch_id = 2;
+
+  // 批次时间戳
+  int64 batch_timestamp = 3;
+}

@@ -1,0 +1,14 @@
+# ============================================================
+# 测试环境配置：使用Feign直连模式
+# 启用方式：--spring.profiles.active=feign
+# ============================================================
+
+exchange:
+  oms:
+    # Feign模式：低延迟测试
+    submit-mode: feign
+
+logging:
+  level:
+    com.exchange.oms: DEBUG
+    com.exchange.oms.client.MatchEngineClient: DEBUG

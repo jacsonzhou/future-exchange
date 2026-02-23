@@ -1,0 +1,107 @@
+# ============================================
+# Ledger Core (账本服务) 配置 (dev环境)
+# 端口: 8084
+# ============================================
+
+server:
+  port: 8084
+
+spring:
+  application:
+    name: ledger-core
+  
+  # 数据源配置
+  datasource:
+    driver-class-name: com.mysql.cj.jdbc.Driver
+    url: jdbc:mysql://127.0.0.1:3306/exchange_ledger?useUnicode=true&characterEncoding=utf8&useSSL=false&serverTimezone=Asia/Shanghai&rewriteBatchedStatements=true
+    username: root
+    password: root123456
+    type: com.alibaba.druid.pool.DruidDataSource
+    druid:
+      initial-size: 10
+      min-idle: 10
+      max-active: 50
+      max-wait: 60000
+      time-between-eviction-runs-millis: 60000
+      min-evictable-idle-time-millis: 300000
+      validation-query: SELECT 1
+      test-while-idle: true
+      test-on-borrow: false
+      test-on-return: false
+  
+  # MyBatis Plus配置
+  mybatis-plus:
+    type-aliases-package: com.exchange.ledger.entity
+    configuration:
+      cache-enabled: true
+    global-config:
+      db-config:
+        id-type: input
+  
+  # Kafka配置（消费TradeEvent）
+  kafka:
+    consumer:
+      group-id: ledger-service
+      enable-auto-commit: false
+      value-deserializer: org.apache.kafka.common.serialization.ByteArrayDeserializer
+      properties:
+        max.poll.records: 500
+        fetch.min.bytes: 1024
+        fetch.max.wait.ms: 500
+        max.poll.interval.ms: 300000
+        session.timeout.ms: 30000
+    producer:
+      acks: all
+      retries: 3
+      batch-size: 16384
+      buffer-memory: 33554432
+    listener:
+      concurrency: 4
+      ack-mode: manual_immediate
+  
+  # Redis配置（biz_seq生成器+分布式锁）
+  redis:
+    host: localhost
+    port: 6379
+    password: redis123456
+    database: 0
+    timeout: 3000ms
+    lettuce:
+      pool:
+        max-active: 20
+        max-idle: 10
+        min-idle: 5
+        max-wait: 3000ms
+
+# 任务调度配置
+spring.task.scheduling.pool.size: 5
+
+# Ledger核心配置
+ledger:
+  # 默认币种
+  default-currency: USDT
+  
+  # 分表策略
+  sharding:
+    db-count: 128
+    table-months: 12
+  
+  # Replay批次大小
+  replay:
+    batch-size: 10000
+    thread-pool-size: 4
+  
+  # 对账配置
+  reconciliation:
+    enabled: true
+    cron: "0 0 2 * * ?"
+    diff-threshold: 0.00000001
+
+# Logging配置
+logging:
+  level:
+    root: INFO
+    com.exchange: INFO
+    com.exchange.ledger.mapper: DEBUG
+  file:
+    name: logs/ledger-core.log

@@ -1,0 +1,135 @@
+# ============================================
+# Liquidation Core (强平服务) 配置 (dev环境)
+# 端口: 8088
+# ============================================
+
+server:
+  port: 8088
+
+spring:
+  application:
+    name: liquidation-core
+  
+  # 数据源配置
+  datasource:
+    driver-class-name: com.mysql.cj.jdbc.Driver
+    url: jdbc:mysql://${DB_HOST:localhost}:${DB_PORT:3306}/${DB_NAME:exchange_liquidation}?useUnicode=true&characterEncoding=utf8&serverTimezone=Asia/Shanghai&useSSL=false
+    username: ${DB_USERNAME:root}
+    password: ${DB_PASSWORD:123456}
+    druid:
+      initial-size: 5
+      min-idle: 10
+      max-active: 50
+      max-wait: 60000
+      validation-query: SELECT 1
+      test-on-borrow: false
+      test-while-idle: true
+      time-between-eviction-runs-millis: 60000
+  
+  # MyBatis Plus配置
+  mybatis-plus:
+    type-aliases-package: com.exchange.liquidation.entity
+    global-config:
+      db-config:
+        id-type: assign_id
+        logic-delete-field: deleted
+        logic-delete-value: 1
+        logic-not-delete-value: 0
+  
+  # Redis配置
+  data:
+    redis:
+      host: ${REDIS_HOST:localhost}
+      port: ${REDIS_PORT:6379}
+      password: ${REDIS_PASSWORD:}
+      database: ${REDIS_DB:0}
+      timeout: 5000ms
+      lettuce:
+        pool:
+          max-active: 50
+          max-idle: 20
+          min-idle: 10
+          max-wait: 5000ms
+  
+  # Kafka配置
+  kafka:
+    consumer:
+      group-id: liquidation-service-group
+      auto-offset-reset: earliest
+      enable-auto-commit: false
+      properties:
+        max.poll.records: 50
+        max.poll.interval.ms: 300000
+        session.timeout.ms: 30000
+    producer:
+      acks: all
+      retries: 3
+      batch-size: 16384
+      buffer-memory: 33554432
+      compression-type: lz4
+      linger-ms: 5
+      properties:
+        min.insync.replicas: 2
+    listener:
+      ack-mode: manual_immediate
+
+# 强平服务配置
+liquidation:
+  # 订单配置
+  order:
+    default-type: MARKET
+    price-protection-threshold: 5
+    limit-price-slippage: 1
+    split-threshold: 10000000000
+    max-split-quantity: 5000000000
+  
+  # 执行配置
+  execution:
+    monitor-interval: 100
+    order-timeout: 30000
+    max-retry: 3
+    retry-base-interval: 100
+  
+  # 幂等配置
+  idempotency:
+    window-minutes: 5
+    redis-key-prefix: "liquidation:idempotency:"
+  
+  # 性能配置
+  performance:
+    consumer-threads: 8
+    queue-capacity: 10000
+    batch-size: 100
+  
+  # 下游服务地址
+  service:
+    oms:
+      url: http://oms-core:8081
+      timeout: 5000
+      retry: 2
+    position:
+      url: http://position-snapshot-core:8086
+      timeout: 3000
+    insurance-fund:
+      url: http://adl-core:8090
+      timeout: 3000
+    clearing:
+      url: http://ledger-core:8084
+      timeout: 5000
+
+# Kafka Topic配置
+kafka:
+  topic:
+    liquidation-trigger: liquidation-trigger-topic
+    order-status: order-state-BTCUSDT
+    liquidation-completed: liquidation-completed-topic
+    adl-trigger: adl-trigger-topic
+
+# Logging配置
+logging:
+  level:
+    com.exchange.liquidation: INFO
+    com.exchange.liquidation.consumer: INFO
+    com.exchange.liquidation.service: INFO
+  file:
+    name: logs/liquidation-service.log

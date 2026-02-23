@@ -1,0 +1,36 @@
+spring:
+  application:
+    name: user-core
+  profiles:
+    active: ${SPRING_PROFILES_ACTIVE:dev}
+  config:
+    import: optional:nacos:${spring.application.name}-${spring.profiles.active}.yml
+
+  cloud:
+    nacos:
+      username: ${NACOS_USERNAME:nacos}
+      password: ${NACOS_PASSWORD:nacos}
+      discovery:
+        server-addr: ${NACOS_SERVER_ADDR:localhost:8848}
+        namespace: ${NACOS_NAMESPACE:}
+        group: DEFAULT_GROUP
+      config:
+        server-addr: ${NACOS_SERVER_ADDR:localhost:8848}
+        file-extension: yml
+        namespace: ${NACOS_NAMESPACE:}
+        group: DEFAULT_GROUP
+        import-check:
+          enabled: false
+
+  # Redis 配置（本地覆盖，无密码）
+  redis:
+    host: 127.0.0.1
+    port: 6379
+    database: 2
+    timeout: 5000ms
+    lettuce:
+      pool:
+        max-active: 50
+        max-idle: 20
+        min-idle: 5
+        max-wait: 3000ms

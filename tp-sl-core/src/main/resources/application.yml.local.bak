@@ -1,0 +1,68 @@
+server:
+  port: 8089
+
+spring:
+  application:
+    name: tp-sl-core
+
+  datasource:
+    url: jdbc:mysql://localhost:3306/future_exchange?useUnicode=true&characterEncoding=utf8&useSSL=false&serverTimezone=Asia/Shanghai&allowPublicKeyRetrieval=true
+    username: ${DB_USERNAME:root}
+    password: ${DB_PASSWORD:root123456}
+    driver-class-name: com.mysql.cj.jdbc.Driver
+
+  kafka:
+    bootstrap-servers: localhost:9092
+    consumer:
+      group-id: tp-sl-group
+      auto-offset-reset: latest
+      key-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+      value-deserializer: org.springframework.kafka.support.serializer.JsonDeserializer
+      properties:
+        spring.json.trusted.packages: "*"
+    producer:
+      key-serializer: org.apache.kafka.common.serialization.StringSerializer
+      value-serializer: org.springframework.kafka.support.serializer.JsonSerializer
+
+  redis:
+    host: localhost
+    port: 6379
+    database: 0
+    timeout: 3000ms
+    lettuce:
+      pool:
+        max-active: 8
+        max-wait: -1ms
+        max-idle: 8
+        min-idle: 0
+
+mybatis-plus:
+  mapper-locations: classpath*:/mapper/**/*.xml
+  type-aliases-package: com.exchange.tpsl.entity
+  configuration:
+    map-underscore-to-camel-case: true
+    log-impl: org.apache.ibatis.logging.stdout.StdOutImpl
+
+# TP/SL配置
+tp-sl:
+  # 滑点保护
+  slippage:
+    max-rate: 0.005          # 最大滑点 0.5%
+    limit-order-offset: 0.003 # 限价单偏离 0.3%
+    limit-order-ttl: 10000    # 限价单有效期 10秒
+
+  # 触发配置
+  trigger:
+    confirmation-count: 2     # 确认次数
+    confirmation-interval: 100 # 确认间隔(ms)
+
+  # 重试配置
+  retry:
+    max-attempts: 3           # 最大重试次数
+    intervals: 100,200,500    # 重试间隔(ms)
+
+logging:
+  level:
+    com.exchange.tpsl: INFO
+    com.exchange.tpsl.service: DEBUG
+    com.exchange.tpsl.consumer: DEBUG

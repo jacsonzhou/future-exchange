@@ -1,0 +1,23 @@
+{
+  "iteration": 7,
+  "timestamp": "2026-02-21T09:40:00Z",
+  "phase": "smoke-test",
+  "results": {
+    "TC-USER-001": { "status": "PASSED", "duration": 120, "userId": 15 },
+    "TC-USER-004": { "status": "PASSED", "duration": 95 },
+    "TC-FUND-001": { "status": "PASSED", "duration": 80, "balance": "10000" },
+    "TC-OMS-001": { "status": "PASSED", "duration": 200, "orderId": "283532094859120640" },
+    "TC-OMS-002": { "status": "PASSED", "duration": 100 },
+    "TC-MATCH-001": { "status": "PASSED", "duration": 150 },
+    "TC-MATCH-002": { "status": "PASSED", "duration": 150 },
+    "TC-LEDGER-001": { "status": "PASSED", "duration": 100 },
+    "TC-LEDGER-005": { "status": "SKIPPED", "reason": "No ledger entries" },
+    "TC-E2E-001": { "status": "PASSED", "duration": 800, "orderId": "283532200236814336" }
+  },
+  "summary": {
+    "total": 10,
+    "passed": 9,
+    "failed": 0,
+    "skipped": 1
+  }
+}

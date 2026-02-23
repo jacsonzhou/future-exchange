@@ -1,0 +1,211 @@
+server:
+  port: 8090
+
+spring:
+  application:
+    name: margin-mode-core
+  
+  cloud:
+    nacos:
+      discovery:
+        server-addr: 127.0.0.1:8848
+        namespace: dev
+  
+  # 数据源配置
+  datasource:
+    driver-class-name: com.mysql.cj.jdbc.Driver
+    url: jdbc:mysql://127.0.0.1:3306/exchange_margin?useUnicode=true&characterEncoding=utf8&useSSL=false&serverTimezone=Asia/Shanghai&rewriteBatchedStatements=true
+    username: root
+    password: root
+    type: com.alibaba.druid.pool.DruidDataSource
+    druid:
+      initial-size: 10
+      min-idle: 10
+      max-active: 50
+      max-wait: 60000
+      time-between-eviction-runs-millis: 60000
+      min-evictable-idle-time-millis: 300000
+      validation-query: SELECT 1
+      test-while-idle: true
+      test-on-borrow: false
+      test-on-return: false
+  
+  # Kafka配置（消费价格变动事件，发布风险事件）
+  # 🔥 P0修复：改为手动ACK模式，与Liquidation Service保持一致，防止消息丢失
+  kafka:
+    bootstrap-servers: localhost:9092
+    consumer:
+      group-id: margin-mode-service
+      auto-offset-reset: earliest
+      enable-auto-commit: false  # 🔥 改为false，使用手动ACK
+      key-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+      value-deserializer: org.springframework.kafka.support.serializer.JsonDeserializer
+      properties:
+        spring.json.trusted.packages: "*"
+        max.poll.records: 500
+        fetch.min.bytes: 1024
+        fetch.max.wait.ms: 500
+    producer:
+      key-serializer: org.apache.kafka.common.serialization.StringSerializer
+      value-serializer: org.springframework.kafka.support.serializer.JsonSerializer
+      acks: all
+      retries: 3
+      batch-size: 16384
+      buffer-memory: 33554432
+    listener:
+      concurrency: 4
+      ack-mode: manual_immediate  # 🔥 改为手动立即确认
+  
+  # Redis配置（缓存保证金快照）
+  redis:
+    host: localhost
+    port: 6379
+    database: 0
+    timeout: 3000ms
+    lettuce:
+      pool:
+        max-active: 20
+        max-idle: 10
+        min-idle: 5
+        max-wait: 3000ms
+
+# MyBatis Plus配置
+mybatis-plus:
+  mapper-locations: classpath*:/mapper/**/*.xml
+  type-aliases-package: com.exchange.margin.entity
+  configuration:
+    map-underscore-to-camel-case: true
+    log-impl: org.apache.ibatis.logging.slf4j.Slf4jImpl
+    cache-enabled: true
+  global-config:
+    db-config:
+      id-type: auto
+      logic-delete-field: deleted
+      logic-delete-value: 1
+      logic-not-delete-value: 0
+
+# Logging配置
+logging:
+  level:
+    root: INFO
+    com.exchange: INFO
+    com.exchange.margin.mapper: DEBUG
+  pattern:
+    console: "%clr(%d{yyyy-MM-dd HH:mm:ss.SSS}){faint} %clr([%thread]){magenta} %clr(%-5level){highlight} %clr(%logger{36}){cyan} %clr(-){faint} %msg%n"
+    file: "%d{yyyy-MM-dd HH:mm:ss.SSS} [%thread] %-5level %logger{36} - %msg%n"
+  file:
+    name: logs/margin-mode-core.log
+    max-size: 100MB
+    max-history: 30
+
+# 任务调度配置
+spring.task.scheduling.pool.size: 5
+
+# 🍀 P1: 监控与链路追踪配置
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics,prometheus
+  endpoint:
+    health:
+      show-details: always
+  metrics:
+    export:
+      prometheus:
+        enabled: true
+    tags:
+      application: ${spring.application.name}
+  tracing:
+    sampling:
+      probability: 1.0
+  zipkin:
+    tracing:
+      endpoint: http://localhost:9411/api/v2/spans
+
+# Margin Mode核心配置
+margin:
+  # 保证金模式配置
+  mode:
+    # 默认保证金模式：CROSS/ISOLATED
+    default: CROSS
+    # 是否允许切换模式
+    allow-switch: true
+  
+  # 杠杆配置
+  leverage:
+    # 默认杠杆倍数
+    default: 10
+    # 最大杠杆倍数
+    max: 125
+    # 最小杠杆倍数
+    min: 1
+  
+  # 风险阈值配置（万分比）
+  risk:
+    # 安全阈值：100% = 10000
+    safe-threshold: 10000
+    # 警告阈值：50% = 5000
+    warning-threshold: 5000
+    # 危险阈值：20% = 2000
+    danger-threshold: 2000
+    # 强平阈值：10% = 1000
+    liquidation-threshold: 1000
+  
+  # 维持保证金率配置
+  maintenance-margin:
+    # 默认维持保证金率：0.5% = 50
+    default-rate: 50
+    # 最大维持保证金率：50% = 5000
+    max-rate: 5000
+  
+  # 快照更新配置
+  snapshot:
+    # 是否自动更新快照
+    auto-update: true
+    # 快照更新间隔（毫秒）
+    update-interval: 1000
+    # 批量更新大小
+    batch-size: 100
+  
+  # 强平检查配置
+  liquidation:
+    # 是否启用自动强平检查
+    auto-check: true
+    # 强平检查间隔（毫秒）
+    check-interval: 500
+    # 强平执行超时（毫秒）
+    execution-timeout: 30000
+
+# 外部服务调用配置
+service:
+  # 账户服务
+  account:
+    url: http://localhost:9090
+    connect-timeout: 5000
+    read-timeout: 10000
+
+  # 仓位服务
+  # 🔥 P0修复：端口从8084修正为8086（与position-snapshot-core保持一致）
+  position:
+    url: http://localhost:8086
+    connect-timeout: 5000
+    read-timeout: 10000
+
+  # 标记价格服务
+  markprice:
+    url: http://localhost:8089
+    connect-timeout: 3000
+    read-timeout: 5000
+
+  # 账本服务（新增）
+  ledger:
+    url: http://localhost:8085
+    connect-timeout: 5000
+    read-timeout: 10000
+
+  # 订单服务（新增）
+  order:
+    url: http://localhost:9091
+    connect-timeout: 5000
+    read-timeout: 10000

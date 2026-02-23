@@ -1,0 +1,117 @@
+# ============================================
+# Public Push Core (公有推送系统) 配置 (dev环境)
+# 端口: 8096
+# ============================================
+
+server:
+  port: 8096
+
+spring:
+  application:
+    name: public-push-service
+
+  # WebSocket配置
+  websocket:
+    max-connections: 100000
+    heartbeat-interval: 30
+    heartbeat-timeout: 5
+    max-message-size: 65536
+    send-timeout: 5000
+
+  # Redis配置
+  redis:
+    host: ${REDIS_HOST:localhost}
+    port: ${REDIS_PORT:6379}
+    password: ${REDIS_PASSWORD:}
+    database: 0
+    timeout: 2000ms
+    lettuce:
+      pool:
+        max-active: 100
+        max-idle: 50
+        min-idle: 10
+        max-wait: 1000ms
+
+  # Kafka配置
+  kafka:
+    consumer:
+      group-id: ${spring.application.name}
+      auto-offset-reset: latest
+      enable-auto-commit: false
+      max-poll-records: 500
+      fetch-min-bytes: 1
+      fetch-max-wait-ms: 10
+    producer:
+      acks: 1
+      retries: 3
+      batch-size: 16384
+      linger-ms: 5
+
+# 公有推送服务配置
+public-push:
+  # WebSocket配置
+  websocket:
+    max-connections: 100000
+    max-connections-per-ip: 50
+    connection-rate-limit: 10
+    heartbeat-interval-ms: 30000
+    heartbeat-timeout-ms: 5000
+    send-buffer-size: 32768
+    receive-buffer-size: 32768
+  
+  # 订阅配置
+  subscription:
+    max-subscriptions-per-session: 1024
+    subscription-rate-limit: 10
+    auto-resubscribe: true
+  
+  # 消息推送配置
+  push:
+    batch-interval-ms: 50
+    batch-size: 100
+    batch-queue-size: 10000
+    compression-enabled: false
+    compression-threshold: 1024
+  
+  # 限流配置
+  rate-limit:
+    enabled: true
+    ip-connection:
+      enabled: true
+      max-connections: 50
+      rate-per-minute: 10
+    session-message:
+      enabled: true
+      max-messages-per-second: 1000
+      max-messages-per-minute: 10000
+    channel:
+      enabled: true
+      max-messages-per-second: 10000
+  
+  # Kafka消费配置
+  kafka:
+    consumer-threads: 8
+    consumer-batch-size: 500
+    poll-timeout-ms: 100
+    dynamic-consumer:
+      enabled: true
+      idle-timeout-minutes: 5
+    # Topic配置
+    topics:
+      trade: "market.trade.{symbol}"
+      agg-trade: "market.aggtrade.{symbol}"
+      depth: "market.depth.{symbol}"
+      kline: "market.kline.{symbol}.{interval}"
+      ticker: "market.ticker.{symbol}"
+      ticker-all: "market.ticker.all"
+      mark-price: "market.markprice.{symbol}"
+      mark-price-all: "market.markprice.all"
+
+# Logging配置
+logging:
+  level:
+    com.exchange.push: INFO
+    org.apache.kafka: WARN
+    io.netty: WARN
+  file:
+    name: logs/public-push.log

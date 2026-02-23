@@ -1,0 +1,234 @@
+package com.exchange.gateway.filter;
+
+import com.exchange.gateway.config.GatewayProperties;
+import com.exchange.gateway.context.TraceContext;
+import com.exchange.gateway.model.UserContext;
+import jakarta.servlet.*;
+import jakarta.servlet.http.HttpServletRequest;
+import jakarta.servlet.http.HttpServletResponse;
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.core.annotation.Order;
+import org.springframework.data.redis.core.RedisTemplate;
+import org.springframework.stereotype.Component;
+
+import java.io.IOException;
+import java.util.concurrent.TimeUnit;
+
+/**
+ * 限流Filter
+ * 
+ * 职责：
+ * 1. 用户级限流（防刷单）
+ * 2. IP级限流（防攻击）
+ * 3. 交易对级限流（热点保护）
+ * 
+ * 算法：Token Bucket + Redis
+ */
+@Slf4j
+@Component
+@Order(4) // 第四执行
+public class RateLimitFilter implements Filter {
+    
+    @Autowired
+    private GatewayProperties gatewayProperties;
+    
+    @Autowired(required = false)
+    private RedisTemplate<String, Object> redisTemplate;
+    
+    @Override
+    public void doFilter(ServletRequest request, ServletResponse response, FilterChain chain)
+            throws IOException, ServletException {
+        
+        HttpServletRequest httpRequest = (HttpServletRequest) request;
+        HttpServletResponse httpResponse = (HttpServletResponse) response;
+        
+        // 检查是否启用限流
+        if (!gatewayProperties.getRateLimit().isEnabled()) {
+            chain.doFilter(request, response);
+            return;
+        }
+        
+        try {
+            String path = httpRequest.getRequestURI();
+            String method = httpRequest.getMethod();
+            
+            // 提取用户和IP信息
+            UserContext userContext = (UserContext) httpRequest.getAttribute("userContext");
+            String clientIp = getClientIp(httpRequest);
+            
+            // 1. 用户级限流
+            if (userContext != null) {
+                if (!checkUserRateLimit(userContext.getUserId(), path)) {
+                    log.warn("User rate limit exceeded: userId={}, path={}, traceId={}",
+                        userContext.getUserId(), path, TraceContext.getTraceId());
+                    sendRateLimited(httpResponse, "User rate limit exceeded");
+                    return;
+                }
+            }
+            
+            // 2. IP级限流
+            if (!checkIpRateLimit(clientIp, path)) {
+                log.warn("IP rate limit exceeded: ip={}, path={}, traceId={}",
+                    clientIp, path, TraceContext.getTraceId());
+                sendRateLimited(httpResponse, "IP rate limit exceeded");
+                return;
+            }
+            
+            // 3. 交易对级限流（针对下单接口）
+            if (path.contains("/order/create") && method.equals("POST")) {
+                // 这里应该从请求体中提取 symbol，简化处理
+                String symbol = "BTCUSDT"; // TODO: 从请求体提取
+                if (!checkSymbolRateLimit(symbol)) {
+                    log.warn("Symbol rate limit exceeded: symbol={}, traceId={}",
+                        symbol, TraceContext.getTraceId());
+                    sendRateLimited(httpResponse, "Symbol rate limit exceeded");
+                    return;
+                }
+            }
+            
+            // 继续执行
+            chain.doFilter(request, response);
+            
+        } catch (Exception e) {
+            log.error("Rate limit check failed: traceId=" + TraceContext.getTraceId(), e);
+            // 限流检查失败，允许继续（fail-open策略）
+            chain.doFilter(request, response);
+        }
+    }
+    
+    /**
+     * 检查用户级限流
+     */
+    private boolean checkUserRateLimit(Long userId, String path) {
+        if (redisTemplate == null) {
+            return true;
+        }
+        
+        String apiName = extractApiName(path);
+        Integer limit = gatewayProperties.getRateLimit().getPerUser().get(apiName);
+        
+        if (limit == null) {
+            return true; // 未配置限流，允许
+        }
+        
+        String key = String.format("ratelimit:user:%d:%s", userId, apiName);
+        return checkRateLimit(key, limit, 1); // 1秒窗口
+    }
+    
+    /**
+     * 检查IP级限流
+     */
+    private boolean checkIpRateLimit(String ip, String path) {
+        if (redisTemplate == null) {
+            return true;
+        }
+        
+        String apiName = extractApiName(path);
+        Integer limit = gatewayProperties.getRateLimit().getPerIp().get(apiName);
+        
+        if (limit == null) {
+            return true;
+        }
+        
+        String key = String.format("ratelimit:ip:%s:%s", ip, apiName);
+        return checkRateLimit(key, limit, 1);
+    }
+    
+    /**
+     * 检查交易对级限流
+     */
+    private boolean checkSymbolRateLimit(String symbol) {
+        if (redisTemplate == null) {
+            return true;
+        }
+        
+        Integer limit = gatewayProperties.getRateLimit().getPerSymbol().get(symbol);
+        
+        if (limit == null) {
+            return true;
+        }
+        
+        String key = String.format("ratelimit:symbol:%s", symbol);
+        return checkRateLimit(key, limit, 1);
+    }
+    
+    /**
+     * 通用限流检查（使用Redis计数器）
+     * 
+     * @param key Redis键
+     * @param limit 限流阈值
+     * @param windowSeconds 时间窗口（秒）
+     * @return true=允许，false=拒绝
+     */
+    private boolean checkRateLimit(String key, int limit, int windowSeconds) {
+        try {
+            // 获取当前计数
+            Long count = redisTemplate.opsForValue().increment(key);
+            
+            if (count == null) {
+                return true;
+            }
+            
+            // 第一次访问，设置过期时间
+            if (count == 1) {
+                redisTemplate.expire(key, windowSeconds, TimeUnit.SECONDS);
+            }
+            
+            // 判断是否超限
+            return count <= limit;
+            
+        } catch (Exception e) {
+            log.error("Rate limit check error", e);
+            return true; // fail-open
+        }
+    }
+    
+    /**
+     * 从路径提取API名称
+     */
+    private String extractApiName(String path) {
+        if (path.contains("/order/create")) {
+            return "submitOrder";
+        } else if (path.contains("/order/cancel")) {
+            return "cancelOrder";
+        } else if (path.contains("/order/query")) {
+            return "queryOrder";
+        }
+        return "default";
+    }
+    
+    /**
+     * 获取客户端IP
+     */
+    private String getClientIp(HttpServletRequest request) {
+        String ip = request.getHeader("X-Forwarded-For");
+        if (ip == null || ip.isEmpty() || "unknown".equalsIgnoreCase(ip)) {
+            ip = request.getHeader("X-Real-IP");
+        }
+        if (ip == null || ip.isEmpty() || "unknown".equalsIgnoreCase(ip)) {
+            ip = request.getRemoteAddr();
+        }
+        // 如果有多个IP，取第一个
+        if (ip != null && ip.contains(",")) {
+            ip = ip.split(",")[0].trim();
+        }
+        return ip;
+    }
+    
+    /**
+     * 发送429限流响应
+     */
+    private void sendRateLimited(HttpServletResponse response, String message) throws IOException {
+        response.setStatus(429); // Too Many Requests
+        response.setContentType("application/json");
+        response.getWriter().write(
+            String.format("{\"success\":false,\"message\":\"%s\",\"traceId\":\"%s\"}",
+                message, TraceContext.getTraceId())
+        );
+    }
+}
+
+
+
+

@@ -1,0 +1,71 @@
+# ============================================
+# User Core (用户服务) 配置 (dev环境)
+# 端口: 8099
+# ============================================
+
+server:
+  port: 8099
+
+spring:
+  application:
+    name: user-core
+
+  # 数据库配置
+  datasource:
+    type: com.alibaba.druid.pool.DruidDataSource
+    url: jdbc:mysql://${MYSQL_HOST:localhost}:${MYSQL_PORT:3306}/exchange_user?useUnicode=true&characterEncoding=utf8&serverTimezone=Asia/Shanghai&useSSL=false
+    username: ${MYSQL_USER:root}
+    password: ${MYSQL_PASSWORD:root123456}
+    driver-class-name: com.mysql.cj.jdbc.Driver
+    druid:
+      initial-size: 10
+      min-idle: 10
+      max-active: 100
+      max-wait: 60000
+      validation-query: SELECT 1
+      test-while-idle: true
+      test-on-borrow: false
+      test-on-return: false
+
+  # MyBatis-Plus配置
+  mybatis-plus:
+    mapper-locations: classpath*:mapper/**/*.xml
+    type-aliases-package: com.exchange.user.entity
+    configuration:
+      log-impl: org.apache.ibatis.logging.stdout.StdOutImpl
+    global-config:
+      db-config:
+        id-type: auto
+        logic-delete-field: deleted
+        logic-delete-value: 1
+        logic-not-delete-value: 0
+
+  # Redis配置
+  redis:
+    host: 127.0.0.1
+    port: 6379
+    password: redis123456
+    database: 2
+    lettuce:
+      pool:
+        max-active: 50
+        max-idle: 20
+        min-idle: 5
+
+# JWT配置
+jwt:
+  secret: ${JWT_SECRET:future-exchange-user-core-secret-key-2024}
+  expiration: ${JWT_EXPIRATION:86400000}
+
+# 初始资金配置（USDT）
+initial:
+  funding:
+    enabled: true
+    amount: 100000
+    asset: USDT
+
+# Logging配置
+logging:
+  level:
+    com.exchange.user: INFO
+    com.exchange.user.mapper: DEBUG

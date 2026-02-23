@@ -1,0 +1,26 @@
+{
+  "iteration": 5,
+  "timestamp": "2026-02-21T05:10:00Z",
+  "phase": "smoke-test",
+  "results": {
+    "TC-USER-001": { "status": "PASSED", "duration": 120, "userId": 14 },
+    "TC-USER-004": { "status": "PASSED", "duration": 95, "token": "obtained" },
+    "TC-FUND-001": { "status": "PASSED", "duration": 150, "amount": "10000 USDT" },
+    "TC-ACCOUNT-001": { "status": "SKIPPED", "reason": "API 404" },
+    "TC-RISK-001": { "status": "SKIPPED", "reason": "API 404" },
+    "TC-OMS-001": { "status": "FAILED", "error": "System exception", "errorCode": "OMS_9001" },
+    "TC-MATCH-001": { "status": "PASSED", "duration": 200 },
+    "TC-MATCH-002": { "status": "PASSED", "duration": 180 },
+    "TC-LEDGER-001": { "status": "PASSED", "duration": 100 },
+    "TC-MARKET-001": { "status": "SKIPPED", "reason": "Not tested" },
+    "TC-PUBLIC-001": { "status": "SKIPPED", "reason": "Not tested" },
+    "TC-PRIVATE-001": { "status": "SKIPPED", "reason": "Not tested" },
+    "TC-E2E-001": { "status": "SKIPPED", "reason": "Dependencies failed" }
+  },
+  "summary": {
+    "total": 14,
+    "passed": 6,
+    "failed": 1,
+    "skipped": 7
+  }
+}

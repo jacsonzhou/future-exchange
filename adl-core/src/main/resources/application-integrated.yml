@@ -1,0 +1,102 @@
+server:
+  port: 8090
+
+spring:
+  application:
+    name: adl-service
+
+  datasource:
+    url: jdbc:mysql://localhost:3306/futures_exchange?useUnicode=true&characterEncoding=utf-8&useSSL=false&serverTimezone=Asia/Shanghai
+    username: root
+    password: root
+    driver-class-name: com.mysql.cj.jdbc.Driver
+    hikari:
+      minimum-idle: 5
+      maximum-pool-size: 20
+      connection-timeout: 30000
+      idle-timeout: 600000
+      max-lifetime: 1800000
+
+  kafka:
+    bootstrap-servers: localhost:9092
+    consumer:
+      group-id: adl-service-group
+      auto-offset-reset: latest
+      enable-auto-commit: true
+      key-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+      value-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+    producer:
+      key-serializer: org.apache.kafka.common.serialization.StringSerializer
+      value-serializer: org.apache.kafka.common.serialization.StringSerializer
+      acks: all
+      retries: 3
+
+  redis:
+    host: localhost
+    port: 6379
+    database: 0
+    timeout: 3000
+    lettuce:
+      pool:
+        max-active: 8
+        max-idle: 8
+        min-idle: 0
+
+mybatis-plus:
+  mapper-locations: classpath*:/mapper/**/*.xml
+  type-aliases-package: com.exchange.adl.entity
+  configuration:
+    map-underscore-to-camel-case: true
+    log-impl: org.apache.ibatis.logging.slf4j.Slf4jImpl
+  global-config:
+    db-config:
+      id-type: auto
+      logic-delete-field: deleted
+      logic-delete-value: 1
+      logic-not-delete-value: 0
+
+logging:
+  level:
+    root: INFO
+    com.exchange.adl: DEBUG
+  pattern:
+    console: "%d{yyyy-MM-dd HH:mm:ss.SSS} [%thread] %-5level %logger{36} - %msg%n"
+
+# 服务地址配置
+service:
+  position:
+    url: http://localhost:8084
+  clearing:
+    url: http://localhost:8085
+  market:
+    url: http://localhost:8086
+
+# ADL配置
+adl:
+  # ADL排名更新频率（秒）
+  ranking-update-interval: 5
+  # 单批次最大用户数
+  max-users-per-batch: 50
+  # 最大批次数
+  max-batches: 10
+  # 最大重试次数
+  max-retry-count: 3
+  # 价格偏离阈值（5%）
+  price-deviation-threshold: 0.05
+  # 支持的交易对
+  supported-symbols:
+    - BTCUSDT
+    - ETHUSDT
+    - SOLUSDT
+    - BNBUSDT
+
+# 保险基金配置
+insurance-fund:
+  # 安全阈值（USDT）
+  safe-threshold: 1000000
+  # 警告阈值（USDT）
+  warning-threshold: 500000
+  # 危险阈值（USDT）
+  danger-threshold: 100000
+  # 最低保留余额（USDT）
+  min-reserve-balance: 10000

@@ -1,0 +1,257 @@
+package com.exchange.gateway.filter;
+
+import com.exchange.common.core.util.JwtUtil;
+import com.exchange.gateway.context.TraceContext;
+import com.exchange.gateway.model.UserContext;
+import jakarta.servlet.*;
+import jakarta.servlet.http.HttpServletRequest;
+import jakarta.servlet.http.HttpServletResponse;
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.core.annotation.Order;
+import org.springframework.data.redis.core.StringRedisTemplate;
+import org.springframework.stereotype.Component;
+
+import javax.annotation.PostConstruct;
+import java.io.IOException;
+import java.util.HashSet;
+import java.util.Set;
+
+/**
+ * 认证Filter - 生产环境版本
+ * 
+ * 职责：
+ * 1. JWT Token 校验（使用与 user-core 相同的 JwtUtil）
+ * 2. Redis 黑名单检查
+ * 3. 用户身份解析并设置到上下文
+ * 4. 向后透传用户信息（通过Header）
+ * 
+ * 注意：
+ * - 与 user-core 共享 JWT Secret
+ * - 查 Redis 确认 Token 不在黑名单
+ */
+@Slf4j
+@Component
+@Order(2)
+public class AuthFilter implements Filter {
+    
+    @Autowired(required = false)
+    private StringRedisTemplate redisTemplate;
+    
+    @Value("${jwt.secret:future-exchange-user-core-secret-key-2024}")
+    private String jwtSecret;
+    
+    @Value("${jwt.expiration:86400000}")
+    private Long jwtExpiration;
+    
+    private JwtUtil jwtUtil;
+    
+    private static final String HEADER_AUTHORIZATION = "Authorization";
+    private static final String HEADER_API_KEY = "X-API-Key";
+    private static final String HEADER_USER_ID = "X-User-Id";
+    private static final String HEADER_ACCOUNT_ID = "X-Account-Id";
+    private static final String HEADER_USERNAME = "X-Username";
+    
+    // 免认证路径（白名单）
+    private static final Set<String> WHITELIST_PATHS = new HashSet<>();
+    
+    static {
+        // 用户服务（登录注册不需要认证）
+        WHITELIST_PATHS.add("/api/v1/user/register");
+        WHITELIST_PATHS.add("/api/v1/user/login");
+        
+        // 行情数据（公开）
+        WHITELIST_PATHS.add("/api/v1/market/");
+        WHITELIST_PATHS.add("/api/v1/ticker/");
+        WHITELIST_PATHS.add("/api/v1/depth/");
+        WHITELIST_PATHS.add("/api/v1/kline/");
+        
+        // 健康检查
+        WHITELIST_PATHS.add("/actuator/health");
+        WHITELIST_PATHS.add("/actuator/info");
+    }
+    
+    @PostConstruct
+    public void init() {
+        this.jwtUtil = new JwtUtil(jwtSecret, jwtExpiration);
+        log.info("[AuthFilter] Initialized with JWT expiration: {}ms", jwtExpiration);
+    }
+    
+    @Override
+    public void doFilter(ServletRequest request, ServletResponse response, FilterChain chain)
+            throws IOException, ServletException {
+        
+        HttpServletRequest httpRequest = (HttpServletRequest) request;
+        HttpServletResponse httpResponse = (HttpServletResponse) response;
+        
+        String path = httpRequest.getRequestURI();
+        
+        // 1. 检查白名单
+        if (isWhitelistPath(path)) {
+            chain.doFilter(request, response);
+            return;
+        }
+        
+        try {
+            // 2. 提取Token
+            String token = extractToken(httpRequest);
+            
+            if (token == null) {
+                log.warn("[AuthFilter] No token provided, path: {}, traceId: {}", 
+                        path, TraceContext.getTraceId());
+                sendError(httpResponse, 401, "Authentication required");
+                return;
+            }
+            
+            // 3. 验证JWT格式和签名
+            if (!jwtUtil.validateToken(token)) {
+                log.warn("[AuthFilter] Invalid token, path: {}, traceId: {}", 
+                        path, TraceContext.getTraceId());
+                sendError(httpResponse, 401, "Invalid or expired token");
+                return;
+            }
+            
+            // 4. 检查Redis黑名单
+            if (isTokenBlacklisted(token)) {
+                log.warn("[AuthFilter] Token is blacklisted, path: {}, traceId: {}", 
+                        path, TraceContext.getTraceId());
+                sendError(httpResponse, 401, "Token has been revoked");
+                return;
+            }
+            
+            // 5. 解析用户信息
+            Long userId = jwtUtil.getUserIdFromToken(token);
+            String username = jwtUtil.getUsernameFromToken(token);
+            Long accountId = jwtUtil.getAccountIdFromToken(token);
+            
+            // 6. 构建UserContext
+            UserContext userContext = new UserContext();
+            userContext.setUserId(userId);
+            userContext.setUsername(username);
+            userContext.setRole("TRADER");
+            userContext.setPermissions(Set.of("ORDER_CREATE", "ORDER_CANCEL", "ORDER_QUERY"));
+            userContext.setBanned(false);
+            
+            // 7. 设置到TraceContext（用于日志追踪）
+            TraceContext.setUserId(userId);
+            
+            // 8. 将用户信息透传给下游服务（通过Header）
+            HttpServletRequest wrappedRequest = new UserInfoRequestWrapper(
+                    httpRequest, userId, accountId, username);
+            
+            log.debug("[AuthFilter] Authentication success, userId: {}, accountId: {}, path: {}",
+                    userId, accountId, path);
+            
+            // 继续执行
+            chain.doFilter(wrappedRequest, response);
+            
+        } catch (Exception e) {
+            log.error("[AuthFilter] Authentication error, path: {}, traceId: {}", 
+                    path, TraceContext.getTraceId(), e);
+            sendError(httpResponse, 401, "Authentication failed");
+        }
+    }
+    
+    /**
+     * 提取Token
+     */
+    private String extractToken(HttpServletRequest request) {
+        String bearerToken = request.getHeader(HEADER_AUTHORIZATION);
+        if (bearerToken != null && bearerToken.startsWith("Bearer ")) {
+            return bearerToken.substring(7);
+        }
+        return null;
+    }
+    
+    /**
+     * 检查是否在白名单
+     */
+    private boolean isWhitelistPath(String path) {
+        for (String whitelistPath : WHITELIST_PATHS) {
+            if (path.startsWith(whitelistPath)) {
+                return true;
+            }
+        }
+        return false;
+    }
+    
+    /**
+     * 检查Token是否在黑名单
+     */
+    private boolean isTokenBlacklisted(String token) {
+        if (redisTemplate == null) {
+            return false;
+        }
+        
+        try {
+            String key = "token:blacklist:" + token;
+            return Boolean.TRUE.equals(redisTemplate.hasKey(key));
+        } catch (Exception e) {
+            log.error("[AuthFilter] Failed to check token blacklist", e);
+            // Redis异常时，保守起见，仍然允许通过（依赖JWT过期时间）
+            return false;
+        }
+    }
+    
+    /**
+     * 检查用户是否在黑名单
+     */
+    private boolean isUserBlacklisted(Long userId) {
+        if (redisTemplate == null) {
+            return false;
+        }
+        
+        try {
+            String key = "blacklist:user:" + userId;
+            return Boolean.TRUE.equals(redisTemplate.hasKey(key));
+        } catch (Exception e) {
+            log.error("[AuthFilter] Failed to check user blacklist", e);
+            return false;
+        }
+    }
+    
+    /**
+     * 发送错误响应
+     */
+    private void sendError(HttpServletResponse response, int code, String message) throws IOException {
+        response.setStatus(code);
+        response.setContentType("application/json;charset=UTF-8");
+        response.getWriter().write(String.format(
+            "{\"code\":%d,\"message\":\"%s\",\"traceId\":\"%s\",\"timestamp\":%d}",
+            code, message, TraceContext.getTraceId(), System.currentTimeMillis()
+        ));
+    }
+    
+    /**
+     * 包装请求，添加用户信息Header
+     * 
+     * 这样下游服务可以直接从Header获取用户信息，无需再次解析Token
+     */
+    private static class UserInfoRequestWrapper extends jakarta.servlet.http.HttpServletRequestWrapper {
+        private final Long userId;
+        private final Long accountId;
+        private final String username;
+        
+        public UserInfoRequestWrapper(HttpServletRequest request, Long userId, Long accountId, String username) {
+            super(request);
+            this.userId = userId;
+            this.accountId = accountId;
+            this.username = username;
+        }
+        
+        @Override
+        public String getHeader(String name) {
+            if (HEADER_USER_ID.equals(name)) {
+                return String.valueOf(userId);
+            }
+            if (HEADER_ACCOUNT_ID.equals(name)) {
+                return accountId != null ? String.valueOf(accountId) : null;
+            }
+            if (HEADER_USERNAME.equals(name)) {
+                return username;
+            }
+            return super.getHeader(name);
+        }
+    }
+}

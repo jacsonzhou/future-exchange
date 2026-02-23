@@ -1,0 +1,136 @@
+server:
+  port: 8095
+
+spring:
+  application:
+    name: market-price-service
+
+  # 数据源配置
+  datasource:
+    url: jdbc:mysql://localhost:3306/exchange_market?useSSL=false&serverTimezone=UTC&allowPublicKeyRetrieval=true&characterEncoding=utf8mb4
+    username: root
+    password: ${MYSQL_PASSWORD:root}
+    driver-class-name: com.mysql.cj.jdbc.Driver
+    type: com.alibaba.druid.pool.DruidDataSource
+    druid:
+      initial-size: 10
+      min-idle: 10
+      max-active: 50
+      max-wait: 60000
+      validation-query: SELECT 1
+      test-while-idle: true
+
+  # Redis配置
+  redis:
+    host: ${REDIS_HOST:localhost}
+    port: ${REDIS_PORT:6379}
+    password: ${REDIS_PASSWORD:}
+    database: 0
+    lettuce:
+      pool:
+        max-active: 50
+        max-idle: 20
+        min-idle: 5
+
+  # Kafka配置
+  kafka:
+    bootstrap-servers: ${KAFKA_SERVERS:localhost:9092}
+    producer:
+      key-serializer: org.apache.kafka.common.serialization.StringSerializer
+      value-serializer: org.apache.kafka.common.serialization.StringSerializer
+      acks: 1
+      linger-ms: 0
+      retries: 3
+    consumer:
+      group-id: ${spring.application.name}
+      auto-offset-reset: latest
+      enable-auto-commit: false
+      key-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+      value-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+      fetch-min-bytes: 1
+      fetch-max-wait-ms: 0
+      max-poll-records: 500
+
+# MyBatis Plus配置
+mybatis-plus:
+  configuration:
+    log-impl: org.apache.ibatis.logging.stdout.StdOutImpl
+    map-underscore-to-camel-case: true
+  mapper-locations: classpath:mapper/*.xml
+  type-aliases-package: com.exchange.market.entity
+
+# 行情数据输出配置
+market-data:
+  kafka:
+    # 启用Kafka输出（分层架构：Market Data Engine -> Kafka -> Public Push System）
+    enabled: true
+  redis:
+    # 启用Redis Pub/Sub（向后兼容，老版本WebSocket直接订阅）
+    pubsub-enabled: true
+    # 启用Redis快照（供Public Push System获取初始快照）
+    snapshot-enabled: true
+
+# 行情服务配置
+market-price:
+  # K线配置
+  kline:
+    # 支持的周期
+    intervals: 1s,1m,5m,15m,30m,1h,2h,4h,6h,8h,12h,1d,3d,1w,1M
+    # 缓存K线数量
+    cache-size: 1000
+  # 深度配置
+  depth:
+    # 默认档位数
+    default-limit: 100
+    # 最大档位数
+    max-limit: 1000
+  # Ticker配置
+  ticker:
+    # 更新间隔(ms)
+    update-interval: 1000
+    # 24h滑动窗口大小
+    window-size: 86400
+  # WebSocket配置
+  websocket:
+    # 最大连接数
+    max-connections: 100000
+    # 心跳间隔(秒)
+    heartbeat-interval: 30
+
+# 🍀 P1: 监控与链路追踪配置
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics,prometheus
+  endpoint:
+    health:
+      show-details: always
+  metrics:
+    export:
+      prometheus:
+        enabled: true
+    tags:
+      application: ${spring.application.name}
+  tracing:
+    sampling:
+      probability: 1.0
+  zipkin:
+    tracing:
+      endpoint: http://localhost:9411/api/v2/spans
+
+# Kafka Topic配置（修复：与 match-engine-core 保持一致）
+kafka:
+  topic:
+    # 成交事件Topic（修复：使用 trade-event，与 match-engine-core 一致）
+    match-event: trade-event
+    # 深度事件Topic前缀
+    depth-prefix: orderbook-delta-
+
+# 日志配置
+logging:
+  level:
+    com.exchange.market: INFO
+    org.apache.kafka: WARN
+  pattern:
+    console: "%d{yyyy-MM-dd HH:mm:ss.SSS} [%thread] %-5level %logger{36} - %msg%n"

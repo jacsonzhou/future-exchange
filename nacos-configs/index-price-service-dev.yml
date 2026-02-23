@@ -1,0 +1,58 @@
+# ============================================
+# Index Price Core (指数价格服务) 配置 (dev环境)
+# 端口: 8093
+# ============================================
+
+server:
+  port: 8093
+
+spring:
+  application:
+    name: index-price-service
+
+  datasource:
+    url: jdbc:mysql://localhost:3306/exchange_market?useSSL=false&serverTimezone=UTC&allowPublicKeyRetrieval=true
+    username: root
+    password: ${MYSQL_PASSWORD:root}
+    driver-class-name: com.mysql.cj.jdbc.Driver
+    type: com.alibaba.druid.pool.DruidDataSource
+    druid:
+      initial-size: 10
+      min-idle: 10
+      max-active: 50
+      max-wait: 60000
+
+  redis:
+    host: localhost
+    port: 6379
+    password: ${REDIS_PASSWORD:}
+    database: 0
+    lettuce:
+      pool:
+        max-active: 50
+        max-idle: 20
+
+  kafka:
+    producer:
+      acks: all
+      retries: 3
+
+  mybatis-plus:
+    configuration:
+      log-impl: org.apache.ibatis.logging.stdout.StdOutImpl
+    mapper-locations: classpath:mapper/*.xml
+    type-aliases-package: com.exchange.index.entity
+
+# 指数价格服务配置
+index-price:
+  kafka:
+    topic: index-price-update
+  calculation:
+    default-components: binance,okx,coinbase
+    min-valid-components: 2
+    deviation-threshold: 5
+
+# Logging配置
+logging:
+  level:
+    com.exchange.index: INFO

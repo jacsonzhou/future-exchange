@@ -1,0 +1,46 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.exchange.funding.mapper.UserFundingFeeMapper">
+
+    <resultMap id="BaseResultMap" type="com.exchange.funding.entity.UserFundingFee">
+        <id column="id" property="id"/>
+        <result column="user_id" property="userId"/>
+        <result column="symbol" property="symbol"/>
+        <result column="funding_time" property="fundingTime"/>
+        <result column="side" property="side"/>
+        <result column="position_qty" property="positionQty"/>
+        <result column="mark_price" property="markPrice"/>
+        <result column="funding_rate" property="fundingRate"/>
+        <result column="funding_fee" property="fundingFee"/>
+        <result column="margin_mode" property="marginMode"/>
+        <result column="status" property="status"/>
+        <result column="created_at" property="createdAt"/>
+    </resultMap>
+
+    <insert id="insert" parameterType="com.exchange.funding.entity.UserFundingFee" useGeneratedKeys="true" keyProperty="id">
+        INSERT INTO t_user_funding_fee (
+            user_id, symbol, funding_time, side, position_qty,
+            mark_price, funding_rate, funding_fee, margin_mode, status
+        ) VALUES (
+            #{userId}, #{symbol}, #{fundingTime}, #{side}, #{positionQty},
+            #{markPrice}, #{fundingRate}, #{fundingFee}, #{marginMode}, #{status}
+        )
+    </insert>
+
+    <select id="selectByUserAndTime" resultMap="BaseResultMap">
+        SELECT * FROM t_user_funding_fee
+        WHERE user_id = #{userId}
+        <if test="symbol != null and symbol != ''">
+            AND symbol = #{symbol}
+        </if>
+        <if test="startTime != null">
+            AND funding_time >= #{startTime}
+        </if>
+        <if test="endTime != null">
+            AND funding_time &lt;= #{endTime}
+        </if>
+        ORDER BY funding_time DESC
+        LIMIT 100
+    </select>
+
+</mapper>

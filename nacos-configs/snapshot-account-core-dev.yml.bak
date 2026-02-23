@@ -1,0 +1,85 @@
+# ============================================
+# Snapshot Account Core (账户快照服务) 配置 (dev环境)
+# 端口: 8085
+# ============================================
+
+server:
+  port: 8085
+
+spring:
+  application:
+    name: snapshot-account-core
+  
+  # 数据源配置
+  datasource:
+    driver-class-name: com.mysql.cj.jdbc.Driver
+    url: jdbc:mysql://127.0.0.1:3306/exchange_snapshot?useUnicode=true&characterEncoding=utf8&useSSL=false&serverTimezone=Asia/Shanghai
+    username: root
+    password: root123456
+    type: com.alibaba.druid.pool.DruidDataSource
+    druid:
+      initial-size: 10
+      min-idle: 10
+      max-active: 50
+  
+  # MyBatis Plus配置
+  mybatis-plus:
+    type-aliases-package: com.exchange.snapshot.entity
+    global-config:
+      db-config:
+        id-type: input
+  
+  # Kafka配置（消费LedgerEvent）
+  kafka:
+    consumer:
+      group-id: snapshot-service
+      enable-auto-commit: false
+      properties:
+        max.poll.records: 100
+        max.poll.interval.ms: 300000
+        session.timeout.ms: 30000
+    producer:
+      acks: all
+      retries: 3
+      batch-size: 16384
+      buffer-memory: 33554432
+    listener:
+      concurrency: 1
+      ack-mode: manual_immediate
+  
+  # Redis配置（热数据缓存）
+  redis:
+    host: localhost
+    port: 6379
+    password: redis123456
+    database: 1
+    timeout: 3000ms
+    lettuce:
+      pool:
+        max-active: 50
+        max-idle: 20
+        min-idle: 10
+
+# 任务调度配置
+spring.task.scheduling.pool.size: 5
+
+# Snapshot配置
+snapshot:
+  # Kafka消费的Topic列表（多Symbol）
+  kafka:
+    topics: trade-entry-BTCUSDT,trade-entry-ETHUSDT,trade-entry-SYSTEM
+  
+  # Redis缓存TTL（小时）
+  redis:
+    ttl-hours: 24
+  
+  # Replay配置
+  replay:
+    batch-size: 1000
+
+# Logging配置
+logging:
+  level:
+    root: INFO
+    com.exchange: INFO
+    com.exchange.snapshot: DEBUG

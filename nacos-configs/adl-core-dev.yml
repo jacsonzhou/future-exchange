@@ -1,0 +1,30 @@
+# ============================================
+# ADL Core (自动减仓) 配置 (dev环境)
+# 端口: 8091
+# ============================================
+
+server:
+  port: 8091
+
+spring:
+  application:
+    name: adl-core
+  
+  datasource:
+    url: jdbc:mysql://localhost:3306/exchange_adl?useUnicode=true&characterEncoding=utf8&useSSL=false&serverTimezone=Asia/Shanghai
+    username: ${DB_USERNAME:root}
+    password: ${DB_PASSWORD:root}
+    driver-class-name: com.mysql.cj.jdbc.Driver
+  
+  kafka:
+    consumer:
+      group-id: adl-group
+      auto-offset-reset: earliest
+  
+  mybatis-plus:
+    type-aliases-package: com.exchange.adl.entity
+
+# Logging配置
+logging:
+  level:
+    com.exchange.adl: INFO

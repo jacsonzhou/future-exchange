@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.exchange.funding.mapper.FundingRateConfigMapper">
+
+    <resultMap id="BaseResultMap" type="com.exchange.funding.entity.FundingRateConfig">
+        <id column="id" property="id"/>
+        <result column="symbol" property="symbol"/>
+        <result column="settlement_interval" property="settlementInterval"/>
+        <result column="max_rate" property="maxRate"/>
+        <result column="min_rate" property="minRate"/>
+        <result column="interest_rate" property="interestRate"/>
+        <result column="status" property="status"/>
+        <result column="created_at" property="createdAt"/>
+        <result column="updated_at" property="updatedAt"/>
+    </resultMap>
+
+    <select id="selectBySymbol" resultMap="BaseResultMap">
+        SELECT * FROM t_funding_rate_config
+        WHERE symbol = #{symbol}
+    </select>
+
+    <select id="selectAllActive" resultMap="BaseResultMap">
+        SELECT * FROM t_funding_rate_config
+        WHERE status = 1
+        ORDER BY symbol
+    </select>
+
+</mapper>

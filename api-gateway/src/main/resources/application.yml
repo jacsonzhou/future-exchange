@@ -1,0 +1,113 @@
+spring:
+  application:
+    name: api-gateway
+  profiles:
+    active: ${SPRING_PROFILES_ACTIVE:dev}
+  config:
+    import: optional:nacos:${spring.application.name}-${spring.profiles.active}.yml
+
+  cloud:
+    nacos:
+      username: ${NACOS_USERNAME:nacos}
+      password: ${NACOS_PASSWORD:nacos}
+      discovery:
+        server-addr: ${NACOS_SERVER_ADDR:localhost:8848}
+        enabled: true
+      config:
+        server-addr: ${NACOS_SERVER_ADDR:localhost:8848}
+        enabled: true
+        import-check:
+          enabled: false
+    
+    gateway:
+      # 全局过滤器
+      default-filters:
+        - DedupeResponseHeader=Access-Control-Allow-Origin
+      
+      # 路由配置
+      routes:
+        # ========== 行情数据服务 (market-price-core) ==========
+        # K 线数据 - 统一使用 /api/v1/market 前缀
+        - id: market-price-klines
+          uri: http://localhost:8095
+          predicates:
+            - Path=/api/v1/market/klines
+          filters:
+            - RewritePath=/api/v1/market/klines, /api/v1/klines
+        
+        # K 线数据 - 兼容旧路径
+        - id: market-price-klines-legacy
+          uri: lb://market-price-core
+          predicates:
+            - Path=/api/v1/klines/**
+        
+        # 深度数据 - 统一使用 /api/v1/market 前缀
+        - id: market-price-depth
+          uri: lb://market-price-core
+          predicates:
+            - Path=/api/v1/market/depth
+          filters:
+            - SetPath=/api/v1/depth
+        
+        # 深度数据 - 兼容旧路径
+        - id: market-price-depth-legacy
+          uri: lb://market-price-core
+          predicates:
+            - Path=/api/v1/depth
+        
+        # Ticker 数据 - 统一使用 /api/v1/market 前缀
+        - id: market-price-ticker
+          uri: lb://market-price-core
+          predicates:
+            - Path=/api/v1/market/ticker/24hr
+          filters:
+            - SetPath=/api/v1/ticker/24hr
+        
+        # Ticker 数据 - 兼容旧路径
+        - id: market-price-ticker-legacy
+          uri: lb://market-price-core
+          predicates:
+            - Path=/api/v1/ticker/24hr
+        
+        # 最优盘口 - 统一使用 /api/v1/market 前缀
+        - id: market-price-book-ticker
+          uri: lb://market-price-core
+          predicates:
+            - Path=/api/v1/market/bookTicker
+          filters:
+            - SetPath=/api/v1/bookTicker
+        
+        # 最优盘口 - 兼容旧路径
+        - id: market-price-book-ticker-legacy
+          uri: lb://market-price-core
+          predicates:
+            - Path=/api/v1/bookTicker
+        
+        # 订单服务
+        - id: order-service-create
+          uri: lb://oms-core
+          predicates:
+            - Path=/api/order/create
+          filters:
+            - RewritePath=/api/order/create, /api/v1/oms/order/submit
+        
+        # 订单列表查询
+        - id: order-service-list
+          uri: lb://oms-core
+          predicates:
+            - Path=/api/v1/oms/order/list
+        
+        # Position 持仓查询
+        - id: position-list
+          uri: lb://position-snapshot-core
+          predicates:
+            - Path=/api/v1/position/**
+        
+        # WebSocket 行情推送
+        - id: public-push-ws
+          uri: lb:ws://public-push-core
+          predicates:
+            - Path=/ws/market/**
+
+server:
+  port: 8082

@@ -1,0 +1,134 @@
+server:
+  port: 8081
+
+spring:
+  application:
+    name: oms-core
+  profiles:
+    active: ${SPRING_PROFILES_ACTIVE:dev}
+  config:
+    import: optional:nacos:${spring.application.name}-${spring.profiles.active}.yml
+
+  # 数据源配置
+  datasource:
+    driver-class-name: com.mysql.cj.jdbc.Driver
+    url: jdbc:mysql://localhost:3306/exchange_oms?useUnicode=true&characterEncoding=utf8&serverTimezone=Asia/Shanghai&useSSL=false
+    username: root
+    password: ${MYSQL_PASSWORD:root123456}
+    hikari:
+      minimum-idle: 5
+      maximum-pool-size: 20
+      connection-timeout: 30000
+      idle-timeout: 600000
+      max-lifetime: 1800000
+
+  # MyBatis Plus配置
+  mybatis-plus:
+    mapper-locations: classpath*:/mapper/**/*.xml
+    type-aliases-package: com.exchange.oms.entity
+    configuration:
+      map-underscore-to-camel-case: true
+      log-impl: org.apache.ibatis.logging.slf4j.Slf4jImpl
+
+  # Kafka配置（🔥 交易所级双通道架构）
+  kafka:
+    bootstrap-servers: localhost:9092,localhost:9093
+
+    # Producer配置（OMS → Match Engine）
+    producer:
+      # 性能优化配置
+      acks: 1                          # 不需要all（极端情况牺牲可靠性换性能）
+      retries: 3
+      linger-ms: 0                     # 不等待batch，立即发送
+      compression-type: none           # 不压缩（减少延迟）
+      batch-size: 16384
+      buffer-memory: 33554432
+
+      # 序列化器
+      key-serializer: org.apache.kafka.common.serialization.StringSerializer
+      value-serializer: org.apache.kafka.common.serialization.StringSerializer
+
+      # 生产环境优化
+      max-in-flight-requests-per-connection: 5
+      request-timeout-ms: 30000
+
+    # Consumer配置（Match Engine → OMS）
+    consumer:
+      # 消费者组
+      group-id: oms-order-state
+
+      # 自动提交
+      enable-auto-commit: true
+      auto-commit-interval-ms: 1000
+
+      # 从最早的消息开始消费（避免丢失）
+      auto-offset-reset: earliest
+
+      # 性能优化
+      fetch-min-bytes: 1               # 不等待batch
+      fetch-max-wait-ms: 0             # 立即返回
+      max-poll-records: 500
+
+      # 序列化器
+      key-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+      value-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+
+      # 会话超时
+      session-timeout-ms: 30000
+      heartbeat-interval-ms: 3000
+
+  # Redis配置（保证金预扣）
+  redis:
+    host: localhost
+    port: 6379
+    password:
+    database: 0
+    timeout: 5000ms
+    lettuce:
+      pool:
+        max-active: 20
+        max-idle: 10
+        min-idle: 5
+        max-wait: 3000ms
+
+  cloud:
+    nacos:
+      username: ${NACOS_USERNAME:nacos}
+      password: ${NACOS_PASSWORD:nacos}
+      discovery:
+        server-addr: ${NACOS_SERVER_ADDR:localhost:8848}
+        namespace: ${NACOS_NAMESPACE:}
+        group: DEFAULT_GROUP
+      config:
+        server-addr: ${NACOS_SERVER_ADDR:localhost:8848}
+        file-extension: yml
+        namespace: ${NACOS_NAMESPACE:}
+        group: DEFAULT_GROUP
+        import-check:
+          enabled: false
+
+# 🍀 P1: 监控与链路追踪配置
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics
+  endpoint:
+    health:
+      show-details: always
+
+# Logging配置
+logging:
+  level:
+    com.exchange.oms: INFO
+    com.exchange.oms.mapper: DEBUG
+  pattern:
+    console: "%d{yyyy-MM-dd HH:mm:ss.SSS} [%thread] %-5level %logger{50} - %msg%n"
+
+# ============================================================
+# 🔥 OMS核心配置：双通道架构
+# ============================================================
+exchange:
+  oms:
+    # 提交模式：kafka（生产推荐）| feign（降级/测试）
+    submit-mode: kafka

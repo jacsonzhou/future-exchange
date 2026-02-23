@@ -1,0 +1,120 @@
+server:
+  port: 8085
+
+spring:
+  application:
+    name: snapshot-account-core
+  
+  cloud:
+    nacos:
+      discovery:
+        server-addr: 127.0.0.1:8848
+        namespace: dev
+  
+  # 数据源配置
+  datasource:
+    driver-class-name: com.mysql.cj.jdbc.Driver
+    url: jdbc:mysql://127.0.0.1:3306/exchange_snapshot?useUnicode=true&characterEncoding=utf8&useSSL=false&serverTimezone=Asia/Shanghai
+    username: root
+    password: root
+    type: com.alibaba.druid.pool.DruidDataSource
+    druid:
+      initial-size: 10
+      min-idle: 10
+      max-active: 50
+  
+  # Kafka配置（消费LedgerEvent）
+  # 🔥 P0修复：改为手动ACK模式，防止消息丢失
+  kafka:
+    bootstrap-servers: localhost:9092
+    consumer:
+      group-id: snapshot-service
+      auto-offset-reset: earliest
+      enable-auto-commit: false  # 🔥 改为false，使用手动ACK
+      key-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+      value-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+      properties:
+        max.poll.records: 100
+        max.poll.interval.ms: 300000  # 5分钟处理超时
+        session.timeout.ms: 30000     # 30秒心跳超时
+    producer:
+      acks: all         # 🔥 金融级别必须使用all
+      retries: 3
+      batch-size: 16384
+      buffer-memory: 33554432
+    listener:
+      concurrency: 1  # 单线程保证顺序
+      ack-mode: manual_immediate  # 🔥 改为手动立即确认
+  
+  # Redis配置（热数据缓存）
+  redis:
+    host: localhost
+    port: 6379
+    database: 1
+    timeout: 3000ms
+    lettuce:
+      pool:
+        max-active: 50
+        max-idle: 20
+        min-idle: 10
+
+# MyBatis Plus配置
+mybatis-plus:
+  mapper-locations: classpath*:/mapper/**/*.xml
+  type-aliases-package: com.exchange.snapshot.entity
+  configuration:
+    map-underscore-to-camel-case: true
+    log-impl: org.apache.ibatis.logging.slf4j.Slf4jImpl
+  global-config:
+    db-config:
+      id-type: input
+
+# Logging配置
+logging:
+  level:
+    root: INFO
+    com.exchange: INFO
+    com.exchange.snapshot: DEBUG
+  pattern:
+    console: "%clr(%d{yyyy-MM-dd HH:mm:ss.SSS}){faint} %clr([%thread]){magenta} %clr(%-5level){highlight} %clr(%logger{36}){cyan} %clr(-){faint} %msg%n"
+
+# 任务调度配置
+spring.task.scheduling.pool.size: 5
+
+# 🍀 P1: 监控与链路追踪配置
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics,prometheus
+  endpoint:
+    health:
+      show-details: always
+  metrics:
+    export:
+      prometheus:
+        enabled: true
+    tags:
+      application: ${spring.application.name}
+  tracing:
+    sampling:
+      probability: 1.0
+  zipkin:
+    tracing:
+      endpoint: http://localhost:9411/api/v2/spans
+
+# Snapshot配置
+snapshot:
+  # Kafka消费的Topic列表（多Symbol）
+  kafka:
+    topics: trade-entry-BTCUSDT,trade-entry-ETHUSDT,trade-entry-SYSTEM
+  
+  # Redis缓存TTL（小时）
+  redis:
+    ttl-hours: 24
+  
+  # Replay配置
+  replay:
+    batch-size: 1000
+
+

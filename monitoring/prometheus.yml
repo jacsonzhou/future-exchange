@@ -1,0 +1,43 @@
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+
+alerting:
+  alertmanagers:
+    - static_configs:
+        - targets: []
+
+rule_files: []
+
+scrape_configs:
+  # Prometheus 自身监控
+  - job_name: 'prometheus'
+    static_configs:
+      - targets: ['localhost:9090']
+
+  # 交易所核心服务监控
+  - job_name: 'exchange-core-services'
+    metrics_path: '/actuator/prometheus'
+    static_configs:
+      - targets:
+        - 'host.docker.internal:8080'  # api-gateway
+        - 'host.docker.internal:8081'  # oms-core
+        - 'host.docker.internal:8082'  # hard-risk-core
+        - 'host.docker.internal:8083'  # match-engine-core
+        - 'host.docker.internal:8084'  # ledger-core
+        - 'host.docker.internal:8085'  # snapshot-account-core
+        - 'host.docker.internal:8086'  # position-snapshot-core
+        - 'host.docker.internal:8088'  # liquidation-core
+        - 'host.docker.internal:8090'  # margin-mode-core
+        - 'host.docker.internal:8095'  # market-price-core
+        - 'host.docker.internal:8096'  # public-push-core
+    relabel_configs:
+      - source_labels: [__address__]
+        regex: 'host.docker.internal:(\d+)'
+        target_label: instance
+        replacement: 'exchange-service-${1}'
+
+  # 主机监控
+  - job_name: 'node-exporter'
+    static_configs:
+      - targets: ['node-exporter:9100']

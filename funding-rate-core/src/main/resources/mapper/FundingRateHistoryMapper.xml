@@ -1,0 +1,47 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.exchange.funding.mapper.FundingRateHistoryMapper">
+
+    <resultMap id="BaseResultMap" type="com.exchange.funding.entity.FundingRateHistory">
+        <id column="id" property="id"/>
+        <result column="symbol" property="symbol"/>
+        <result column="funding_time" property="fundingTime"/>
+        <result column="funding_rate" property="fundingRate"/>
+        <result column="mark_price" property="markPrice"/>
+        <result column="index_price" property="indexPrice"/>
+        <result column="premium_index" property="premiumIndex"/>
+        <result column="total_long_qty" property="totalLongQty"/>
+        <result column="total_short_qty" property="totalShortQty"/>
+        <result column="settlement_amount" property="settlementAmount"/>
+        <result column="created_at" property="createdAt"/>
+    </resultMap>
+
+    <insert id="insert" parameterType="com.exchange.funding.entity.FundingRateHistory" useGeneratedKeys="true" keyProperty="id">
+        INSERT INTO t_funding_rate_history (
+            symbol, funding_time, funding_rate, mark_price, index_price,
+            premium_index, total_long_qty, total_short_qty, settlement_amount
+        ) VALUES (
+            #{symbol}, #{fundingTime}, #{fundingRate}, #{markPrice}, #{indexPrice},
+            #{premiumIndex}, #{totalLongQty}, #{totalShortQty}, #{settlementAmount}
+        )
+    </insert>
+
+    <update id="updateById" parameterType="com.exchange.funding.entity.FundingRateHistory">
+        UPDATE t_funding_rate_history
+        SET settlement_amount = #{settlementAmount}
+        WHERE id = #{id}
+    </update>
+
+    <select id="selectBySymbolAndTime" resultMap="BaseResultMap">
+        SELECT * FROM t_funding_rate_history
+        WHERE symbol = #{symbol} AND funding_time = #{fundingTime}
+    </select>
+
+    <select id="selectBySymbolLimit" resultMap="BaseResultMap">
+        SELECT * FROM t_funding_rate_history
+        WHERE symbol = #{symbol}
+        ORDER BY funding_time DESC
+        LIMIT #{limit}
+    </select>
+
+</mapper>

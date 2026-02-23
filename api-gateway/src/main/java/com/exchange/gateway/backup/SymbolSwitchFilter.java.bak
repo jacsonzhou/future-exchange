@@ -1,0 +1,121 @@
+package com.exchange.gateway.filter;
+
+import com.exchange.gateway.config.GatewayProperties;
+import com.exchange.gateway.context.TraceContext;
+import jakarta.servlet.*;
+import jakarta.servlet.http.HttpServletRequest;
+import jakarta.servlet.http.HttpServletResponse;
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.core.annotation.Order;
+import org.springframework.stereotype.Component;
+
+import java.io.IOException;
+
+/**
+ * 交易对开关Filter
+ * 
+ * 职责：
+ * 1. 全局交易开关
+ * 2. 单交易对交易暂停
+ * 3. 只允许平仓模式
+ * 
+ * 典型场景：
+ * - 极端行情
+ * - 风控接管
+ * - 系统维护
+ */
+@Slf4j
+@Component
+@Order(5) // 第五执行
+public class SymbolSwitchFilter implements Filter {
+    
+    @Autowired
+    private GatewayProperties gatewayProperties;
+    
+    @Override
+    public void doFilter(ServletRequest request, ServletResponse response, FilterChain chain)
+            throws IOException, ServletException {
+        
+        HttpServletRequest httpRequest = (HttpServletRequest) request;
+        HttpServletResponse httpResponse = (HttpServletResponse) response;
+        
+        String path = httpRequest.getRequestURI();
+        
+        // 只对下单接口进行检查
+        if (!path.contains("/order/create")) {
+            chain.doFilter(request, response);
+            return;
+        }
+        
+        try {
+            // 1. 检查全局交易开关
+            if (!gatewayProperties.getSymbolSwitch().isGlobalTradingEnabled()) {
+                log.warn("Global trading disabled: traceId={}", TraceContext.getTraceId());
+                sendTradingDisabled(httpResponse, "Global trading is currently disabled");
+                return;
+            }
+            
+            // 2. 提取交易对（实际应从请求体中提取）
+            String symbol = extractSymbol(httpRequest);
+            
+            if (symbol != null) {
+                // 3. 检查交易对是否被禁用
+                Boolean disabled = gatewayProperties.getSymbolSwitch()
+                    .getDisabledSymbols().get(symbol);
+                
+                if (Boolean.TRUE.equals(disabled)) {
+                    log.warn("Symbol trading disabled: symbol={}, traceId={}",
+                        symbol, TraceContext.getTraceId());
+                    sendTradingDisabled(httpResponse, 
+                        String.format("Trading for %s is currently disabled", symbol));
+                    return;
+                }
+                
+                // 4. 检查是否只允许平仓
+                Boolean closeOnly = gatewayProperties.getSymbolSwitch()
+                    .getCloseOnlySymbols().get(symbol);
+                
+                if (Boolean.TRUE.equals(closeOnly)) {
+                    // TODO: 检查订单是否为平仓单
+                    log.info("Symbol in close-only mode: symbol={}, traceId={}",
+                        symbol, TraceContext.getTraceId());
+                }
+            }
+            
+            // 继续执行
+            chain.doFilter(request, response);
+            
+        } catch (Exception e) {
+            log.error("Symbol switch check failed: traceId=" + TraceContext.getTraceId(), e);
+            // 检查失败，允许继续（fail-open策略）
+            chain.doFilter(request, response);
+        }
+    }
+    
+    /**
+     * 提取交易对
+     * TODO: 从请求体中提取
+     */
+    private String extractSymbol(HttpServletRequest request) {
+        // 简化处理，实际应解析请求体
+        return "BTCUSDT";
+    }
+    
+    /**
+     * 发送交易禁用响应
+     */
+    private void sendTradingDisabled(HttpServletResponse response, String message) 
+            throws IOException {
+        response.setStatus(HttpServletResponse.SC_FORBIDDEN);
+        response.setContentType("application/json");
+        response.getWriter().write(
+            String.format("{\"success\":false,\"message\":\"%s\",\"traceId\":\"%s\"}",
+                message, TraceContext.getTraceId())
+        );
+    }
+}
+
+
+
+

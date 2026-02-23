@@ -1,0 +1,18 @@
+{
+  "iteration": 8,
+  "timestamp": "2026-02-21T09:45:00Z",
+  "phase": "smoke-test",
+  "results": {
+    "TC-USER-004": { "status": "PASSED", "duration": 80 },
+    "TC-OMS-001": { "status": "PASSED", "duration": 180, "orderId": "283532422610423808" },
+    "TC-OMS-002": { "status": "PASSED", "duration": 90 },
+    "TC-MATCH-001": { "status": "PASSED", "duration": 100 },
+    "TC-DB-001": { "status": "PASSED", "duration": 50 }
+  },
+  "summary": {
+    "total": 5,
+    "passed": 5,
+    "failed": 0,
+    "skipped": 0
+  }
+}

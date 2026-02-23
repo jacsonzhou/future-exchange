@@ -1,0 +1,70 @@
+# ============================================
+# Private Push Core (私有推送系统) 配置 (dev环境)
+# 端口: 8099
+# ============================================
+
+server:
+  port: 8097
+
+spring:
+  application:
+    name: private-push-core
+  
+  kafka:
+    consumer:
+      group-id: private-push-service
+      auto-offset-reset: latest
+      enable-auto-commit: true
+    producer:
+      retries: 3
+  
+  redis:
+    host: localhost
+    port: 6379
+    database: 0
+    timeout: 2000ms
+    lettuce:
+      pool:
+        max-active: 50
+        max-idle: 20
+        min-idle: 5
+
+# 私有推送配置
+private:
+  push:
+    port: 8097
+
+    jwt:
+      secret: future-exchange-user-core-secret-key-2024
+      expiration-minutes: 30
+      refresh-minutes: 60
+
+    connection:
+      max-per-user: 5
+      max-per-ip: 100
+      heartbeat-interval: 30
+      heartbeat-timeout: 60
+      session-timeout-minutes: 30
+    
+    ack:
+      enabled: true
+      timeout-ms: 5000
+      max-retry: 3
+      retry-interval-ms: 1000
+    
+    rate-limit:
+      messages-per-second: 100
+      subscribe-per-second: 10
+    
+    kafka:
+      order-state-topic: private-order-state
+      account-change-topic: private-account-change
+      position-change-topic: private-position-change
+      consumer-group-id: private-push-service
+
+# Logging配置
+logging:
+  level:
+    com.exchange.privatepush: INFO
+    com.exchange.privatepush.handler: DEBUG
+    com.exchange.privatepush.service: DEBUG

@@ -1,0 +1,39 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.exchange.adl.mapper.InsuranceFundLogMapper">
+
+    <!-- 查询保险基金流水 -->
+    <select id="selectBySymbol" resultType="com.exchange.adl.entity.InsuranceFundLog">
+        SELECT *
+        FROM insurance_fund_log
+        WHERE symbol = #{symbol}
+        ORDER BY created_at DESC
+        LIMIT #{limit}
+    </select>
+
+    <!-- 根据关联ID查询流水 -->
+    <select id="selectByRefId" resultType="com.exchange.adl.entity.InsuranceFundLog">
+        SELECT *
+        FROM insurance_fund_log
+        WHERE ref_id = #{refId}
+        ORDER BY created_at DESC
+    </select>
+
+    <!-- 查询最近的流水记录 -->
+    <select id="selectRecent" resultType="com.exchange.adl.entity.InsuranceFundLog">
+        SELECT *
+        FROM insurance_fund_log
+        ORDER BY created_at DESC
+        LIMIT #{limit}
+    </select>
+
+    <!-- 查询指定时间范围的流水 -->
+    <select id="selectByTimeRange" resultType="com.exchange.adl.entity.InsuranceFundLog">
+        SELECT *
+        FROM insurance_fund_log
+        WHERE symbol = #{symbol}
+          AND created_at BETWEEN #{startTime} AND #{endTime}
+        ORDER BY created_at DESC
+    </select>
+
+</mapper>

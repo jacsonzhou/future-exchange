@@ -1,0 +1,208 @@
+# ============================================
+# API Gateway 配置 (dev环境)
+# 端口: 8082
+# ============================================
+
+server:
+  port: 8082
+
+spring:
+  application:
+    name: api-gateway
+  
+  profiles:
+    active: dev
+  
+  cloud:
+    gateway:
+      # 默认过滤器（应用于所有路由）
+      default-filters:
+        # 添加响应头
+        - AddResponseHeader=X-Gateway-Version, api-gateway@1.0
+      
+      # 全局跨域配置
+      globalcors:
+        cors-configurations:
+          '[/**]':
+            allowedOrigins: "*"
+            allowedMethods: "*"
+            allowedHeaders: "*"
+            allowCredentials: false
+            maxAge: 3600
+      
+      # 路由配置
+      routes:
+        # ==================== 订单服务路由 ====================
+        - id: order-service-create
+          uri: lb://oms-core
+          predicates:
+            - Path=/api/order/create
+          filters:
+            # 路径重写
+            - RewritePath=/api/order/create, /api/v1/oms/order/submit
+            # 熔断降级
+            - name: CircuitBreaker
+              args:
+                name: orderServiceCircuitBreaker
+                fallbackUri: forward:/fallback/order
+        
+        - id: order-service-query
+          uri: lb://oms-core
+          predicates:
+            - Path=/api/v1/order/query
+          filters:
+            - RewritePath=/api/v1/order/query, /api/v1/oms/order/query
+            # 熔断降级
+            - name: CircuitBreaker
+              args:
+                name: orderServiceCircuitBreaker
+                fallbackUri: forward:/fallback/order
+        
+        - id: order-service-list
+          uri: lb://oms-core
+          predicates:
+            - Path=/api/v1/oms/order/list
+          filters:
+            # 熔断降级
+            - name: CircuitBreaker
+              args:
+                name: orderServiceCircuitBreaker
+                fallbackUri: forward:/fallback/order
+        
+        # ==================== 用户服务路由 ====================
+        - id: user-service
+          uri: lb://user-core
+          predicates:
+            - Path=/api/v1/user/**
+          # 注意：用户服务路由暂不启用限流，避免启动阶段配置问题
+          # filters:
+          #   - name: RequestRateLimiter
+          #     args:
+          #       redis-rate-limiter.replenishRate: 30
+          #       redis-rate-limiter.burstCapacity: 50
+          #       key-resolver: "#{@ipKeyResolver}"
+        
+        # ==================== 行情服务路由（公开）====================
+        # K 线数据
+        - id: market-price-klines
+          uri: lb://market-price-core
+          predicates:
+            - Path=/api/v1/klines/**
+        
+        # 深度数据
+        - id: market-price-depth
+          uri: lb://market-price-core
+          predicates:
+            - Path=/api/v1/depth/**
+        
+        # Ticker 数据
+        - id: market-price-ticker
+          uri: lb://market-price-core
+          predicates:
+            - Path=/api/v1/ticker/**
+        
+        # 最优盘口
+        - id: market-price-book-ticker
+          uri: lb://market-price-core
+          predicates:
+            - Path=/api/v1/bookTicker/**
+        
+        # 通用行情接口（向后兼容）
+        - id: market-data-public
+          uri: lb://market-price-core
+          predicates:
+            - Path=/api/v1/market/**
+          # 限流过滤器（暂时禁用）
+          # filters:
+          #   - name: RequestRateLimiter
+          #     args:
+          #       redis-rate-limiter.replenishRate: 100
+          #       redis-rate-limiter.burstCapacity: 200
+          #       key-resolver: "#{@ipKeyResolver}"
+        
+        # ==================== 快照服务路由 ====================
+        - id: snapshot-service
+          uri: lb://snapshot-account-core
+          predicates:
+            - Path=/api/v1/snapshot/**
+          filters:
+            - RewritePath=/api/v1/snapshot/(?<segment>.*), /api/v1/account/\${segment}
+        
+        # ==================== 持仓服务路由 ====================
+        - id: position-service
+          uri: lb://position-snapshot-core
+          predicates:
+            - Path=/api/v1/position/**
+        
+        # ==================== 强平服务路由（内部）====================
+        - id: liquidation-service
+          uri: lb://liquidation-core
+          predicates:
+            - Path=/api/v1/liquidation/**
+        
+        # ==================== WebSocket 行情推送 ====================
+        - id: public-push-ws
+          uri: lb:ws://public-push-core
+          predicates:
+            - Path=/ws/market/**
+        
+        # ==================== 监控指标（公开）====================
+        - id: actuator-health
+          uri: http://localhost:8080
+          predicates:
+            - Path=/actuator/health, /actuator/info
+
+# Gateway 自定义配置
+gateway:
+  auth:
+    enabled: true
+    # 白名单路径（免认证）
+    whitelist-paths:
+      - /api/v1/user/register
+      - /api/v1/user/login
+      - /api/v1/position/**    # ✅ 持仓查询接口
+      - /api/v1/market/**
+      - /api/v1/ticker/**
+      - /api/v1/depth/**
+      - /api/v1/oms/order/list
+      - /api/v1/kline/**       # 单数形式（兼容旧版本）
+      - /api/v1/klines/**      # ✅ 复数形式（K线数据接口）
+      - /api/v1/bookTicker/**  # ✅ 最优盘口接口
+      - /actuator/health
+      - /actuator/info
+      - /ws/market/**
+      - /fallback/**
+  
+  # 限流配置
+  rate-limit:
+    enabled: true
+    # 用户级限流 (请求/秒)
+    per-user:
+      submitOrder: 50
+      cancelOrder: 100
+      queryOrder: 200
+    # IP级限流 (请求/秒)
+    per-ip:
+      submitOrder: 20
+      cancelOrder: 50
+      queryOrder: 100
+    # 交易对级限流 (请求/秒)
+    per-symbol:
+      BTCUSDT: 200
+      ETHUSDT: 150
+
+# 熔断配置
+resilience4j:
+  circuitbreaker:
+    configs:
+      default:
+        slidingWindowSize: 100
+        minimumNumberOfCalls: 10
+        failureRateThreshold: 50
+        waitDurationInOpenState: 60s
+        permittedNumberOfCallsInHalfOpenState: 10
+    instances:
+      orderServiceCircuitBreaker:
+        baseConfig: default
+      userServiceCircuitBreaker:
+        baseConfig: default

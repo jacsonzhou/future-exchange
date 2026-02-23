@@ -1,0 +1,48 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.exchange.adl.mapper.BankruptcyRecordMapper">
+
+    <!-- 根据强平ID查询穿仓记录 -->
+    <select id="selectByLiquidationId" resultType="com.exchange.adl.entity.BankruptcyRecord">
+        SELECT *
+        FROM bankruptcy_record
+        WHERE liquidation_id = #{liquidationId}
+        LIMIT 1
+    </select>
+
+    <!-- 查询待处理的穿仓记录 -->
+    <select id="selectPendingRecords" resultType="com.exchange.adl.entity.BankruptcyRecord">
+        SELECT *
+        FROM bankruptcy_record
+        WHERE status = 'PENDING'
+        ORDER BY bankrupt_at ASC
+        LIMIT #{limit}
+    </select>
+
+    <!-- 查询处理中的穿仓记录 -->
+    <select id="selectProcessingRecords" resultType="com.exchange.adl.entity.BankruptcyRecord">
+        SELECT *
+        FROM bankruptcy_record
+        WHERE status = 'PROCESSING'
+        ORDER BY processing_at ASC
+    </select>
+
+    <!-- 根据交易对查询穿仓记录 -->
+    <select id="selectBySymbol" resultType="com.exchange.adl.entity.BankruptcyRecord">
+        SELECT *
+        FROM bankruptcy_record
+        WHERE symbol = #{symbol}
+        ORDER BY bankrupt_at DESC
+        LIMIT #{limit}
+    </select>
+
+    <!-- 查询用户穿仓记录 -->
+    <select id="selectByUserId" resultType="com.exchange.adl.entity.BankruptcyRecord">
+        SELECT *
+        FROM bankruptcy_record
+        WHERE user_id = #{userId}
+        ORDER BY bankrupt_at DESC
+        LIMIT #{limit}
+    </select>
+
+</mapper>

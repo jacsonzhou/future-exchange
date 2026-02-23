@@ -1,0 +1,147 @@
+# ============================================
+# Margin Mode Core (保证金模式服务) 配置 (dev环境)
+# 端口: 8090
+# ============================================
+
+server:
+  port: 8090
+
+spring:
+  application:
+    name: margin-mode-core
+  
+  # 数据源配置
+  datasource:
+    driver-class-name: com.mysql.cj.jdbc.Driver
+    url: jdbc:mysql://127.0.0.1:3306/exchange_margin?useUnicode=true&characterEncoding=utf8&useSSL=false&serverTimezone=Asia/Shanghai&rewriteBatchedStatements=true
+    username: root
+    password: root
+    type: com.alibaba.druid.pool.DruidDataSource
+    druid:
+      initial-size: 10
+      min-idle: 10
+      max-active: 50
+      max-wait: 60000
+      time-between-eviction-runs-millis: 60000
+      min-evictable-idle-time-millis: 300000
+      validation-query: SELECT 1
+      test-while-idle: true
+      test-on-borrow: false
+      test-on-return: false
+  
+  # Kafka配置
+  kafka:
+    consumer:
+      group-id: margin-mode-service
+      auto-offset-reset: earliest
+      enable-auto-commit: false
+      properties:
+        spring.json.trusted.packages: "*"
+        max.poll.records: 500
+        fetch.min.bytes: 1024
+        fetch.max.wait.ms: 500
+    producer:
+      acks: all
+      retries: 3
+      batch-size: 16384
+      buffer-memory: 33554432
+    listener:
+      concurrency: 4
+      ack-mode: manual_immediate
+  
+  # Redis配置
+  redis:
+    host: localhost
+    port: 6379
+    database: 0
+    timeout: 3000ms
+    lettuce:
+      pool:
+        max-active: 20
+        max-idle: 10
+        min-idle: 5
+        max-wait: 3000ms
+
+  # 任务调度配置
+  task:
+    scheduling:
+      pool:
+        size: 5
+
+  # MyBatis Plus配置
+  mybatis-plus:
+    type-aliases-package: com.exchange.margin.entity
+    configuration:
+      cache-enabled: true
+    global-config:
+      db-config:
+        id-type: auto
+
+# Logging配置
+logging:
+  level:
+    root: INFO
+    com.exchange: INFO
+    com.exchange.margin.mapper: DEBUG
+  file:
+    name: logs/margin-mode-core.log
+
+# Margin Mode核心配置
+margin:
+  # 保证金模式配置
+  mode:
+    default: CROSS
+    allow-switch: true
+  
+  # 杠杆配置
+  leverage:
+    default: 10
+    max: 125
+    min: 1
+  
+  # 风险阈值配置（万分比）
+  risk:
+    safe-threshold: 10000
+    warning-threshold: 5000
+    danger-threshold: 2000
+    liquidation-threshold: 1000
+  
+  # 维持保证金率配置
+  maintenance-margin:
+    default-rate: 50
+    max-rate: 5000
+  
+  # 快照更新配置
+  snapshot:
+    auto-update: true
+    update-interval: 1000
+    batch-size: 100
+  
+  # 强平检查配置
+  liquidation:
+    auto-check: true
+    check-interval: 500
+    execution-timeout: 30000
+
+# 外部服务调用配置
+service:
+  account:
+    url: http://localhost:9090
+    connect-timeout: 5000
+    read-timeout: 10000
+  position:
+    url: http://localhost:8086
+    connect-timeout: 5000
+    read-timeout: 10000
+  markprice:
+    url: http://localhost:8089
+    connect-timeout: 3000
+    read-timeout: 5000
+  ledger:
+    url: http://localhost:8085
+    connect-timeout: 5000
+    read-timeout: 10000
+  order:
+    url: http://localhost:9091
+    connect-timeout: 5000
+    read-timeout: 10000

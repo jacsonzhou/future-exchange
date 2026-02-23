@@ -1,0 +1,183 @@
+server:
+  port: 8088
+
+spring:
+  application:
+    name: funding-rate-core
+  
+  datasource:
+    url: jdbc:mysql://localhost:3306/exchange_funding?useUnicode=true&characterEncoding=utf8&useSSL=false&serverTimezone=Asia/Shanghai
+    username: ${DB_USERNAME:root}
+    password: ${DB_PASSWORD:root}
+    driver-class-name: com.mysql.cj.jdbc.Driver
+    type: com.alibaba.druid.pool.DruidDataSource
+    druid:
+      initial-size: 10
+      min-idle: 10
+      max-active: 100
+      max-wait: 60000
+  
+  kafka:
+    bootstrap-servers: localhost:9092
+    producer:
+      key-serializer: org.apache.kafka.common.serialization.StringSerializer
+      value-serializer: org.springframework.kafka.support.serializer.JsonSerializer
+      retries: 3
+      acks: all
+    consumer:
+      group-id: funding-rate-group
+      auto-offset-reset: earliest
+      key-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+      value-deserializer: org.springframework.kafka.support.serializer.JsonDeserializer
+      properties:
+        spring.json.trusted.packages: com.exchange.*
+  
+  redis:
+    host: localhost
+    port: 6379
+    password: ${REDIS_PASSWORD:}
+    database: 0
+    lettuce:
+      pool:
+        max-active: 100
+        max-idle: 50
+        min-idle: 20
+
+mybatis-plus:
+  mapper-locations: classpath*:/mapper/**/*.xml
+  type-aliases-package: com.exchange.funding.entity
+  configuration:
+    map-underscore-to-camel-case: true
+    log-impl: org.apache.ibatis.logging.stdout.StdOutImpl
+
+logging:
+  level:
+    com.exchange.funding: INFO
+  pattern:
+    console: "%d{yyyy-MM-dd HH:mm:ss.SSS} [%thread] %-5level %logger{36} - %msg%n"
+
+# 资金费率配置
+funding-rate:
+  # 结算任务配置
+  settlement:
+    enabled: true
+    cron: "0 0 0,8,16 * * ?"  # 每天00:00, 08:00, 16:00 UTC
+    timeout: 60000             # 结算超时时间(ms)
+
+  # 预估费率更新
+  estimate:
+    enabled: true
+    fixed-rate: 5000           # 每5秒更新
+
+  # 外部服务配置
+  client:
+    index-price:
+      url: ${INDEX_PRICE_SERVICE_URL:http://localhost:8089}
+      timeout: 3000
+    mark-price:
+      url: ${MARK_PRICE_SERVICE_URL:http://localhost:8089}
+      timeout: 3000
+    position:
+      url: ${POSITION_SERVICE_URL:http://localhost:8084}
+      timeout: 5000
+    ledger:
+      url: ${LEDGER_SERVICE_URL:http://localhost:8086}
+      timeout: 5000
+
+  # 重试配置
+  retry:
+    max-attempts: 5
+    initial-interval: 60000     # 1分钟
+    multiplier: 2.0
+    max-interval: 3600000       # 1小时
+
+  # 分布式锁
+  lock:
+    enabled: true
+    timeout: 60000              # 锁超时(ms)
+
+  # Kafka Topic配置
+  kafka:
+    topics:
+      funding-rate-calc: funding-rate-calc
+      funding-settlement: funding-settlement
+      user-funding-fee: user-funding-fee
+
+# Resilience4j配置
+resilience4j:
+  circuitbreaker:
+    configs:
+      default:
+        registerHealthIndicator: true
+        slidingWindowSize: 10
+        minimumNumberOfCalls: 5
+        permittedNumberOfCallsInHalfOpenState: 3
+        automaticTransitionFromOpenToHalfOpenEnabled: true
+        waitDurationInOpenState: 30s
+        failureRateThreshold: 50
+        eventConsumerBufferSize: 10
+    instances:
+      indexPriceService:
+        baseConfig: default
+      markPriceService:
+        baseConfig: default
+      positionService:
+        baseConfig: default
+        waitDurationInOpenState: 60s
+      ledgerService:
+        baseConfig: default
+        failureRateThreshold: 30
+
+  retry:
+    configs:
+      default:
+        maxAttempts: 3
+        waitDuration: 1000
+        retryExceptions:
+          - java.net.SocketTimeoutException
+          - java.io.IOException
+          - org.springframework.web.client.ResourceAccessException
+    instances:
+      indexPriceService:
+        baseConfig: default
+      markPriceService:
+        baseConfig: default
+      positionService:
+        baseConfig: default
+        maxAttempts: 2
+      ledgerService:
+        baseConfig: default
+        maxAttempts: 5
+        waitDuration: 2000
+
+# Feign配置
+feign:
+  client:
+    config:
+      default:
+        connectTimeout: 5000
+        readTimeout: 10000
+        loggerLevel: BASIC
+  circuitbreaker:
+    enabled: true
+
+# 定时任务配置
+spring:
+  task:
+    scheduling:
+      pool:
+        size: 5
+      thread-name-prefix: funding-schedule-
+
+# 监控配置
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics,prometheus
+  metrics:
+    export:
+      prometheus:
+        enabled: true
+    tags:
+      application: ${spring.application.name}

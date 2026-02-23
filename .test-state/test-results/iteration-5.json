@@ -1,0 +1,8 @@
+{
+  "iteration": 5,
+  "timestamp": "EOF
+echo "$(date -u +"%Y-%m-%dT%H:%M:%SZ")",
+  "phase": "smoke-test",
+  "results": {},
+  "summary": {"total": 14, "passed": 0, "failed": 0, "skipped": 0}
+}

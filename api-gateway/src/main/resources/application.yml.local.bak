@@ -1,0 +1,213 @@
+server:
+  port: 8080
+
+spring:
+  application:
+    name: api-gateway
+  
+  profiles:
+    active: dev
+  
+  cloud:
+    nacos:
+      discovery:
+        server-addr: 127.0.0.1:8848
+        namespace: dev
+        metadata:
+          version: v1
+      config:
+        server-addr: 127.0.0.1:8848
+        namespace: dev
+        file-extension: yaml
+    
+    gateway:
+      # 默认过滤器（应用于所有路由）
+      default-filters:
+        # 添加响应头
+        - AddResponseHeader=X-Gateway-Version, ${spring.application.name}@${version:1.0}
+        # 请求ID
+        - AddRequestHeader=X-Request-Id, ${requestId}
+      
+      # 全局跨域配置
+      globalcors:
+        cors-configurations:
+          '[/**]':
+            allowedOrigins: "*"
+            allowedMethods: "*"
+            allowedHeaders: "*"
+            allowCredentials: false
+            maxAge: 3600
+      
+      # 路由配置
+      routes:
+        # ==================== 订单服务路由 ====================
+        - id: order-service
+          uri: lb://oms-core
+          predicates:
+            - Path=/api/order/**
+          filters:
+            # 限流过滤器
+            - name: RequestRateLimiter
+              args:
+                redis-rate-limiter.replenishRate: 50
+                redis-rate-limiter.burstCapacity: 100
+                redis-rate-limiter.requestedTokens: 1
+                key-resolver: "#{@userKeyResolver}"
+            # 路径重写：/api/order/create -> /api/v1/oms/order/create
+            - RewritePath=/api/order/(?<segment>.*), /api/v1/oms/order/$\{segment}
+            # 熔断降级
+            - name: CircuitBreaker
+              args:
+                name: orderServiceCircuitBreaker
+                fallbackUri: forward:/fallback/order
+        
+        # ==================== 用户服务路由 ====================
+        - id: user-service
+          uri: lb://user-core
+          predicates:
+            - Path=/api/v1/user/**
+          filters:
+            - name: RequestRateLimiter
+              args:
+                redis-rate-limiter.replenishRate: 30
+                redis-rate-limiter.burstCapacity: 50
+                key-resolver: "#{@ipKeyResolver}"
+        
+        # ==================== 行情服务路由（公开）====================
+        - id: market-data-public
+          uri: lb://market-price-core
+          predicates:
+            - Path=/api/v1/market/**
+          filters:
+            - name: RequestRateLimiter
+              args:
+                redis-rate-limiter.replenishRate: 100
+                redis-rate-limiter.burstCapacity: 200
+                key-resolver: "#{@ipKeyResolver}"
+        
+        # ==================== 快照服务路由 ====================
+        - id: snapshot-service
+          uri: lb://snapshot-account-core
+          predicates:
+            - Path=/api/v1/snapshot/**
+          filters:
+            - RewritePath=/api/v1/snapshot/(?<segment>.*), /api/v1/account/$\{segment}
+        
+        # ==================== 强平服务路由（内部）====================
+        - id: liquidation-service
+          uri: lb://liquidation-core
+          predicates:
+            - Path=/api/v1/liquidation/**
+          filters:
+            # 只允许内部IP访问
+            - name: RemoteAddr
+              args:
+                sources: 10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16, 127.0.0.1
+        
+        # ==================== WebSocket 行情推送 ====================
+        - id: public-push-ws
+          uri: lb:ws://public-push-core
+          predicates:
+            - Path=/ws/market/**
+        
+        # ==================== 监控指标（公开）====================
+        - id: actuator-health
+          uri: http://localhost:8080
+          predicates:
+            - Path=/actuator/health, /actuator/info
+
+  # Redis 配置（响应式）
+  data:
+    redis:
+      host: 127.0.0.1
+      port: 6379
+      database: 0
+      timeout: 3000ms
+      lettuce:
+        pool:
+          max-active: 32
+          max-idle: 16
+          min-idle: 4
+
+# Gateway 自定义配置
+gateway:
+  auth:
+    enabled: true
+    # 白名单路径（免认证）
+    whitelist-paths:
+      - /api/v1/user/register
+      - /api/v1/user/login
+      - /api/v1/market/**
+      - /api/v1/ticker/**
+      - /api/v1/depth/**
+      - /api/v1/kline/**
+      - /actuator/health
+      - /actuator/info
+      - /ws/market/**
+      - /fallback/**
+  
+  # 限流配置
+  rate-limit:
+    enabled: true
+    # 用户级限流 (请求/秒)
+    per-user:
+      submitOrder: 50
+      cancelOrder: 100
+      queryOrder: 200
+    # IP级限流 (请求/秒)
+    per-ip:
+      submitOrder: 20
+      cancelOrder: 50
+      queryOrder: 100
+    # 交易对级限流 (请求/秒)
+    per-symbol:
+      BTCUSDT: 200
+      ETHUSDT: 150
+
+# 熔断配置
+resilience4j:
+  circuitbreaker:
+    configs:
+      default:
+        slidingWindowSize: 100
+        minimumNumberOfCalls: 10
+        failureRateThreshold: 50
+        waitDurationInOpenState: 60s
+        permittedNumberOfCallsInHalfOpenState: 10
+    instances:
+      orderServiceCircuitBreaker:
+        baseConfig: default
+      userServiceCircuitBreaker:
+        baseConfig: default
+
+# 监控配置
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics,prometheus,gateway
+  endpoint:
+    health:
+      show-details: always
+    metrics:
+      enabled: true
+    gateway:
+      enabled: true
+  metrics:
+    export:
+      prometheus:
+        enabled: true
+    tags:
+      application: ${spring.application.name}
+  tracing:
+    sampling:
+      probability: 1.0
+
+# 日志配置
+logging:
+  level:
+    com.exchange: INFO
+    org.springframework.cloud.gateway: INFO
+    reactor.netty: INFO
+  pattern:
+    console: "%d{yyyy-MM-dd HH:mm:ss.SSS} [%X{traceId}] [%thread] %-5level %logger{36} - %msg%n"

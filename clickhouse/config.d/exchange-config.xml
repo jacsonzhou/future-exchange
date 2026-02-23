@@ -1,0 +1,45 @@
+<?xml version="1.0"?>
+<!-- ClickHouse 配置文件 -->
+<clickhouse>
+    <!-- 日志配置 -->
+    <logger>
+        <level>information</level>
+        <log>/var/log/clickhouse-server/clickhouse-server.log</log>
+        <errorlog>/var/log/clickhouse-server/clickhouse-server.err.log</errorlog>
+        <size>100M</size>
+        <count>10</count>
+    </logger>
+
+    <!-- 监听配置 -->
+    <http_port>8123</http_port>
+    <tcp_port>9000</tcp_port>
+    <mysql_port>9004</mysql_port>
+    <postgresql_port>9005</postgresql_port>
+
+    <!-- 内存限制 -->
+    <max_server_memory_usage>0</max_server_memory_usage>
+    <max_server_memory_usage_to_ram_ratio>0.9</max_server_memory_usage_to_ram_ratio>
+
+    <!-- 并发控制 -->
+    <max_concurrent_queries>200</max_concurrent_queries>
+    <max_concurrent_insert_queries>100</max_concurrent_insert_queries>
+    <max_concurrent_select_queries>100</max_concurrent_select_queries>
+
+    <!-- 查询限制 -->
+    <max_execution_time>60</max_execution_time>
+    <max_query_size>1048576</max_query_size>
+
+    <!-- 存储设置 -->
+    <merge_tree>
+        <parts_to_throw_insert>300</parts_to_throw_insert>
+        <parts_to_delay_insert>150</parts_to_delay_insert>
+        <max_parts_in_total>10000</max_parts_in_total>
+    </merge_tree>
+
+    <!-- 缓存配置 -->
+    <mark_cache_size>5368709120</mark_cache_size>  <!-- 5GB -->
+    <uncompressed_cache_size>8589934592</uncompressed_cache_size>  <!-- 8GB -->
+
+    <!-- 时区 -->
+    <timezone>Asia/Shanghai</timezone>
+</clickhouse>

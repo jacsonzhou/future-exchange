@@ -1,0 +1,63 @@
+# ============================================
+# Mark Price Core (标记价格服务) 配置 (dev环境)
+# 端口: 8094
+# ============================================
+
+server:
+  port: 8094
+
+spring:
+  application:
+    name: mark-price-service
+
+  datasource:
+    url: jdbc:mysql://localhost:3306/exchange_market?useSSL=false&serverTimezone=UTC&allowPublicKeyRetrieval=true
+    username: root
+    password: ${MYSQL_PASSWORD:root}
+    driver-class-name: com.mysql.cj.jdbc.Driver
+    type: com.alibaba.druid.pool.DruidDataSource
+    druid:
+      initial-size: 10
+      min-idle: 10
+      max-active: 50
+      max-wait: 60000
+
+  redis:
+    host: localhost
+    port: 6379
+    password: ${REDIS_PASSWORD:}
+    database: 0
+    lettuce:
+      pool:
+        max-active: 50
+        max-idle: 20
+
+  kafka:
+    producer:
+      acks: all
+      retries: 3
+    consumer:
+      group-id: ${spring.application.name}
+      auto-offset-reset: latest
+      properties:
+        spring.json.trusted.packages: "*"
+
+  mybatis-plus:
+    configuration:
+      log-impl: org.apache.ibatis.logging.stdout.StdOutImpl
+    mapper-locations: classpath:mapper/*.xml
+    type-aliases-package: com.exchange.markprice.entity
+
+# 标记价格服务配置
+mark-price:
+  kafka:
+    topic: mark-price-update
+    index-topic: index-price-update
+  calculation:
+    ema-alpha: 0.0328
+    update-interval: 1000
+
+# Logging配置
+logging:
+  level:
+    com.exchange.markprice: INFO

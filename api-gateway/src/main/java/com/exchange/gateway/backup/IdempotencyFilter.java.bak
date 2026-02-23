@@ -1,0 +1,158 @@
+package com.exchange.gateway.filter;
+
+import com.exchange.gateway.context.TraceContext;
+import jakarta.servlet.*;
+import jakarta.servlet.http.HttpServletRequest;
+import jakarta.servlet.http.HttpServletResponse;
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.core.annotation.Order;
+import org.springframework.data.redis.core.RedisTemplate;
+import org.springframework.stereotype.Component;
+
+import java.io.IOException;
+import java.util.concurrent.TimeUnit;
+
+/**
+ * 幂等Filter
+ * 
+ * 职责：
+ * 1. 防止重复提交
+ * 2. 基于 X-Idempotency-Key
+ * 3. Redis SETNX 实现
+ * 
+ * 适用接口：
+ * - submitOrder
+ * - cancelOrder
+ * - withdraw
+ */
+@Slf4j
+@Component
+@Order(6) // 第六执行
+public class IdempotencyFilter implements Filter {
+    
+    @Autowired(required = false)
+    private RedisTemplate<String, Object> redisTemplate;
+    
+    private static final String HEADER_IDEMPOTENCY_KEY = "X-Idempotency-Key";
+    private static final int TTL_SECONDS = 120; // 幂等key有效期2分钟
+    
+    @Override
+    public void doFilter(ServletRequest request, ServletResponse response, FilterChain chain)
+            throws IOException, ServletException {
+        
+        HttpServletRequest httpRequest = (HttpServletRequest) request;
+        HttpServletResponse httpResponse = (HttpServletResponse) response;
+        
+        String path = httpRequest.getRequestURI();
+        
+        // 只对需要幂等的接口进行检查
+        if (!needsIdempotency(path)) {
+            chain.doFilter(request, response);
+            return;
+        }
+        
+        try {
+            // 1. 提取幂等Key
+            String idempotencyKey = httpRequest.getHeader(HEADER_IDEMPOTENCY_KEY);
+            
+            if (idempotencyKey == null || idempotencyKey.isEmpty()) {
+                log.warn("Missing idempotency key: path={}, traceId={}",
+                    path, TraceContext.getTraceId());
+                sendBadRequest(httpResponse, "X-Idempotency-Key header is required");
+                return;
+            }
+            
+            // 2. 检查幂等性
+            if (!checkIdempotency(idempotencyKey)) {
+                log.warn("Duplicate request detected: key={}, traceId={}",
+                    idempotencyKey, TraceContext.getTraceId());
+                sendConflict(httpResponse, "Duplicate request");
+                return;
+            }
+            
+            // 继续执行
+            chain.doFilter(request, response);
+            
+        } catch (Exception e) {
+            log.error("Idempotency check failed: traceId=" + TraceContext.getTraceId(), e);
+            // 检查失败，拒绝请求（fail-close策略，金融系统必须保守）
+            sendError(httpResponse, "Idempotency check failed");
+        }
+    }
+    
+    /**
+     * 判断接口是否需要幂等检查
+     */
+    private boolean needsIdempotency(String path) {
+        return path.contains("/order/create") || 
+               path.contains("/order/cancel") ||
+               path.contains("/withdraw");
+    }
+    
+    /**
+     * 检查幂等性
+     * 
+     * @param key 幂等key
+     * @return true=允许，false=重复
+     */
+    private boolean checkIdempotency(String key) {
+        if (redisTemplate == null) {
+            return true; // 无Redis，允许
+        }
+        
+        try {
+            String redisKey = "idempotency:" + key;
+            
+            // 使用 SETNX 原子操作
+            Boolean success = redisTemplate.opsForValue()
+                .setIfAbsent(redisKey, TraceContext.getTraceId(), TTL_SECONDS, TimeUnit.SECONDS);
+            
+            return Boolean.TRUE.equals(success);
+            
+        } catch (Exception e) {
+            log.error("Idempotency check error", e);
+            return false; // 金融系统：异常时拒绝
+        }
+    }
+    
+    /**
+     * 发送400错误请求响应
+     */
+    private void sendBadRequest(HttpServletResponse response, String message) throws IOException {
+        response.setStatus(HttpServletResponse.SC_BAD_REQUEST);
+        response.setContentType("application/json");
+        response.getWriter().write(
+            String.format("{\"success\":false,\"message\":\"%s\",\"traceId\":\"%s\"}",
+                message, TraceContext.getTraceId())
+        );
+    }
+    
+    /**
+     * 发送409冲突响应
+     */
+    private void sendConflict(HttpServletResponse response, String message) throws IOException {
+        response.setStatus(HttpServletResponse.SC_CONFLICT);
+        response.setContentType("application/json");
+        response.getWriter().write(
+            String.format("{\"success\":false,\"message\":\"%s\",\"traceId\":\"%s\"}",
+                message, TraceContext.getTraceId())
+        );
+    }
+    
+    /**
+     * 发送500错误响应
+     */
+    private void sendError(HttpServletResponse response, String message) throws IOException {
+        response.setStatus(HttpServletResponse.SC_INTERNAL_SERVER_ERROR);
+        response.setContentType("application/json");
+        response.getWriter().write(
+            String.format("{\"success\":false,\"message\":\"%s\",\"traceId\":\"%s\"}",
+                message, TraceContext.getTraceId())
+        );
+    }
+}
+
+
+
+

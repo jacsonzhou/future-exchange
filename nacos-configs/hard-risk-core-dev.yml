@@ -1,0 +1,40 @@
+# ============================================
+# Hard Risk Core (硬风控) 配置 (dev环境)
+# 端口: 8082
+# ============================================
+
+server:
+  port: 8082
+
+spring:
+  application:
+    name: hard-risk-core
+  
+  # 数据源配置
+  datasource:
+    driver-class-name: com.mysql.cj.jdbc.Driver
+    url: jdbc:mysql://localhost:3306/exchange_risk?useUnicode=true&characterEncoding=utf8&serverTimezone=Asia/Shanghai&useSSL=false
+    username: root
+    password: 123456
+    hikari:
+      minimum-idle: 5
+      maximum-pool-size: 20
+      connection-timeout: 30000
+      idle-timeout: 600000
+      max-lifetime: 1800000
+  
+  # MyBatis Plus配置
+  mybatis-plus:
+    type-aliases-package: com.exchange.risk.entity
+  
+  # Redis配置（缓存）
+  redis:
+    host: 127.0.0.1
+    port: 6379
+    database: 0
+
+# Logging配置
+logging:
+  level:
+    com.exchange.risk: INFO
+    com.exchange.risk.mapper: DEBUG
