@@ -289,6 +289,9 @@ public class MarketDataPublisher {
      */
     @Async("marketDataTaskExecutor")
     public void publishDepth(String symbol, DepthUpdate depthUpdate) {
+        log.info("[Publisher] >>> publishDepth called, symbol={}, bids={}, asks={}", symbol, 
+            depthUpdate.getBids() != null ? depthUpdate.getBids().size() : 0,
+            depthUpdate.getAsks() != null ? depthUpdate.getAsks().size() : 0);
         try {
             // 更新缓存
             marketDataCache.updateDepth(symbol, depthUpdate);
@@ -305,6 +308,7 @@ public class MarketDataPublisher {
 
             // 更新Redis快照（🔥 FIX: 每次更新都写入，供public-push-core获取）
             redisTemplate.opsForValue().set(SNAPSHOT_DEPTH + symbol, json);
+            log.info("[Publisher] Redis snapshot updated: key={}, json length={}", SNAPSHOT_DEPTH + symbol, json.length());
 
             // 发布到Redis
             String channel = CHANNEL_DEPTH + symbol;

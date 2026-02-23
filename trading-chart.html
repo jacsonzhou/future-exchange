@@ -3,7 +3,11 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+    <meta http-equiv="Pragma" content="no-cache">
+    <meta http-equiv="Expires" content="0">
     <title>合约交易K线图表</title>
+    <!-- Cache bust: v2 -->
     <!-- TradingView Charting Library -->
     <script src="https://unpkg.com/lightweight-charts@4.1.0/dist/lightweight-charts.standalone.production.js"></script>
     <style>
@@ -738,14 +742,17 @@
             `;
             
             // 卖单（红色，倒序显示）
+            let cumulative = 0;
             state.orderbook.asks.forEach(([price, qty]) => {
                 const priceVal = formatPrice(price);
                 const qtyVal = formatQty(qty);
+                const amount = parseFloat(priceVal) * parseFloat(qtyVal);
+                cumulative += parseFloat(qtyVal);
                 html += `
                     <div class="orderbook-row orderbook-ask">
-                        <span>${priceVal}</span>
+                        <span>${priceVal.toFixed(2)}</span>
                         <span>${qtyVal}</span>
-                        <span>${(parseFloat(priceVal) * parseFloat(qtyVal)).toFixed(2)}</span>
+                        <span>${cumulative.toFixed(4)}</span>
                     </div>
                 `;
             });
@@ -766,14 +773,17 @@
             }
             
             // 买单（绿色）
+            cumulative = 0;
             state.orderbook.bids.forEach(([price, qty]) => {
                 const priceVal = formatPrice(price);
                 const qtyVal = formatQty(qty);
+                const amount = parseFloat(priceVal) * parseFloat(qtyVal);
+                cumulative += parseFloat(qtyVal);
                 html += `
                     <div class="orderbook-row orderbook-bid">
-                        <span>${priceVal}</span>
+                        <span>${priceVal.toFixed(2)}</span>
                         <span>${qtyVal}</span>
-                        <span>${(parseFloat(priceVal) * parseFloat(qtyVal)).toFixed(2)}</span>
+                        <span>${cumulative.toFixed(4)}</span>
                     </div>
                 `;
             });
@@ -865,20 +875,32 @@
             return value * (multipliers[unit] || 60000);
         }
 
+        // 价格精度系数 (8位小数) - V3 FIX
+        const PRICE_SCALE = 100000000;
+        
+        // 🔥 DEBUG: 测试 formatQty
+        console.log('[V3 FIX] PRICE_SCALE:', PRICE_SCALE);
+        console.log('[V3 FIX] Test formatQty(100000000):', (function(qty) {
+            let num = parseFloat(qty);
+            if (Math.abs(num) >= 100000000 || num === 0) {
+                num = num / 100000000;
+            }
+            return num.toFixed(4);
+        })(100000000));
+        
         function formatPrice(price) {
             let num = parseFloat(price);
             // 内部格式是8位小数，需要转换
-            if (num >= 1e8) {
-                num = num / 1e8;
+            if (Math.abs(num) >= PRICE_SCALE) {
+                num = num / PRICE_SCALE;
             }
             return num;
         }
 
         function formatQty(qty) {
             let num = parseFloat(qty);
-            if (num >= 1e8) {
-                num = num / 1e8;
-            }
+            // 🔥 V3 FIX: 强制除以 1e8，不使用条件判断
+            num = num / 100000000;
             return num.toFixed(4);
         }
 
