@@ -464,7 +464,7 @@
 
                     <!-- Recent Trades -->
                     <div class="card">
-                        <div class="card-title">📊 最新成交</div>
+                        <div class="card-title">📊 全市场最新成交</div>
                         <div class="trade-list" id="tradeList">
                             <div style="text-align:center;color:#8b949e;padding:20px;">等待数据...</div>
                         </div>
@@ -493,13 +493,13 @@
                         <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:15px;">
                             <div class="card-title" style="margin:0;">📋 资产与委托</div>
                             <div style="display:flex;gap:5px;">
-                                <button class="btn btn-sm" id="tabOrdersBtn" onclick="switchBottomTab('orders')" style="padding:6px 16px;background:#238636;color:white;border:none;border-radius:4px;cursor:pointer;">订单</button>
-                                <button class="btn btn-sm" id="tabPositionsBtn" onclick="switchBottomTab('positions')" style="padding:6px 16px;background:#30363d;color:#c9d1d9;border:none;border-radius:4px;cursor:pointer;">持仓</button>
+                                <button class="btn btn-sm" id="tabPositionsBtn" onclick="switchBottomTab('positions')" style="padding:6px 16px;background:#238636;color:white;border:none;border-radius:4px;cursor:pointer;">持仓</button>
+                                <button class="btn btn-sm" id="tabOrdersBtn" onclick="switchBottomTab('orders')" style="padding:6px 16px;background:#30363d;color:#c9d1d9;border:none;border-radius:4px;cursor:pointer;">订单</button>
                             </div>
                         </div>
                         
                         <!-- 订单列表 -->
-                        <div id="ordersPanel">
+                        <div id="ordersPanel" style="display:none;">
                             <div style="display:flex;gap:10px;margin-bottom:10px;">
                                 <button class="btn btn-sm" onclick="loadOrders('active')" style="padding:4px 12px;background:#21262d;color:#c9d1d9;border:1px solid #30363d;border-radius:4px;cursor:pointer;font-size:12px;">当前委托</button>
                                 <button class="btn btn-sm" onclick="loadOrders('history')" style="padding:4px 12px;background:transparent;color:#8b949e;border:1px solid #30363d;border-radius:4px;cursor:pointer;font-size:12px;">历史委托</button>
@@ -512,7 +512,7 @@
                         </div>
                         
                         <!-- 持仓列表 -->
-                        <div id="positionsPanel" style="display:none;">
+                        <div id="positionsPanel">
                             <div id="positionsSummary" style="display:flex;gap:20px;margin-bottom:15px;padding:10px;background:#0d1117;border-radius:6px;">
                                 <div>
                                     <div style="font-size:11px;color:#8b949e;">总未实现盈亏</div>
@@ -640,7 +640,7 @@
             publicWs: null,
             privateWs: null,
             isAuthenticated: false,
-            currentBottomTab: 'orders',  // orders | positions
+            currentBottomTab: 'positions',  // positions | orders
             currentOrderFilter: 'active' // active | history
         };
 
@@ -1065,7 +1065,20 @@
                 }
             } catch (_) {}
 
-            // 2) gateway fallback: /api/v1/match/orderbook/depth/{symbol}?depth=20
+            // 2) gateway fallback: /api/v1/depth?symbol=BTCUSDT&limit=20
+            try {
+                const res = await fetch(`${CONFIG.API_GATEWAY}/api/v1/depth?symbol=${encodeURIComponent(symbol)}&limit=20`);
+                if (res.ok) {
+                    const data = await res.json();
+                    return {
+                        bids: data.bids || [],
+                        asks: data.asks || [],
+                        timestamp: data.timestamp || Date.now()
+                    };
+                }
+            } catch (_) {}
+
+            // 3) match-engine fallback: /api/v1/match/orderbook/depth/{symbol}?depth=20
             try {
                 const res = await fetch(`${CONFIG.API_GATEWAY}/api/v1/match/orderbook/depth/${symbol}?depth=20`);
                 if (res.ok) {
@@ -1115,16 +1128,38 @@
         // ==================== 余额查询 ====================
         async function refreshBalance() {
             try {
-                // 通过 API Gateway 查询余额
-                const balanceUrl = `${CONFIG.API_GATEWAY}/api/v1/account/balance/${state.userId}`;
+                // 检查登录状态
+                if (!state.token) {
+                    log('warn', '未登录，无法查询余额');
+                    return;
+                }
+                
+                // 通过 API Gateway 查询余额（userId 从 JWT Token 自动获取）
+                const balanceUrl = `${CONFIG.API_GATEWAY}/api/v1/account/balance`;
                 log('info', `查询余额: ${balanceUrl}`);
                 
                 const res = await fetch(balanceUrl, {
-                    headers: { 'Authorization': `Bearer ${state.token}` }
+                    method: 'GET',
+                    headers: { 
+                        'Authorization': `Bearer ${state.token}`,
+                        'Accept': 'application/json'
+                    },
+                    mode: 'cors',
+                    credentials: 'omit'
                 });
                 
                 if (res.ok) {
-                    const data = await res.json();
+                    const responseText = await res.text();
+                    log('info', `余额响应: ${responseText.substring(0, 200)}`);
+                    
+                    let data;
+                    try {
+                        data = JSON.parse(responseText);
+                    } catch (parseErr) {
+                        log('error', 'JSON解析失败: ' + parseErr.message);
+                        return;
+                    }
+                    
                     // 处理直接返回快照数据或统一响应格式
                     const snapshot = data.data || data;
                     const available = snapshot.available ? parseFloat(snapshot.available) : 0;
@@ -1146,23 +1181,33 @@
                         log('warn', '预扣保证金查询失败: ' + e.message);
                     }
                     
-                    // 计算实际可用余额 = 数据库可用余额 - OMS预扣
-                    const actualAvailable = Math.max(0, available - preHoldMargin);
+                    // 计算余额显示
+                    // equity = 账户权益（总资金）
+                    // available = 可用余额（可能为负，表示借入资金）
+                    // frozen = 冻结保证金
+                    const equityNum = snapshot.equity ? parseFloat(snapshot.equity) : 0;
+                    const actualAvailable = available - preHoldMargin;
                     const totalFrozen = frozen + preHoldMargin;
                     
                     document.getElementById('availableBalance').textContent = formatMoneyDirect(actualAvailable);
+                    document.getElementById('availableBalance').style.color = actualAvailable < 0 ? '#f85149' : '#3fb950';
                     document.getElementById('frozenBalance').textContent = formatMoneyDirect(totalFrozen);
                     document.getElementById('marginBalance').textContent = formatMoneyDirect(positionMargin);
-                    document.getElementById('totalBalance').textContent = formatMoneyDirect(available + frozen + positionMargin);
+                    document.getElementById('totalBalance').textContent = formatMoneyDirect(equityNum);
                     
                     log('success', `余额刷新成功: 可用=${actualAvailable.toFixed(2)} USDT (预扣=${preHoldMargin.toFixed(2)})`);
                     return;
                 } else {
-                    const error = await res.text();
-                    log('error', '余额查询失败: ' + error);
+                    const errorText = await res.text();
+                    log('error', `余额查询失败 [${res.status}]: ${errorText}`);
                 }
             } catch (err) {
-                log('error', '余额查询异常: ' + err.message);
+                log('error', `余额查询异常: ${err.name}: ${err.message}`);
+                console.error('余额查询完整错误:', err);
+                // 显示网络错误提示
+                if (err.name === 'TypeError' && err.message.includes('fetch')) {
+                    log('error', '网络连接失败，请检查: 1) API Gateway 是否运行 2) 是否存在跨域问题');
+                }
             }
         }
 
@@ -1868,9 +1913,11 @@
                 const sideText = order.side === 'BUY' ? '买入' : '卖出';
                 const statusClass = getStatusClass(order.status);
                 const statusText = getStatusText(order.status);
-                // 修复：避免除以零或无效数值导致 NaN
-                const filledQty = parseFloat(order.filledQuantity) || 0;
-                const totalQty = parseFloat(order.quantity) || 1;
+                // 统一先归一化数量，避免展示值与百分比计算口径不一致
+                const normalizedTotalQty = normalizeQtyNumber(order.quantity);
+                const normalizedFilledQty = normalizeQtyNumber(order.filledQuantity);
+                const totalQty = Number.isFinite(normalizedTotalQty) && normalizedTotalQty > 0 ? normalizedTotalQty : 1;
+                const filledQty = Number.isFinite(normalizedFilledQty) ? normalizedFilledQty : 0;
                 const filledPct = totalQty > 0 ? (filledQty / totalQty * 100).toFixed(1) : '0.0';
                 
                 html += `
@@ -1961,40 +2008,26 @@
         }
 
         async function fetchPositionList(userId) {
-            const candidates = [
-                `${CONFIG.API_GATEWAY}/api/v1/position/list?userId=${userId}`,
-                `http://localhost:8082/api/v1/position/list?userId=${userId}`,
-                `http://localhost:8086/api/v1/position/list?userId=${userId}`
-            ];
+            // 只通过 API Gateway 访问持仓服务
+            // userId 从 JWT token 解析，不需要 URL 参数
+            const url = `${CONFIG.API_GATEWAY}/api/v1/position/list`;
 
             const headers = {};
             if (state.token) {
                 headers['Authorization'] = `Bearer ${state.token}`;
             }
 
-            let lastRes = null;
-            for (const url of candidates) {
-                try {
-                    const res = await fetch(url, { headers });
-                    if (res.ok) {
-                        return res;
-                    }
-                    // 404 常见于打到错误端口或网关缺路由，继续回退
-                    if (res.status === 404) {
-                        log('warn', `持仓接口 404，尝试回退: ${url}`);
-                        lastRes = res;
-                        continue;
-                    }
-                    lastRes = res;
-                } catch (err) {
-                    log('warn', `持仓接口请求失败，尝试回退: ${url}, err=${err.message}`);
+            try {
+                const res = await fetch(url, { headers });
+                if (res.ok) {
+                    return res;
                 }
+                log('warn', `持仓接口请求失败: ${url}, status=${res.status}`);
+                return res;
+            } catch (err) {
+                log('error', `持仓接口请求异常: ${url}, err=${err.message}`);
+                throw new Error(`持仓接口不可用: ${err.message}`);
             }
-
-            if (lastRes) {
-                return lastRes;
-            }
-            throw new Error('All position endpoints unavailable');
         }
         
         function renderPositions(positions) {
@@ -2574,9 +2607,13 @@
         }
 
         function formatMoneyDirect(amount) {
-            // snapshot-account-core 返回的是 BigDecimal 格式（如 100000.00）
+            // snapshot-account-core 返回的是 BigDecimal 格式（如 100000.00 或 0E-16）
+            if (amount === null || amount === undefined || amount === '') return '0.00 USDT';
             const num = parseFloat(amount);
-            return num.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' USDT';
+            if (isNaN(num)) return '0.00 USDT';
+            // 处理科学计数法（如 0E-16）
+            const fixed = num.toFixed(2);
+            return parseFloat(fixed).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' USDT';
         }
 
         function formatPrice(price, orderType) {

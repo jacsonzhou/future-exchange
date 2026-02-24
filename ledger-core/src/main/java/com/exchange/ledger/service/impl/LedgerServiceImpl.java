@@ -16,6 +16,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.data.redis.core.RedisTemplate;
 import org.springframework.stereotype.Service;
+import org.springframework.dao.DuplicateKeyException;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
@@ -96,12 +97,27 @@ public class LedgerServiceImpl implements LedgerService {
             // 2. 生成双录分录
             List<LedgerEntry> entries = generateTradeEntries(trade, tradeAmount);
             
+            // 🔥 幂等性检查：过滤掉已存在的分录
+            entries = filterExistingEntries(entries);
+            if (entries.isEmpty()) {
+                log.info("[LedgerService] Trade already processed, skip duplicate, tradeId={}", trade.getTradeId());
+                return;
+            }
+            
             // 3. 设置成对分录ID
             setPairEntryIds(entries);
             
             // 4. 写入ledger_entry（批量插入，性能优化）
             if (!entries.isEmpty()) {
-                ledgerEntryMapper.batchInsert(entries);
+                try {
+                    ledgerEntryMapper.batchInsert(entries);
+                } catch (DuplicateKeyException e) {
+                    // 🔥 幂等性保证：如果发生冲突，说明这笔交易已经被处理过了
+                    // 这种情况发生在并发消费或Kafka重试时
+                    log.warn("[LedgerService] Duplicate key detected for tradeId={}, message={}, skip as idempotent success", 
+                        trade.getTradeId(), e.getMessage());
+                    return; // 视为处理成功
+                }
             }
             
             // 5. 构建TradeEntryEvent
@@ -344,6 +360,49 @@ public class LedgerServiceImpl implements LedgerService {
     }
     
     // ==================== 私有辅助方法 ====================
+    
+    /**
+     * 🔥 幂等性检查：过滤掉已存在的分录
+     * 
+     * 通过检查 idempotent_key 是否已存在，防止重复消费 Kafka 消息
+     * 
+     * @param entries 待插入的分录列表
+     * @return 过滤后的分录列表（已存在的将被移除）
+     */
+    private List<LedgerEntry> filterExistingEntries(List<LedgerEntry> entries) {
+        if (entries == null || entries.isEmpty()) {
+            return entries;
+        }
+        
+        List<LedgerEntry> filtered = new ArrayList<>();
+        for (LedgerEntry entry : entries) {
+            if (entry.getIdempotentKey() == null) {
+                filtered.add(entry);
+                continue;
+            }
+            
+            // 检查是否已存在
+            try {
+                Long count = ledgerEntryMapper.selectCount(
+                    new LambdaQueryWrapper<LedgerEntry>()
+                        .eq(LedgerEntry::getIdempotentKey, entry.getIdempotentKey())
+                );
+                if (count == null || count == 0) {
+                    filtered.add(entry);
+                } else {
+                    log.warn("[LedgerService] Entry already exists, skip, idempotentKey={}", 
+                        entry.getIdempotentKey());
+                }
+            } catch (Exception e) {
+                // 查询失败时，保守处理：允许插入（依赖数据库唯一约束）
+                log.warn("[LedgerService] Idempotency check failed, will try insert, key={}", 
+                    entry.getIdempotentKey());
+                filtered.add(entry);
+            }
+        }
+        
+        return filtered;
+    }
     
     /**
      * 生成成交分录
