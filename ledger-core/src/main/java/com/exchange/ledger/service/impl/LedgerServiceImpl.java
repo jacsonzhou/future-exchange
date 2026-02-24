@@ -62,6 +62,13 @@ public class LedgerServiceImpl implements LedgerService {
      */
     private static final Long SYSTEM_USER_ID = 0L;
     
+    /**
+     * 金额精度系数：8位小数 = 10^8
+     * 用于统一处理扩大后的金额格式
+     */
+    private static final BigDecimal SCALE = new BigDecimal("100000000");
+    private static final BigDecimal SCALE_THRESHOLD = new BigDecimal("10000000"); // 1000万，用于判断金额格式
+    
     private AtomicLong localSequence = new AtomicLong(0);
     
     /**
@@ -164,17 +171,25 @@ public class LedgerServiceImpl implements LedgerService {
     
     /**
      * 冻结保证金（重构版）
+     * 
+     * 🔥 金额格式处理：
+     * - 如果 amount > 1000万，认为是扩大后的金额（×10^8），需要除以 10^8 转换为实际金额
+     * - 否则，直接使用实际金额
+     * 这样可以兼容 OMS 传入的两种格式
      */
     @Override
     @Transactional(rollbackFor = Exception.class)
     public void freezeMargin(Long userId, String currency, BigDecimal amount, Long orderId) {
-        log.info("[LedgerService] Freeze margin, userId={}, amount={}, orderId={}", 
-            userId, amount, orderId);
+        // 🔥 统一金额格式：将扩大后的金额转换为实际金额
+        BigDecimal actualAmount = normalizeAmount(amount);
+        
+        log.info("[LedgerService] Freeze margin, userId={}, rawAmount={}, actualAmount={}, orderId={}", 
+            userId, amount, actualAmount, orderId);
         
         // 参数校验
-        if (userId == null || amount == null || amount.compareTo(BigDecimal.ZERO) <= 0) {
-            log.error("[LedgerService] ❌ Invalid parameters: userId={}, amount={}", userId, amount);
-            throw new IllegalArgumentException("Invalid freeze parameters: userId=" + userId + ", amount=" + amount);
+        if (userId == null || actualAmount == null || actualAmount.compareTo(BigDecimal.ZERO) <= 0) {
+            log.error("[LedgerService] ❌ Invalid parameters: userId={}, amount={}", userId, actualAmount);
+            throw new IllegalArgumentException("Invalid freeze parameters: userId=" + userId + ", amount=" + actualAmount);
         }
         
         // 检查余额是否充足（从快照查询，可选，如果快照服务未启动则跳过）
@@ -190,14 +205,14 @@ public class LedgerServiceImpl implements LedgerService {
                     log.warn("[LedgerService] ⚠️ Account snapshot not found for userId={}, skipping balance check", userId);
                     // 快照不存在可能是首次操作，允许继续
                 } else {
-                    if (snapshot.getAvailable() == null || snapshot.getAvailable().compareTo(amount) < 0) {
+                    if (snapshot.getAvailable() == null || snapshot.getAvailable().compareTo(actualAmount) < 0) {
                         log.error("[LedgerService] ❌ Insufficient balance: userId={}, available={}, required={}", 
-                            userId, snapshot.getAvailable(), amount);
-                        throw new RuntimeException("Insufficient balance: available=" + snapshot.getAvailable() + ", required=" + amount);
+                            userId, snapshot.getAvailable(), actualAmount);
+                        throw new RuntimeException("Insufficient balance: available=" + snapshot.getAvailable() + ", required=" + actualAmount);
                     }
                     
                     log.info("[LedgerService] Balance check passed: userId={}, available={}, required={}", 
-                        userId, snapshot.getAvailable(), amount);
+                        userId, snapshot.getAvailable(), actualAmount);
                 }
             } catch (RuntimeException e) {
                 // 余额不足异常直接抛出
@@ -218,7 +233,7 @@ public class LedgerServiceImpl implements LedgerService {
             userId,
             AccountType.USER_AVAILABLE,
             BigDecimal.ZERO,
-            amount,
+            actualAmount,
             BusinessType.MARGIN_FREEZE,
             "FREEZE_" + orderId,
             orderId
@@ -228,7 +243,7 @@ public class LedgerServiceImpl implements LedgerService {
         entries.add(createEntry(
             userId,
             AccountType.USER_FROZEN,
-            amount,
+            actualAmount,
             BigDecimal.ZERO,
             BusinessType.MARGIN_FREEZE,
             "FREEZE_" + orderId,
@@ -252,17 +267,24 @@ public class LedgerServiceImpl implements LedgerService {
         
         ledgerEventPublisher.publishTradeEntry(event);
         
-        log.info("[LedgerService] ✅ Freeze margin success, userId={}, amount={}", userId, amount);
+        log.info("[LedgerService] ✅ Freeze margin success, userId={}, actualAmount={}", userId, actualAmount);
     }
     
     /**
      * 解冻保证金（重构版）
+     * 
+     * 🔥 金额格式处理：
+     * - 如果 amount > 1000万，认为是扩大后的金额（×10^8），需要除以 10^8 转换为实际金额
+     * - 否则，直接使用实际金额
      */
     @Override
     @Transactional(rollbackFor = Exception.class)
     public void unfreezeMargin(Long userId, String currency, BigDecimal amount, Long orderId) {
-        log.info("[LedgerService] Unfreeze margin, userId={}, amount={}, orderId={}", 
-            userId, amount, orderId);
+        // 🔥 统一金额格式：将扩大后的金额转换为实际金额
+        BigDecimal actualAmount = normalizeAmount(amount);
+        
+        log.info("[LedgerService] Unfreeze margin, userId={}, rawAmount={}, actualAmount={}, orderId={}", 
+            userId, amount, actualAmount, orderId);
         
         // 生成分录
         List<LedgerEntry> entries = new ArrayList<>();
@@ -272,7 +294,7 @@ public class LedgerServiceImpl implements LedgerService {
             userId,
             AccountType.USER_FROZEN,
             BigDecimal.ZERO,
-            amount,
+            actualAmount,
             BusinessType.MARGIN_UNFREEZE,
             "UNFREEZE_" + orderId,
             orderId
@@ -282,7 +304,7 @@ public class LedgerServiceImpl implements LedgerService {
         entries.add(createEntry(
             userId,
             AccountType.USER_AVAILABLE,
-            amount,
+            actualAmount,
             BigDecimal.ZERO,
             BusinessType.MARGIN_UNFREEZE,
             "UNFREEZE_" + orderId,
@@ -306,7 +328,7 @@ public class LedgerServiceImpl implements LedgerService {
         
         ledgerEventPublisher.publishTradeEntry(event);
         
-        log.info("[LedgerService] ✅ Unfreeze margin success, userId={}, amount={}", userId, amount);
+        log.info("[LedgerService] ✅ Unfreeze margin success, userId={}, actualAmount={}", userId, actualAmount);
     }
     
     /**
@@ -614,5 +636,40 @@ public class LedgerServiceImpl implements LedgerService {
         snapshot.setRealizedPnl(BigDecimal.ZERO);
         snapshot.setEquity(BigDecimal.ZERO);
         return snapshot;
+    }
+    
+    /**
+     * 🔥 统一金额格式转换
+     * 
+     * 问题背景：OMS 可能传入两种格式的金额：
+     * 1. 实际金额：如 900（表示 900 USDT）
+     * 2. 扩大后的金额：如 90000000000（表示 900 USDT × 10^8）
+     * 
+     * 转换规则：
+     * - 如果 amount > 1000万（SCALE_THRESHOLD），认为是扩大后的金额，除以 10^8 转换为实际金额
+     * - 否则，直接使用实际金额
+     * 
+     * 注意：
+     * - 1000万 = 10000000，即 0.1 USDT × 10^8
+     * - 正常用户的可用余额不会小于 0.1 USDT（手续费都不够）
+     * - 所以金额 > 1000万基本可以确定是扩大后的格式
+     * 
+     * @param amount 传入的金额（可能是实际金额或扩大后的金额）
+     * @return 实际金额
+     */
+    private BigDecimal normalizeAmount(BigDecimal amount) {
+        if (amount == null) {
+            return BigDecimal.ZERO;
+        }
+        
+        // 如果金额大于阈值，认为是扩大后的金额，需要转换
+        if (amount.compareTo(SCALE_THRESHOLD) > 0) {
+            BigDecimal actualAmount = amount.divide(SCALE, 8, java.math.RoundingMode.HALF_UP);
+            log.debug("[LedgerService] Amount normalized: scaled={} -> actual={}", amount, actualAmount);
+            return actualAmount;
+        }
+        
+        // 金额小于阈值，直接使用（已经是实际金额）
+        return amount;
     }
 }
