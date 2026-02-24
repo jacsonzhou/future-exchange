@@ -1,8 +1,8 @@
 package com.exchange.oms.service;
 
 import com.exchange.common.core.Money;
-import com.exchange.oms.entity.Order;
-import com.exchange.oms.mapper.OrderMapper;
+import com.exchange.oms.entity.OmsOrder;
+import com.exchange.oms.mapper.OmsOrderMapper;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.context.event.ApplicationReadyEvent;
@@ -31,7 +31,7 @@ import java.util.List;
 public class PreHoldRecoveryService {
     
     @Autowired
-    private OrderMapper orderMapper;
+    private OmsOrderMapper omsOrderMapper;
     
     @Autowired
     private MarginPreHoldService marginPreHoldService;
@@ -39,11 +39,12 @@ public class PreHoldRecoveryService {
     /**
      * 需要恢复预扣的订单状态
      */
-    private static final List<String> RECOVERABLE_STATUSES = List.of(
-        "RISK_PASSED",      // 风控通过，待撮合
-        "SENT_TO_MATCH",    // 已发送到撮合
-        "PARTIALLY_FILLED"  // 部分成交
+    private static final List<Integer> RECOVERABLE_STATUSES = List.of(
+        2, // FROZEN: 已冻结资金，待成交
+        3  // PARTIALLY_FILLED: 部分成交
     );
+
+    private static final int DEFAULT_LEVERAGE = 10;
     
     /**
      * OMS 启动时执行恢复
@@ -54,7 +55,7 @@ public class PreHoldRecoveryService {
         
         try {
             // 1. 查询需要恢复预扣的订单
-            List<Order> pendingOrders = orderMapper.selectByStatuses(RECOVERABLE_STATUSES);
+            List<OmsOrder> pendingOrders = omsOrderMapper.selectByStatuses(RECOVERABLE_STATUSES);
             
             if (pendingOrders.isEmpty()) {
                 log.info("[PreHoldRecovery] ✅ No pending orders to recover");
@@ -67,42 +68,40 @@ public class PreHoldRecoveryService {
             int failCount = 0;
             int skipCount = 0;
             
-            for (Order order : pendingOrders) {
+            for (OmsOrder order : pendingOrders) {
                 try {
                     // 计算订单所需保证金
                     long margin = calculateRequiredMargin(order);
                     
                     // 检查是否已存在预扣
-                    long existingHold = marginPreHoldService.getOrderPreHold(order.getUserId(), order.getOrderId());
+                    long existingHold = marginPreHoldService.getOrderPreHold(order.getUserId(), order.getId());
                     if (existingHold > 0) {
                         log.debug("[PreHoldRecovery] Skip existing pre-hold, orderId={}, margin={}", 
-                            order.getOrderId(), Money.format(existingHold));
+                            order.getId(), Money.format(existingHold));
                         skipCount++;
                         continue;
                     }
                     
-                    // 重新建立预扣（不传总余额检查，因为可能只是恢复）
-                    // 使用一个足够大的值绕过余额检查
-                    MarginPreHoldService.PreHoldResult result = marginPreHoldService.preHold(
+                    // 重新建立预扣（恢复场景跳过余额检查）
+                    MarginPreHoldService.PreHoldResult result = marginPreHoldService.recoverPreHold(
                         order.getUserId(), 
-                        order.getOrderId(), 
-                        margin, 
-                        Long.MAX_VALUE  // 恢复时使用最大值，避免余额检查失败
+                        order.getId(), 
+                        margin
                     );
                     
                     if (result.isSuccess()) {
                         successCount++;
                         log.info("[PreHoldRecovery] ✅ Recovered pre-hold, orderId={}, margin={}", 
-                            order.getOrderId(), Money.format(margin));
+                            order.getId(), Money.format(margin));
                     } else {
                         failCount++;
                         log.error("[PreHoldRecovery] ❌ Failed to recover pre-hold, orderId={}, reason={}", 
-                            order.getOrderId(), result.getMessage());
+                            order.getId(), result.getMessage());
                     }
                     
                 } catch (Exception e) {
                     failCount++;
-                    log.error("[PreHoldRecovery] ❌ Error recovering order, orderId={}", order.getOrderId(), e);
+                    log.error("[PreHoldRecovery] ❌ Error recovering order, orderId={}", order.getId(), e);
                 }
             }
             
@@ -120,15 +119,15 @@ public class PreHoldRecoveryService {
      * @param order 订单
      * @return 保证金（单位：分）
      */
-    private long calculateRequiredMargin(Order order) {
+    private long calculateRequiredMargin(OmsOrder order) {
         // 名义价值 = 价格 × 数量
-        BigDecimal notional = BigDecimal.valueOf(order.getPrice())
-            .multiply(BigDecimal.valueOf(order.getQuantity()))
+        BigDecimal notional = order.getPrice()
+            .multiply(order.getQuantity())
             .divide(BigDecimal.valueOf(Money.SCALE * Money.SCALE), 8, RoundingMode.HALF_UP);
         
         // 所需保证金 = 名义价值 / 杠杆
         BigDecimal margin = notional.divide(
-            BigDecimal.valueOf(order.getLeverage()), 
+            BigDecimal.valueOf(DEFAULT_LEVERAGE),
             8, 
             RoundingMode.HALF_UP
         );
@@ -145,18 +144,17 @@ public class PreHoldRecoveryService {
     public RecoveryResult triggerRecovery() {
         log.info("[PreHoldRecovery] 🔄 Manual recovery triggered");
         
-        List<Order> pendingOrders = orderMapper.selectByStatuses(RECOVERABLE_STATUSES);
+        List<OmsOrder> pendingOrders = omsOrderMapper.selectByStatuses(RECOVERABLE_STATUSES);
         int recovered = 0;
         
-        for (Order order : pendingOrders) {
-            long existingHold = marginPreHoldService.getOrderPreHold(order.getUserId(), order.getOrderId());
+        for (OmsOrder order : pendingOrders) {
+            long existingHold = marginPreHoldService.getOrderPreHold(order.getUserId(), order.getId());
             if (existingHold == 0) {
                 long margin = calculateRequiredMargin(order);
-                MarginPreHoldService.PreHoldResult result = marginPreHoldService.preHold(
+                MarginPreHoldService.PreHoldResult result = marginPreHoldService.recoverPreHold(
                     order.getUserId(), 
-                    order.getOrderId(), 
-                    margin, 
-                    Long.MAX_VALUE
+                    order.getId(), 
+                    margin
                 );
                 if (result.isSuccess()) {
                     recovered++;

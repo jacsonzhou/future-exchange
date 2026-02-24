@@ -171,7 +171,7 @@ public class LedgerServiceClient {
      * @param isolatedMargin 归还的逐仓保证金
      * @return 是否成功
      */
-    public boolean recordSwitchToC ross(Long userId, Long positionId, String symbol,
+    public boolean recordSwitchToCross(Long userId, Long positionId, String symbol,
                                         Long isolatedMargin) {
         MarginChangeRequest request = new MarginChangeRequest();
         request.setUserId(userId);

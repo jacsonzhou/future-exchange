@@ -34,3 +34,13 @@ management:
   endpoint:
     health:
       show-details: always
+
+# Logging配置
+logging:
+  level:
+    com.exchange.private-push-core: INFO
+  pattern:
+    console: "%d{yyyy-MM-dd HH:mm:ss.SSS} [%thread] %-5level %logger{50} - %msg%n"
+    file: "%d{yyyy-MM-dd HH:mm:ss.SSS} [%thread] %-5level %logger{50} - %msg%n"
+  file:
+    name: logs/private-push-core.log

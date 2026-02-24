@@ -179,7 +179,8 @@ echo -e "${YELLOW}[7/8] 查询持仓${NC}"
 echo "等待 3 秒让撮合完成..."
 sleep 3
 
-POSITION_RESPONSE=$(curl -s -X GET "${API_GATEWAY}/api/v1/position/list?userId=${USER_ID}" \
+# 持仓查询通过 JWT Token 认证，userId 由 Gateway 从 Token 解析并透传
+POSITION_RESPONSE=$(curl -s -X GET "${API_GATEWAY}/api/v1/position/list" \
     -H "Authorization: Bearer ${TOKEN}")
 echo "响应: $POSITION_RESPONSE"
 

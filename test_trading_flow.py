@@ -194,8 +194,9 @@ def get_orders(status_filter="active"):
 def get_positions():
     """查询持仓"""
     try:
+        # 持仓查询通过 JWT Token 认证，userId 由 Gateway 从 Token 解析透传
         response = requests.get(
-            f"{API_GATEWAY}/api/v1/position/list?userId={state.user_id}",
+            f"{API_GATEWAY}/api/v1/position/list",
             headers={"Authorization": f"Bearer {state.token}"},
             timeout=10
         )

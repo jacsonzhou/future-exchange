@@ -76,6 +76,17 @@ public class AuthGatewayFilter implements GlobalFilter, Ordered {
         // 检查白名单
         if (isWhitelistPath(path)) {
             log.info("[AuthGatewayFilter] Whitelist path matched: {}", path);
+            // 白名单路径也尝试透传 X-User-Id（从 query 参数或 header 中提取）
+            String userId = request.getHeaders().getFirst(HEADER_USER_ID);
+            if (userId == null) {
+                userId = request.getQueryParams().getFirst("userId");
+            }
+            if (userId != null && !userId.isEmpty()) {
+                ServerHttpRequest mutatedRequest = request.mutate()
+                    .header(HEADER_USER_ID, userId)
+                    .build();
+                return chain.filter(exchange.mutate().request(mutatedRequest).build());
+            }
             return chain.filter(exchange);
         }
         log.info("[AuthGatewayFilter] Path not in whitelist: {}", path);
@@ -178,8 +189,9 @@ public class AuthGatewayFilter implements GlobalFilter, Ordered {
         return List.of(
             "/api/v1/user/register",
             "/api/v1/user/login",
-            "/api/v1/account/balance/**",
-            "/api/v1/position/**",           // ✅ 持仓查询接口
+            // "/api/v1/account/balance/**",  // ❌ 账户余额查询需要认证
+            // "/api/v1/position/**",         // ❌ 持仓查询需要认证
+            "/api/v1/oms/order/list",        // ✅ OMS 订单列表查询
             "/api/v1/market/**",
             "/api/v1/ticker/**",
             "/api/v1/depth/**",

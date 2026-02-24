@@ -21,3 +21,13 @@ spring:
         group: DEFAULT_GROUP
         import-check:
           enabled: false
+
+# Logging配置
+logging:
+  level:
+    com.exchange.funding-rate-core: INFO
+  pattern:
+    console: "%d{yyyy-MM-dd HH:mm:ss.SSS} [%thread] %-5level %logger{50} - %msg%n"
+    file: "%d{yyyy-MM-dd HH:mm:ss.SSS} [%thread] %-5level %logger{50} - %msg%n"
+  file:
+    name: logs/funding-rate-core.log

@@ -35,7 +35,7 @@ public class LedgerEventPublisher {
      */
     public void publishTradeEntry(TradeEntryEvent event) {
         try {
-            String topic = "trade-entry-" + event.getSymbol();
+            String topic = resolveTopic(event);
             String key = event.getSymbol(); // 保证同Symbol顺序
             
             String message = objectMapper.writeValueAsString(event);
@@ -53,5 +53,12 @@ public class LedgerEventPublisher {
             throw new RuntimeException("Publish ledger event failed", e);
         }
     }
-}
 
+    private String resolveTopic(TradeEntryEvent event) {
+        if (event != null && "SYSTEM".equalsIgnoreCase(event.getSymbol())) {
+            // SYSTEM 类账务事件不应进入持仓链路
+            return "account-entry-SYSTEM";
+        }
+        return "trade-entry-" + event.getSymbol();
+    }
+}

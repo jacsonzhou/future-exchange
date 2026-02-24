@@ -3,7 +3,6 @@ package com.exchange.oms.service;
 import com.exchange.common.core.Money;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.data.redis.core.RedisCallback;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.data.redis.core.script.DefaultRedisScript;
 import org.springframework.stereotype.Service;
@@ -63,16 +62,17 @@ public class MarginPreHoldService {
      * 返回：1=成功, 0=余额不足, -1=订单已存在
      */
     private static final String PRE_HOLD_LUA_SCRIPT = 
-        "local currentHold = redis.call('GET', KEYS[1]) or '0';" +
         "local orderKey = KEYS[2];" +
         "if redis.call('EXISTS', orderKey) == 1 then " +
         "  return -1;" +  // 订单已存在
         "end;" +
-        "local newHold = tonumber(currentHold) + tonumber(ARGV[1]);" +
-        "if newHold > tonumber(ARGV[2]) then " +
+        "local newHold = redis.call('INCRBY', KEYS[1], ARGV[1]);" +
+        "local skipCheck = ARGV[2] == '-1';" +
+        "if (not skipCheck) and (newHold > tonumber(ARGV[2])) then " +
+        "  redis.call('DECRBY', KEYS[1], ARGV[1]);" +
+        "  if redis.call('GET', KEYS[1]) == '0' then redis.call('DEL', KEYS[1]); end;" +
         "  return 0;" +  // 余额不足
         "end;" +
-        "redis.call('SET', KEYS[1], tostring(newHold));" +
         "redis.call('SET', orderKey, ARGV[1]);" +
         "redis.call('EXPIRE', orderKey, ARGV[4]);" +
         "redis.call('SADD', KEYS[3], ARGV[3]);" +
@@ -117,13 +117,14 @@ public class MarginPreHoldService {
         if (margin <= 0) {
             return PreHoldResult.fail("Margin must be positive");
         }
-        if (totalBalance <= 0) {
+        if (totalBalance <= 0 && totalBalance != -1L) {
             return PreHoldResult.fail("Insufficient balance");
         }
         
         String totalKey = String.format(PRE_HOLD_TOTAL_KEY, userId);
         String orderKey = String.format(PRE_HOLD_ORDER_KEY, userId, orderId);
         String ordersSetKey = String.format(PRE_HOLD_ORDERS_SET, userId);
+        normalizeTotalHoldValueIfNeeded(totalKey, userId);
         
         DefaultRedisScript<Long> redisScript = new DefaultRedisScript<>();
         redisScript.setScriptText(PRE_HOLD_LUA_SCRIPT);
@@ -170,6 +171,13 @@ public class MarginPreHoldService {
             return PreHoldResult.fail("Redis error: " + e.getMessage());
         }
     }
+
+    /**
+     * 恢复场景预扣（跳过余额检查）
+     */
+    public PreHoldResult recoverPreHold(Long userId, Long orderId, long margin) {
+        return preHold(userId, orderId, margin, -1L);
+    }
     
     /**
      * 释放预扣保证金
@@ -190,8 +198,9 @@ public class MarginPreHoldService {
         List<String> keys = Arrays.asList(totalKey, orderKey, ordersSetKey, String.valueOf(orderId));
         
         try {
+            normalizeTotalHoldValueIfNeeded(totalKey, userId);
             String result = stringRedisTemplate.execute(redisScript, keys);
-            long released = result != null ? Long.parseLong(result) : 0;
+            long released = parseRedisLong(result, "release result", userId, orderId);
             
             if (released > 0) {
                 log.info("[PreHold] ✅ Released, userId={}, orderId={}, amount={}", 
@@ -219,7 +228,11 @@ public class MarginPreHoldService {
         
         try {
             String value = stringRedisTemplate.opsForValue().get(totalKey);
-            return value != null ? Long.parseLong(value) : 0;
+            long parsed = parseRedisLong(value, "total hold", userId, null);
+            if (value != null && !isIntegerString(value)) {
+                persistNormalizedLong(totalKey, parsed);
+            }
+            return parsed;
         } catch (Exception e) {
             log.error("[PreHold] ❌ Get total hold error, userId={}", userId, e);
             return 0;
@@ -238,7 +251,7 @@ public class MarginPreHoldService {
         
         try {
             String value = stringRedisTemplate.opsForValue().get(orderKey);
-            return value != null ? Long.parseLong(value) : 0;
+            return parseRedisLong(value, "order hold", userId, orderId);
         } catch (Exception e) {
             log.error("[PreHold] ❌ Get order hold error, userId={}, orderId={}", userId, orderId, e);
             return 0;
@@ -308,6 +321,64 @@ public class MarginPreHoldService {
     public long calculateAvailableBalance(long totalBalance, Long userId) {
         long preHold = getTotalPreHold(userId);
         return Math.max(0, totalBalance - preHold);
+    }
+
+    private long parseRedisLong(String value, String field, Long userId, Long orderId) {
+        if (value == null || value.isBlank()) {
+            return 0L;
+        }
+        try {
+            return Long.parseLong(value);
+        } catch (NumberFormatException ex) {
+            try {
+                long normalized = new BigDecimal(value).longValueExact();
+                log.warn("[PreHold] ⚠️ Normalize non-integer redis value, field={}, userId={}, orderId={}, raw={}, normalized={}",
+                    field, userId, orderId, value, normalized);
+                return normalized;
+            } catch (Exception parseEx) {
+                throw new IllegalArgumentException("Invalid redis numeric value: " + value, parseEx);
+            }
+        }
+    }
+
+    private boolean isIntegerString(String value) {
+        if (value == null || value.isBlank()) {
+            return false;
+        }
+        int start = value.charAt(0) == '-' ? 1 : 0;
+        if (start == value.length()) {
+            return false;
+        }
+        for (int i = start; i < value.length(); i++) {
+            if (!Character.isDigit(value.charAt(i))) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    private void normalizeTotalHoldValueIfNeeded(String totalKey, Long userId) {
+        try {
+            String value = stringRedisTemplate.opsForValue().get(totalKey);
+            if (value == null || isIntegerString(value)) {
+                return;
+            }
+            long normalized = parseRedisLong(value, "total hold", userId, null);
+            persistNormalizedLong(totalKey, normalized);
+            log.warn("[PreHold] ⚠️ Fixed invalid total hold format, userId={}, raw={}, normalized={}",
+                userId, value, normalized);
+        } catch (Exception e) {
+            log.error("[PreHold] ❌ Failed to normalize total hold, userId={}", userId, e);
+        }
+    }
+
+    private void persistNormalizedLong(String key, long value) {
+        Long ttl = stringRedisTemplate.getExpire(key, TimeUnit.SECONDS);
+        if (ttl != null && ttl > 0) {
+            stringRedisTemplate.opsForValue().set(key, String.valueOf(value), ttl, TimeUnit.SECONDS);
+            return;
+        }
+        stringRedisTemplate.opsForValue().set(key, String.valueOf(value));
     }
     
     // ==================== 内部类 ====================

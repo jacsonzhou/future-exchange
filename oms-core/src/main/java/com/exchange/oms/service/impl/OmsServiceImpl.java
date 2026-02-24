@@ -408,6 +408,11 @@ public class OmsServiceImpl implements OmsService {
         response.setFilledQuantity(actualFilledQty.stripTrailingZeros().toPlainString());
         
         response.setStatus(mapOrderStatus(order.getStatus()));
+        OmsOrderStateLog latestStateLog = stateLogMapper.selectLatestByOrderId(order.getId());
+        if (latestStateLog != null) {
+            response.setReasonCode(latestStateLog.getReasonCode());
+            response.setReasonMsg(latestStateLog.getReasonMsg());
+        }
         response.setCreateTime(order.getCreatedAt());
         return response;
     }

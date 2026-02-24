@@ -209,6 +209,7 @@ public class OrderBook {
             // 更新订单
             buyOrder.updateFilled(tradeQty);
             sellOrder.updateFilled(tradeQty);
+            askLevel.reduceByTradeQuantity(tradeQty);
             
             // 如果卖单完全成交，从订单簿移除
             if (sellOrder.isFullyFilled()) {
@@ -270,6 +271,7 @@ public class OrderBook {
             // 更新订单
             sellOrder.updateFilled(tradeQty);
             buyOrder.updateFilled(tradeQty);
+            bidLevel.reduceByTradeQuantity(tradeQty);
             
             // 如果买单完全成交，从订单簿移除
             if (buyOrder.isFullyFilled()) {

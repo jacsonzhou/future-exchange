@@ -31,7 +31,7 @@ spring:
 # Position 配置
 position:
   kafka:
-    trade-entry-symbols: ""
+    trade-entry-symbols: "BTCUSDT"
     trade-topics: ""
     mark-price-topics: ""
     position-change-topic: private-position-change
@@ -40,3 +40,13 @@ position:
   risk:
     margin-warning-ratio: 1.2
     liquidation-ratio: 1.0
+
+# Logging配置
+logging:
+  level:
+    com.exchange.position-snapshot-core: INFO
+  pattern:
+    console: "%d{yyyy-MM-dd HH:mm:ss.SSS} [%thread] %-5level %logger{50} - %msg%n"
+    file: "%d{yyyy-MM-dd HH:mm:ss.SSS} [%thread] %-5level %logger{50} - %msg%n"
+  file:
+    name: logs/position-snapshot-core.log

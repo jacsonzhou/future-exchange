@@ -286,12 +286,16 @@ public class MatchingProcessor implements EventHandler<MatchEvent> {
 
     /**
      * 兼容两种上游格式：
-     * 1) 已缩放 long 字符串（如 5000000000000, 100000000）
-     * 2) 未缩放十进制字符串（如 50000.00000000, 1.00000000）
+     * 1) 已缩放 long 字符串（如 5000000000000, 10000000）
+     * 2) 未缩放十进制字符串（如 50000.00000000, 0.10000000）
+     *
+     * 关键修复：
+     * - 对整数字符串，统一按 8 位精度缩放值处理（/1e8）
+     * - 避免 10000000（0.10）被误解释为 10000000，导致成交数量和百分比异常
      */
     private BigDecimal normalizeFromCommand(String raw) {
         BigDecimal value = new BigDecimal(raw);
-        if (raw.indexOf('.') < 0 && value.abs().compareTo(MONEY_SCALE) >= 0) {
+        if (raw.indexOf('.') < 0) {
             return value.divide(MONEY_SCALE, 8, RoundingMode.HALF_UP);
         }
         return value;

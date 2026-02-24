@@ -2,9 +2,14 @@
 
 set -euo pipefail
 
-API_GATEWAY="${API_GATEWAY:-http://127.0.0.1:8082}"
-OMS_BASE="${OMS_BASE:-http://127.0.0.1:8081}"
-MATCH_STATS_URL="${MATCH_STATS_URL:-http://[::1]:8083/api/v1/match/orderbook/stats}"
+NACOS_ADDR="${NACOS_ADDR:-http://localhost:8848/nacos}"
+NACOS_USERNAME="${NACOS_USERNAME:-nacos}"
+NACOS_PASSWORD="${NACOS_PASSWORD:-nacos}"
+NACOS_GROUP="${NACOS_GROUP:-DEFAULT_GROUP}"
+API_GATEWAY="${API_GATEWAY:-}"
+OMS_BASE="${OMS_BASE:-}"
+MATCH_BASE="${MATCH_BASE:-}"
+MATCH_STATS_URL="${MATCH_STATS_URL:-}"
 SYMBOL="${SYMBOL:-BTCUSDT}"
 USERNAME="${USERNAME:-zhoufan6}"
 PASSWORD="${PASSWORD:-123456}"
@@ -37,6 +42,47 @@ require_cmd() {
     log "${RED}Missing required command: $1${NC}"
     exit 1
   }
+}
+
+urlencode() {
+  local raw="$1"
+  jq -rn --arg v "$raw" '$v|@uri'
+}
+
+get_nacos_token() {
+  local resp token
+  resp=$(curl -sS --max-time 8 -X POST "${NACOS_ADDR}/v1/auth/login" \
+    -d "username=${NACOS_USERNAME}&password=${NACOS_PASSWORD}" || true)
+  token=$(echo "$resp" | jq -r '.accessToken // empty' 2>/dev/null || true)
+  if [[ -z "$token" || "$token" == "null" ]]; then
+    warn "${RED}Nacos login failed: ${resp}${NC}"
+    return 1
+  fi
+  echo "$token"
+}
+
+resolve_service_base_from_nacos() {
+  local service_name="$1"
+  local token="$2"
+  local encoded_service
+  local resp
+  local host
+  local port
+
+  encoded_service=$(urlencode "$service_name")
+  resp=$(curl -sS --max-time 8 \
+    "${NACOS_ADDR}/v1/ns/instance/list?serviceName=${encoded_service}&groupName=${NACOS_GROUP}&healthyOnly=true&accessToken=${token}" \
+    || true)
+
+  host=$(echo "$resp" | jq -r '.hosts[0].ip // empty' 2>/dev/null || true)
+  port=$(echo "$resp" | jq -r '.hosts[0].port // empty' 2>/dev/null || true)
+
+  if [[ -z "$host" || -z "$port" || "$host" == "null" || "$port" == "null" ]]; then
+    warn "${RED}No healthy instance for service=${service_name} in Nacos. resp=${resp}${NC}"
+    return 1
+  fi
+
+  echo "http://${host}:${port}"
 }
 
 safe_jq() {
@@ -159,6 +205,22 @@ log "${BLUE}====================================================${NC}"
 require_cmd curl
 require_cmd jq
 
+NACOS_TOKEN="$(get_nacos_token)"
+if [[ -z "$API_GATEWAY" ]]; then
+  API_GATEWAY="$(resolve_service_base_from_nacos "api-gateway" "$NACOS_TOKEN")"
+fi
+if [[ -z "$OMS_BASE" ]]; then
+  OMS_BASE="$(resolve_service_base_from_nacos "oms-core" "$NACOS_TOKEN")"
+fi
+if [[ -z "$MATCH_BASE" ]]; then
+  MATCH_BASE="$(resolve_service_base_from_nacos "match-engine-core" "$NACOS_TOKEN")"
+fi
+if [[ -z "$MATCH_STATS_URL" ]]; then
+  MATCH_STATS_URL="${MATCH_BASE}/api/v1/match/orderbook/stats"
+fi
+
+log "Resolved endpoints: API_GATEWAY=${API_GATEWAY}, OMS_BASE=${OMS_BASE}, MATCH_BASE=${MATCH_BASE}"
+
 log "${YELLOW}[1/8] Login as ${USERNAME}${NC}"
 LOGIN_JSON=$(request_json "POST" "${API_GATEWAY}/api/v1/user/login" "" "{\"username\":\"${USERNAME}\",\"password\":\"${PASSWORD}\"}")
 LOGIN_CODE=$(safe_jq "$LOGIN_JSON" '.code')
@@ -271,8 +333,32 @@ done
 
 if [[ "$FOUND_STATUS" != "FILLED" ]]; then
   log "${RED}Order not FILLED within timeout. Final status=${FOUND_STATUS:-UNKNOWN}${NC}"
+  QUERY_JSON=$(curl -sS --max-time 8 -X GET "${OMS_BASE}/api/v1/oms/order/query?orderId=${ORDER_ID}" \
+    -H "X-User-Id: ${USER_ID}" || true)
+  REASON_CODE=$(echo "$QUERY_JSON" | jq -r '.reasonCode // .data.reasonCode // .errorCode // empty' 2>/dev/null || true)
+  REASON_MSG=$(echo "$QUERY_JSON" | jq -r '.reasonMsg // .data.reasonMsg // .errorMessage // .message // empty' 2>/dev/null || true)
+  if [[ -z "$REASON_CODE" || "$REASON_CODE" == "null" ]]; then
+    REASON_CODE=$(echo "$HISTORY_JSON" | jq -r --arg oid "$ORDER_ID" '
+      (.orders // []) | map(select((.orderId|tostring) == $oid)) | .[0].reasonCode // empty
+    ' 2>/dev/null || true)
+  fi
+  if [[ -z "$REASON_MSG" || "$REASON_MSG" == "null" ]]; then
+    REASON_MSG=$(echo "$HISTORY_JSON" | jq -r --arg oid "$ORDER_ID" '
+      (.orders // []) | map(select((.orderId|tostring) == $oid)) | .[0].reasonMsg // empty
+    ' 2>/dev/null || true)
+  fi
+  log "Reject diagnose: orderId=${ORDER_ID}, reasonCode=${REASON_CODE:-N/A}, reasonMsg=${REASON_MSG:-N/A}"
+  log "Query by orderId: ${QUERY_JSON}"
   log "History list: ${HISTORY_JSON}"
   log "Active list: ${ACTIVE_JSON}"
+  if [[ -f "oms-core/logs/oms-core.log" ]]; then
+    log "OMS log grep(orderId=${ORDER_ID}):"
+    grep -E "orderId=${ORDER_ID}|${ORDER_ID}" oms-core/logs/oms-core.log | tail -n 20 || true
+  fi
+  if [[ -f "match-engine-core/logs/match-engine.log" ]]; then
+    log "Match log grep(orderId=${ORDER_ID}):"
+    grep -E "orderId=${ORDER_ID}|${ORDER_ID}" match-engine-core/logs/match-engine.log | tail -n 20 || true
+  fi
   exit 1
 fi
 
@@ -294,7 +380,8 @@ LONG_COUNT="0"
 SHORT_COUNT="0"
 
 for ((i=1; i<=POSITION_POLL_TIMES; i++)); do
-  POSITION_JSON=$(request_json "GET" "${API_GATEWAY}/api/v1/position/list?userId=${USER_ID}" "$TOKEN" "")
+  # 持仓查询通过 JWT Token 认证，userId 由 Gateway 从 Token 解析
+  POSITION_JSON=$(request_json "GET" "${API_GATEWAY}/api/v1/position/list" "$TOKEN" "")
   POSITION_COUNT=$(echo "$POSITION_JSON" | jq -r '
     ((.positions // .data.positions // .data // . // []) | map(select((.size // "0" | tonumber) > 0)) | length)
   ' 2>/dev/null || echo "0")

@@ -14,10 +14,11 @@ import java.util.stream.Collectors;
 /**
  * Position 对外查询 Controller（双向持仓模式Hedge Mode）
  * 
- * 🔥 核心变化：
- * 1. 支持查询用户在同一个交易对上的多头和空头持仓
- * 2. 新增 positionSide 参数（1=LONG, 2=SHORT）
- * 3. 返回结果包含持仓方向标识
+ * 🔒 安全设计原则：
+ * 1. 所有接口必须通过 JWT 认证（不在 Gateway 白名单中）
+ * 2. 用户ID必须从 Header X-User-Id 获取（由 API Gateway 从 JWT Token 解析并透传）
+ * 3. 禁止用户通过 Query 参数指定 userId，防止越权查询他人持仓
+ * 4. 持仓数据属于敏感金融数据，必须确保用户只能查询自己的持仓
  * 
  * 🔥 核心职责：
  * 1. 供前端查询用户持仓列表（支持双向持仓）
@@ -35,14 +36,17 @@ public class PositionController {
     private PositionService positionService;
     
     /**
-     * 查询用户所有持仓（双向持仓模式）
+     * 查询当前登录用户所有持仓（双向持仓模式）
      * 
-     * GET /api/v1/position/list?userId=xxx
+     * GET /api/v1/position/list
+     * Header: X-User-Id=xxx (由 API Gateway 从 JWT 透传，禁止客户端伪造)
+     * 
+     * 🔒 安全：用户只能查询自己的持仓，userId 从认证信息中获取
      * 
      * 返回：用户在各个交易对上的所有持仓（可能同时包含LONG和SHORT）
      */
     @GetMapping("/list")
-    public PositionListResponse listPositions(@RequestParam("userId") Long userId) {
+    public PositionListResponse listPositions(@RequestHeader("X-User-Id") Long userId) {
         log.info("[PositionController] List positions, userId={}", userId);
         
         List<PositionSnapshot> positions = positionService.queryAllPositions(userId);
@@ -74,9 +78,12 @@ public class PositionController {
     }
     
     /**
-     * 查询用户在某个交易对上的所有持仓（双向持仓模式）
+     * 查询当前登录用户在某个交易对上的所有持仓（双向持仓模式）
      * 
-     * GET /api/v1/position/list-by-symbol?userId=xxx&symbol=BTCUSDT
+     * GET /api/v1/position/list-by-symbol?symbol=BTCUSDT
+     * Header: X-User-Id=xxx (由 API Gateway 从 JWT 透传)
+     * 
+     * 🔒 安全：用户只能查询自己的持仓
      * 
      * 可能返回：
      * - 空列表（无持仓）
@@ -85,7 +92,7 @@ public class PositionController {
      */
     @GetMapping("/list-by-symbol")
     public PositionListResponse listPositionsBySymbol(
-            @RequestParam("userId") Long userId,
+            @RequestHeader("X-User-Id") Long userId,
             @RequestParam("symbol") String symbol) {
         log.info("[PositionController] List positions by symbol, userId={}, symbol={}", userId, symbol);
         
@@ -115,15 +122,18 @@ public class PositionController {
     }
     
     /**
-     * 查询单个持仓（双向持仓模式 - 必须指定方向）
+     * 查询当前登录用户的单个持仓（双向持仓模式 - 必须指定方向）
      * 
-     * GET /api/v1/position/detail?userId=xxx&symbol=BTCUSDT&positionSide=1
+     * GET /api/v1/position/detail?symbol=BTCUSDT&positionSide=1
+     * Header: X-User-Id=xxx (由 API Gateway 从 JWT 透传)
+     * 
+     * 🔒 安全：用户只能查询自己的持仓
      * 
      * positionSide: 1=LONG(多头), 2=SHORT(空头)
      */
     @GetMapping("/detail")
     public PositionVO getPosition(
-            @RequestParam("userId") Long userId,
+            @RequestHeader("X-User-Id") Long userId,
             @RequestParam("symbol") String symbol,
             @RequestParam("positionSide") Integer positionSide) {
         log.info("[PositionController] Get position, userId={}, symbol={}, positionSide={}", 
@@ -140,12 +150,15 @@ public class PositionController {
     }
     
     /**
-     * 查询用户的所有多头持仓
+     * 查询当前登录用户的所有多头持仓
      * 
-     * GET /api/v1/position/long-list?userId=xxx
+     * GET /api/v1/position/long-list
+     * Header: X-User-Id=xxx (由 API Gateway 从 JWT 透传)
+     * 
+     * 🔒 安全：用户只能查询自己的持仓
      */
     @GetMapping("/long-list")
-    public PositionListResponse listLongPositions(@RequestParam("userId") Long userId) {
+    public PositionListResponse listLongPositions(@RequestHeader("X-User-Id") Long userId) {
         log.info("[PositionController] List long positions, userId={}", userId);
         
         List<PositionSnapshot> positions = positionService.queryLongPositions(userId);
@@ -167,12 +180,15 @@ public class PositionController {
     }
     
     /**
-     * 查询用户的所有空头持仓
+     * 查询当前登录用户的所有空头持仓
      * 
-     * GET /api/v1/position/short-list?userId=xxx
+     * GET /api/v1/position/short-list
+     * Header: X-User-Id=xxx (由 API Gateway 从 JWT 透传)
+     * 
+     * 🔒 安全：用户只能查询自己的持仓
      */
     @GetMapping("/short-list")
-    public PositionListResponse listShortPositions(@RequestParam("userId") Long userId) {
+    public PositionListResponse listShortPositions(@RequestHeader("X-User-Id") Long userId) {
         log.info("[PositionController] List short positions, userId={}", userId);
         
         List<PositionSnapshot> positions = positionService.queryShortPositions(userId);
@@ -194,15 +210,18 @@ public class PositionController {
     }
     
     /**
-     * 查询净持仓（双向持仓模式）
+     * 查询当前登录用户的净持仓（双向持仓模式）
      * 
-     * GET /api/v1/position/net?userId=xxx&symbol=BTCUSDT
+     * GET /api/v1/position/net?symbol=BTCUSDT
+     * Header: X-User-Id=xxx (由 API Gateway 从 JWT 透传)
+     * 
+     * 🔒 安全：用户只能查询自己的持仓
      * 
      * 返回：净持仓数量（正数=净多头，负数=净空头，0=对冲）
      */
     @GetMapping("/net")
     public NetPositionResponse getNetPosition(
-            @RequestParam("userId") Long userId,
+            @RequestHeader("X-User-Id") Long userId,
             @RequestParam("symbol") String symbol) {
         log.info("[PositionController] Get net position, userId={}, symbol={}", userId, symbol);
         

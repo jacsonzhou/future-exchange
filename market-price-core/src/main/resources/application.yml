@@ -45,3 +45,13 @@ spring:
 kafka:
   topic:
     match-event: trade-event
+
+# Logging配置
+logging:
+  level:
+    com.exchange.market-price-core: INFO
+  pattern:
+    console: "%d{yyyy-MM-dd HH:mm:ss.SSS} [%thread] %-5level %logger{50} - %msg%n"
+    file: "%d{yyyy-MM-dd HH:mm:ss.SSS} [%thread] %-5level %logger{50} - %msg%n"
+  file:
+    name: logs/market-price-core.log

@@ -19,13 +19,22 @@ spring:
       default-filters:
         # 添加响应头
         - AddResponseHeader=X-Gateway-Version, api-gateway@1.0
+        # 避免 CORS 被多处配置时产生重复响应头，浏览器会直接拦截
+        - DedupeResponseHeader=Access-Control-Allow-Origin Access-Control-Allow-Credentials, RETAIN_FIRST
       
       # 全局跨域配置
       globalcors:
         cors-configurations:
           '[/**]':
-            allowedOrigins: "*"
-            allowedMethods: "*"
+            allowedOrigins:
+              - "*"
+            allowedMethods:
+              - GET
+              - POST
+              - PUT
+              - DELETE
+              - OPTIONS
+              - PATCH
             allowedHeaders: "*"
             allowCredentials: false
             maxAge: 3600
@@ -120,6 +129,12 @@ spring:
           #       redis-rate-limiter.burstCapacity: 200
           #       key-resolver: "#{@ipKeyResolver}"
         
+        # ==================== 账户余额路由 ====================
+        - id: account-balance
+          uri: lb://snapshot-account-core
+          predicates:
+            - Path=/api/v1/account/balance
+        
         # ==================== 快照服务路由 ====================
         - id: snapshot-service
           uri: lb://snapshot-account-core
@@ -160,7 +175,7 @@ gateway:
     whitelist-paths:
       - /api/v1/user/register
       - /api/v1/user/login
-      - /api/v1/position/**    # ✅ 持仓查询接口
+      # - /api/v1/position/**    # ❌ 持仓查询需要认证
       - /api/v1/market/**
       - /api/v1/ticker/**
       - /api/v1/depth/**

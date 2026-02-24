@@ -1,6 +1,8 @@
 package com.exchange.ledger.dto;
 
 import com.exchange.common.core.Money;
+import com.fasterxml.jackson.annotation.JsonAlias;
+import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import lombok.Data;
 
 import java.math.BigDecimal;
@@ -15,6 +17,7 @@ import java.math.BigDecimal;
  * - 提供转换方法供内部计算使用
  */
 @Data
+@JsonIgnoreProperties(ignoreUnknown = true)
 public class TradeDTO {
     
     /**
@@ -122,6 +125,7 @@ public class TradeDTO {
     /**
      * Maker是否买方
      */
+    @JsonAlias("isBuyerMaker")
     private Boolean isMakerBuy;
     
     /**
@@ -193,11 +197,12 @@ public class TradeDTO {
     /**
      * 成交时间
      */
+    @JsonAlias("timestamp")
     private Long tradeTime;
     
     /**
      * 撮合序列号
      */
+    @JsonAlias("sequence")
     private Long matchSequence;
 }
-

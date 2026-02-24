@@ -22,14 +22,14 @@ spring:
     gateway:
       # 全局过滤器
       default-filters:
-        - DedupeResponseHeader=Access-Control-Allow-Origin
+        - DedupeResponseHeader=Access-Control-Allow-Origin Access-Control-Allow-Credentials, RETAIN_FIRST
       
-      # 路由配置
+      # 路由配置（当 Nacos 配置不可用时使用本地配置）
       routes:
         # ========== 行情数据服务 (market-price-core) ==========
-        # K 线数据 - 统一使用 /api/v1/market 前缀
+        # K 线数据
         - id: market-price-klines
-          uri: http://localhost:8095
+          uri: lb://market-price-core
           predicates:
             - Path=/api/v1/market/klines
           filters:
@@ -41,7 +41,7 @@ spring:
           predicates:
             - Path=/api/v1/klines/**
         
-        # 深度数据 - 统一使用 /api/v1/market 前缀
+        # 深度数据
         - id: market-price-depth
           uri: lb://market-price-core
           predicates:
@@ -55,7 +55,7 @@ spring:
           predicates:
             - Path=/api/v1/depth
         
-        # Ticker 数据 - 统一使用 /api/v1/market 前缀
+        # Ticker 数据
         - id: market-price-ticker
           uri: lb://market-price-core
           predicates:
@@ -69,7 +69,7 @@ spring:
           predicates:
             - Path=/api/v1/ticker/24hr
         
-        # 最优盘口 - 统一使用 /api/v1/market 前缀
+        # 最优盘口
         - id: market-price-book-ticker
           uri: lb://market-price-core
           predicates:
@@ -83,7 +83,7 @@ spring:
           predicates:
             - Path=/api/v1/bookTicker
         
-        # 订单服务
+        # ========== 订单服务 (oms-core) ==========
         - id: order-service-create
           uri: lb://oms-core
           predicates:
@@ -97,19 +97,27 @@ spring:
           predicates:
             - Path=/api/v1/oms/order/list
         
-        # Position 持仓查询
-        - id: position-list
+        # ========== 持仓服务 (position-snapshot-core) ==========
+        - id: position-service
           uri: lb://position-snapshot-core
           predicates:
             - Path=/api/v1/position/**
         
-        # 撮合引擎 - 订单簿深度
+        # ========== 账户快照服务 (snapshot-account-core) ==========
+        - id: snapshot-service
+          uri: lb://snapshot-account-core
+          predicates:
+            - Path=/api/v1/snapshot/**
+          filters:
+            - RewritePath=/api/v1/snapshot/(?<segment>.*), /api/v1/account/\${segment}
+        
+        # ========== 撮合引擎 (match-engine-core) ==========
         - id: match-engine-orderbook
-          uri: http://localhost:8083
+          uri: lb://match-engine-core
           predicates:
             - Path=/api/v1/match/orderbook/**
         
-        # WebSocket 行情推送
+        # ========== WebSocket 行情推送 (public-push-core) ==========
         - id: public-push-ws
           uri: lb:ws://public-push-core
           predicates:
@@ -117,3 +125,26 @@ spring:
 
 server:
   port: 8082
+
+# Logging配置
+logging:
+  level:
+    com.exchange.api-gateway: INFO
+    org.springframework.cloud.gateway: DEBUG
+  pattern:
+    console: "%d{yyyy-MM-dd HH:mm:ss.SSS} [%thread] %-5level %logger{50} - %msg%n"
+    file: "%d{yyyy-MM-dd HH:mm:ss.SSS} [%thread] %-5level %logger{50} - %msg%n"
+  file:
+    name: logs/api-gateway.log
+
+# Actuator配置
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,gateway,routes
+  endpoint:
+    health:
+      show-details: always
+    gateway:
+      enabled: true

@@ -48,7 +48,7 @@ public class TradeEventConsumer {
      * 3. 幂等性保证（LedgerService内部）
      */
     @KafkaListener(
-        topics = "trade-event",
+        topicPattern = "trade-event.*",
         groupId = "ledger-service",
         concurrency = "4"  // 并发消费，提高吞吐
     )
@@ -92,4 +92,3 @@ public class TradeEventConsumer {
         }
     }
 }
-

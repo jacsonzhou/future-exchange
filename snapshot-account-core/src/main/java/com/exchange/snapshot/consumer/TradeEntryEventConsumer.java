@@ -44,7 +44,7 @@ public class TradeEntryEventConsumer {
      * 3. 自动提交offset
      */
     @KafkaListener(
-        topics = "${snapshot.kafka.topics}", // trade-entry-BTCUSDT,trade-entry-ETHUSDT
+        topics = "${snapshot.kafka.topics}", // trade-entry-BTCUSDT,trade-entry-ETHUSDT,account-entry-SYSTEM
         groupId = "snapshot-service",
         concurrency = "1" // 单线程保证顺序
     )
@@ -84,4 +84,3 @@ public class TradeEntryEventConsumer {
         }
     }
 }
-

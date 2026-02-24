@@ -44,3 +44,13 @@ match:
     wal-file: ${MATCH_WAL_FILE:./data/wal/match.log}
     snapshot-file: ${MATCH_SNAPSHOT_FILE:./data/wal/orderbook.snapshot.json}
     max-commands: ${MATCH_RECOVERY_MAX_COMMANDS:10000000}
+
+# Logging配置
+logging:
+  level:
+    com.exchange.match-engine-core: INFO
+  pattern:
+    console: "%d{yyyy-MM-dd HH:mm:ss.SSS} [%thread] %-5level %logger{50} - %msg%n"
+    file: "%d{yyyy-MM-dd HH:mm:ss.SSS} [%thread] %-5level %logger{50} - %msg%n"
+  file:
+    name: logs/match-engine-core.log

@@ -134,16 +134,33 @@ public class OrderStateConsumer {
             // 计算新的已成交数量
             BigDecimal oldFilledQty = order.getFilledQuantity() != null ? 
                     order.getFilledQuantity() : BigDecimal.ZERO;
-            BigDecimal newFilledQty = oldFilledQty.add(filledQuantityDelta);
+            BigDecimal orderQty = order.getQuantity() != null ? order.getQuantity() : BigDecimal.ZERO;
+            BigDecimal maxAppendable = orderQty.subtract(oldFilledQty);
+            if (maxAppendable.compareTo(BigDecimal.ZERO) < 0) {
+                maxAppendable = BigDecimal.ZERO;
+            }
+            BigDecimal effectiveFilledDelta = filledQuantityDelta.min(maxAppendable);
+            BigDecimal newFilledQty = oldFilledQty.add(effectiveFilledDelta);
+
+            // 防重复累计：即使消息重复投递，也不允许超过订单总量
+            if (filledQuantityDelta.compareTo(effectiveFilledDelta) > 0) {
+                log.warn("[OrderStateConsumer] ⚠️ Clamp filled delta, orderId={}, rawDelta={}, effectiveDelta={}, oldFilled={}, qty={}",
+                    orderId, filledQuantityDelta, effectiveFilledDelta, oldFilledQty, orderQty);
+            }
+
+            // 达到总量时强制终态，避免上游状态延迟/重复导致 PARTIALLY_FILLED 残留
+            if (orderQty.compareTo(BigDecimal.ZERO) > 0 && newFilledQty.compareTo(orderQty) >= 0) {
+                newStatus = 4; // FILLED
+            }
             
             // 更新订单
             if (newStatus != null && !newStatus.equals(oldStatus)) {
                 // 有成交增量时，状态和已成交数量一起更新，避免 FILLED 但 filled_quantity 仍为0
                 int updated;
-                if (filledQuantityDelta.compareTo(BigDecimal.ZERO) > 0) {
+                if (effectiveFilledDelta.compareTo(BigDecimal.ZERO) > 0) {
                     updated = orderMapper.updateFilledQuantity(
                         orderId,
-                        filledQuantityDelta,
+                        effectiveFilledDelta,
                         newStatus,
                         System.currentTimeMillis(),
                         order.getVersion()
@@ -166,19 +183,20 @@ public class OrderStateConsumer {
                     log.info("[OrderStateConsumer] ✅ Order state updated, orderId={}, {}→{}, filled={}",
                         orderId, mapStatusName(oldStatus), mapStatusName(newStatus), newFilledQty);
                     
+                    String pushStatus = mapStatusName(newStatus);
                     // 🔥 发布到私有推送系统
-                    publishToPrivatePush(order, status, filledQuantityDelta, lastFilledPrice, 
+                    publishToPrivatePush(order, pushStatus, effectiveFilledDelta, lastFilledPrice, 
                             tradeId, fee, feeAsset, tradeTime);
                     
                 } else {
                     log.warn("[OrderStateConsumer] ⚠️ Order update failed (version conflict?), orderId={}", 
                         orderId);
                 }
-            } else if (filledQuantityDelta.compareTo(BigDecimal.ZERO) > 0) {
+            } else if (effectiveFilledDelta.compareTo(BigDecimal.ZERO) > 0) {
                 // 🔥 修复：使用乐观锁更新方法更新成交数量
                 int updated = orderMapper.updateFilledQuantity(
                     orderId,
-                    filledQuantityDelta,
+                    effectiveFilledDelta,
                     newStatus != null ? newStatus : oldStatus,
                     System.currentTimeMillis(),
                     order.getVersion()
@@ -192,8 +210,9 @@ public class OrderStateConsumer {
                 log.info("[OrderStateConsumer] ✅ Order filled quantity updated, orderId={}, filled={}",
                     orderId, newFilledQty);
                 
+                String pushStatus = newStatus != null ? mapStatusName(newStatus) : status;
                 // 🔥 发布到私有推送系统
-                publishToPrivatePush(order, status, filledQuantityDelta, lastFilledPrice, 
+                publishToPrivatePush(order, pushStatus, effectiveFilledDelta, lastFilledPrice, 
                         tradeId, fee, feeAsset, tradeTime);
             }
             

@@ -100,7 +100,17 @@ public interface OmsOrderMapper extends BaseMapper<OmsOrder> {
         @Param("userId") Long userId,
         @Param("limit") Integer limit
     );
-}
 
+    /**
+     * 根据状态列表查询订单（用于启动恢复等场景）
+     */
+    @Select("<script>" +
+            "SELECT * FROM t_order WHERE status IN " +
+            "<foreach collection='statuses' item='status' open='(' separator=',' close=')'>" +
+            "#{status}" +
+            "</foreach>" +
+            "</script>")
+    List<OmsOrder> selectByStatuses(@Param("statuses") List<Integer> statuses);
+}
 
 

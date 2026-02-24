@@ -238,15 +238,11 @@ public class MatchEventConsumer {
             
             log.info("[Consumer] Calling engineService, isSnapshot={}, bids={}, asks={}", finalIsSnapshot, finalBids.size(), finalAsks.size());
             if (finalIsSnapshot) {
-                // 快照：重建订单簿
-                CompletableFuture.runAsync(() -> {
-                    engineService.rebuildOrderBook(finalSymbol, finalBids, finalAsks, finalSequence, finalTimestamp);
-                });
+                // 快照：必须按 Kafka 消费顺序同步处理，避免旧快照覆盖新盘口
+                engineService.rebuildOrderBook(finalSymbol, finalBids, finalAsks, finalSequence, finalTimestamp);
             } else {
-                // 增量：应用更新
-                CompletableFuture.runAsync(() -> {
-                    engineService.onDepthDelta(finalSymbol, finalBids, finalAsks, finalSequence, finalTimestamp);
-                });
+                // 增量：同步处理，保持同分区消息顺序
+                engineService.onDepthDelta(finalSymbol, finalBids, finalAsks, finalSequence, finalTimestamp);
             }
             
         } catch (Exception e) {

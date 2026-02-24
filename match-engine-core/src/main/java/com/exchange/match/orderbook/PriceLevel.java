@@ -3,6 +3,8 @@ package com.exchange.match.orderbook;
 import com.exchange.match.model.Order;
 import lombok.extern.slf4j.Slf4j;
 
+import java.math.BigDecimal;
+
 /**
  * 价格档位（Price Level）
  *
@@ -186,6 +188,24 @@ public class PriceLevel {
     }
 
     /**
+     * 按成交量扣减档位总量（部分成交场景）
+     */
+    public void reduceByTradeQuantity(BigDecimal tradeQuantity) {
+        if (tradeQuantity == null || tradeQuantity.signum() <= 0) {
+            return;
+        }
+        long delta = tradeQuantity
+            .multiply(BigDecimal.valueOf(PRICE_SCALE))
+            .longValue();
+        totalQuantity -= delta;
+        if (totalQuantity < 0) {
+            log.warn("[PriceLevel] totalQuantity below zero, priceScaled={}, totalQuantity={}, delta={}",
+                priceScaled, totalQuantity, delta);
+            totalQuantity = 0;
+        }
+    }
+
+    /**
      * ============================================
      * Phase 1.3: Object Pool Support
      * 清空链表，准备复用（对象池归还时调用）
@@ -198,6 +218,5 @@ public class PriceLevel {
         this.totalQuantity = 0;
     }
 }
-
 
 

@@ -1,18 +1,20 @@
 package com.exchange.oms.entity;
 
 import com.baomidou.mybatisplus.annotation.IdType;
+import com.baomidou.mybatisplus.annotation.TableField;
 import com.baomidou.mybatisplus.annotation.TableId;
 import com.baomidou.mybatisplus.annotation.TableName;
 import com.exchange.common.core.enums.OrderStatus;
 import com.exchange.common.core.enums.OrderType;
 import com.exchange.common.core.enums.Side;
+import com.exchange.oms.config.typehandler.SideTypeHandler;
 import lombok.Data;
 
 /**
  * 订单实体
  */
 @Data
-@TableName("t_order")
+@TableName(value = "t_order", autoResultMap = true)
 public class Order {
     
     /**
@@ -34,6 +36,7 @@ public class Order {
     /**
      * 买卖方向
      */
+    @TableField(value = "side", typeHandler = SideTypeHandler.class)
     private Side side;
     
     /**
@@ -96,7 +99,6 @@ public class Order {
      */
     private Long positionId;
 }
-
 
 
 

@@ -56,12 +56,21 @@ public class QueryOrderResponse implements Serializable {
      * 订单状态
      */
     private String status;
+
+    /**
+     * 最近一次状态流转原因码（拒单/撤单等）
+     */
+    private String reasonCode;
+
+    /**
+     * 最近一次状态流转原因描述（拒单/撤单等）
+     */
+    private String reasonMsg;
     
     /**
      * 创建时间
      */
     private Long createTime;
 }
-
 
 

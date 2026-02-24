@@ -65,9 +65,11 @@ spring.task.scheduling.pool.size: 5
 
 # Snapshot配置
 snapshot:
-  # Kafka消费的Topic列表（多Symbol）- 修复：先只订阅 SYSTEM topic
+  # Kafka消费的Topic列表（多Symbol）
+  # - trade-entry-{symbol}: 交易分录（驱动资产/持仓链路）
+  # - account-entry-SYSTEM: SYSTEM账务分录（冻结/解冻等）
   kafka:
-    topics: trade-entry-SYSTEM
+    topics: trade-entry-BTCUSDT,trade-entry-ETHUSDT,account-entry-SYSTEM
   
   # Redis缓存TTL（小时）
   redis:

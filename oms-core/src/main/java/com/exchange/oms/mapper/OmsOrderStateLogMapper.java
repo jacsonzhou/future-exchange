@@ -19,6 +19,12 @@ public interface OmsOrderStateLogMapper extends BaseMapper<OmsOrderStateLog> {
      */
     @Select("SELECT * FROM t_order_state_log WHERE order_id = #{orderId} ORDER BY id ASC")
     List<OmsOrderStateLog> selectByOrderId(@Param("orderId") Long orderId);
+
+    /**
+     * 查询订单最近一次状态变更
+     */
+    @Select("SELECT * FROM t_order_state_log WHERE order_id = #{orderId} ORDER BY id DESC LIMIT 1")
+    OmsOrderStateLog selectLatestByOrderId(@Param("orderId") Long orderId);
     
     /**
      * 查询用户的状态变更历史
@@ -30,6 +36,5 @@ public interface OmsOrderStateLogMapper extends BaseMapper<OmsOrderStateLog> {
         @Param("limit") Integer limit
     );
 }
-
 
 

@@ -52,7 +52,7 @@ Ledger Core (记账)
 
 ```java
 @KafkaListener(
-    topics = "trade-entry-BTCUSDT,trade-entry-ETHUSDT",
+    topics = "trade-entry-BTCUSDT,trade-entry-ETHUSDT,account-entry-SYSTEM",
     groupId = "snapshot-service",
     concurrency = "1" // 单线程保证顺序
 )
@@ -224,7 +224,7 @@ spring:
 
 snapshot:
   kafka:
-    topics: trade-entry-BTCUSDT,trade-entry-ETHUSDT,trade-entry-SYSTEM
+    topics: trade-entry-BTCUSDT,trade-entry-ETHUSDT,account-entry-SYSTEM
   
   redis:
     ttl-hours: 24
@@ -281,4 +281,3 @@ mvn spring-boot:run
 **数据库**：exchange_snapshot  
 **Redis**：database 1  
 **对标**：Binance / OKX / Bybit级别
-

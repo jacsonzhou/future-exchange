@@ -104,6 +104,36 @@ kafka-topics --create \
 
 echo ""
 
+# Ledger 分录事件（Ledger → Snapshot/Position）
+echo "创建 trade-entry-BTCUSDT (Ledger分录-交易)..."
+kafka-topics --create \
+    --bootstrap-server localhost:9092 \
+    --topic trade-entry-BTCUSDT \
+    --partitions 1 \
+    --replication-factor 1 \
+    --config retention.ms=604800000 \
+    --if-not-exists
+
+echo "创建 trade-entry-ETHUSDT..."
+kafka-topics --create \
+    --bootstrap-server localhost:9092 \
+    --topic trade-entry-ETHUSDT \
+    --partitions 1 \
+    --replication-factor 1 \
+    --config retention.ms=604800000 \
+    --if-not-exists
+
+echo "创建 account-entry-SYSTEM (Ledger分录-SYSTEM账务)..."
+kafka-topics --create \
+    --bootstrap-server localhost:9092 \
+    --topic account-entry-SYSTEM \
+    --partitions 1 \
+    --replication-factor 1 \
+    --config retention.ms=604800000 \
+    --if-not-exists
+
+echo ""
+
 # 私有推送 Topic (Private Push)
 echo "=================================================="
 echo "创建 私有推送 Topics (Private Push)..."
@@ -211,7 +241,7 @@ echo ""
 # 3. 列出所有Topic
 echo ""
 echo "Step 3: 列出所有Topics..."
-kafka-topics --list --bootstrap-server localhost:9092 | grep -E "(order-event|order-state|trade-event)"
+kafka-topics --list --bootstrap-server localhost:9092 | grep -E "(order-event|order-state|trade-event|trade-entry|account-entry)"
 
 echo ""
 
@@ -238,6 +268,18 @@ kafka-topics --describe \
     --topic trade-event
 
 echo ""
+echo "trade-entry-BTCUSDT:"
+kafka-topics --describe \
+    --bootstrap-server localhost:9092 \
+    --topic trade-entry-BTCUSDT
+
+echo ""
+echo "account-entry-SYSTEM:"
+kafka-topics --describe \
+    --bootstrap-server localhost:9092 \
+    --topic account-entry-SYSTEM
+
+echo ""
 echo "=================================================="
 echo "✅ Kafka Topics创建完成！"
 echo "=================================================="
@@ -256,6 +298,11 @@ echo ""
 echo "  成交事件 (Match Engine → 全系统)："
 echo "    - trade-event (3分区)"
 echo ""
+echo "  Ledger分录事件 (Ledger → Snapshot/Position)："
+echo "    - trade-entry-BTCUSDT (交易分录)"
+echo "    - trade-entry-ETHUSDT (交易分录)"
+echo "    - account-entry-SYSTEM (SYSTEM账务分录)"
+echo ""
 echo "  私有推送 (Private Push)："
 echo "    - private-order-state (100分区，按 userId 分区)"
 echo "    - private-account-change (100分区，按 userId 分区)"
@@ -273,6 +320,5 @@ echo "  2. 启动Match Engine: cd match-engine-core && mvn spring-boot:run"
 echo "  3. 启动Private Push: cd private-push-core && mvn spring-boot:run"
 echo "  4. 测试下单流程"
 echo ""
-
 
 

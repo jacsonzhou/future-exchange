@@ -187,7 +187,8 @@
         
         try {
             const res = await fetch(
-                `${CONFIG.API_GATEWAY}/api/v1/position/list?userId=${auth.userId}`,
+                // 持仓查询通过 JWT Token 认证，userId 由 Gateway 从 Token 解析透传
+                `${CONFIG.API_GATEWAY}/api/v1/position/list`,
                 { headers: { 'Authorization': `Bearer ${auth.token}` } }
             );
             

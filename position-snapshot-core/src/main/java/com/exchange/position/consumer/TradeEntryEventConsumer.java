@@ -13,7 +13,9 @@ import org.springframework.messaging.handler.annotation.Payload;
 import org.springframework.stereotype.Component;
 
 import java.util.Arrays;
+import java.util.Collections;
 import java.util.List;
+import java.util.stream.Collectors;
 
 /**
  * Trade Entry Event Consumer（账本分录消费者）
@@ -59,8 +61,16 @@ public class TradeEntryEventConsumer {
         if (symbolList == null) {
             synchronized (this) {
                 if (symbolList == null) {
-                    symbolList = Arrays.asList(tradeEntrySymbols.split(","));
-                    log.info("[TradeEntryConsumer] Initialized with symbols: {}", symbolList);
+                    List<String> configuredSymbols = Arrays.stream(tradeEntrySymbols.split(","))
+                        .map(String::trim)
+                        .filter(s -> !s.isEmpty())
+                        .collect(Collectors.toList());
+                    symbolList = configuredSymbols.isEmpty() ? Collections.emptyList() : configuredSymbols;
+                    if (symbolList.isEmpty()) {
+                        log.warn("[TradeEntryConsumer] trade-entry-symbols is empty, consume all trade-entry-* symbols");
+                    } else {
+                        log.info("[TradeEntryConsumer] Initialized with symbols: {}", symbolList);
+                    }
                 }
             }
         }
@@ -106,7 +116,7 @@ public class TradeEntryEventConsumer {
             }
 
             // 仅处理配置内交易对，避免误消费无关topic导致阻塞
-            if (!getSymbolList().contains(event.getSymbol())) {
+            if (!isSymbolAllowed(event.getSymbol())) {
                 log.debug("[TradeEntryConsumer] Skip unsupported symbol event, topic={}, symbol={}, tradeId={}, supported={}",
                     topic, event.getSymbol(), event.getTradeId(), getSymbolList());
                 return;
@@ -131,5 +141,13 @@ public class TradeEntryEventConsumer {
             // 非SYSTEM消息继续重试，避免真实成交消息丢失
             throw new RuntimeException("Process trade entry event failed", e);
         }
+    }
+
+    private boolean isSymbolAllowed(String symbol) {
+        List<String> configured = getSymbolList();
+        if (configured.isEmpty()) {
+            return true;
+        }
+        return configured.contains(symbol);
     }
 }

@@ -26,6 +26,7 @@ spring:
   mybatis-plus:
     mapper-locations: classpath*:/mapper/**/*.xml
     type-aliases-package: com.exchange.oms.entity
+    type-handlers-package: com.exchange.oms.config.typehandler
     configuration:
       map-underscore-to-camel-case: true
       log-impl: org.apache.ibatis.logging.slf4j.Slf4jImpl
@@ -99,6 +100,8 @@ spring:
         server-addr: ${NACOS_SERVER_ADDR:localhost:8848}
         namespace: ${NACOS_NAMESPACE:}
         group: DEFAULT_GROUP
+        ip: ${DISCOVERY_IP:}
+        network-interface: ${NACOS_DISCOVERY_INTERFACE:}
       config:
         server-addr: ${NACOS_SERVER_ADDR:localhost:8848}
         file-extension: yml
@@ -122,8 +125,13 @@ logging:
   level:
     com.exchange.oms: INFO
     com.exchange.oms.mapper: DEBUG
+    com.exchange.oms.consumer: INFO
+    com.exchange.oms.publisher: INFO
   pattern:
     console: "%d{yyyy-MM-dd HH:mm:ss.SSS} [%thread] %-5level %logger{50} - %msg%n"
+    file: "%d{yyyy-MM-dd HH:mm:ss.SSS} [%thread] %-5level %logger{50} - %msg%n"
+  file:
+    name: logs/oms-core.log
 
 # ============================================================
 # 🔥 OMS核心配置：双通道架构

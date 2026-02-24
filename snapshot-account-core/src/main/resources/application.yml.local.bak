@@ -107,7 +107,7 @@ management:
 snapshot:
   # Kafka消费的Topic列表（多Symbol）
   kafka:
-    topics: trade-entry-BTCUSDT,trade-entry-ETHUSDT,trade-entry-SYSTEM
+    topics: trade-entry-BTCUSDT,trade-entry-ETHUSDT,account-entry-SYSTEM
   
   # Redis缓存TTL（小时）
   redis:
@@ -116,5 +116,4 @@ snapshot:
   # Replay配置
   replay:
     batch-size: 1000
-
 

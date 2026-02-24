@@ -34,3 +34,13 @@ spring:
         max-idle: 20
         min-idle: 5
         max-wait: 3000ms
+
+# Logging配置
+logging:
+  level:
+    com.exchange.user-core: INFO
+  pattern:
+    console: "%d{yyyy-MM-dd HH:mm:ss.SSS} [%thread] %-5level %logger{50} - %msg%n"
+    file: "%d{yyyy-MM-dd HH:mm:ss.SSS} [%thread] %-5level %logger{50} - %msg%n"
+  file:
+    name: logs/user-core.log
