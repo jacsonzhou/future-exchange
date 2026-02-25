@@ -5,6 +5,8 @@ import com.exchange.market.publisher.MarketDataPublisher;
 import lombok.Data;
 import lombok.extern.slf4j.Slf4j;
 
+import java.math.BigDecimal;
+import java.math.RoundingMode;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -104,6 +106,7 @@ public class KlineEngine {
      * 单个周期的K线生成器
      */
     private class KlineGenerator {
+        private static final BigDecimal SCALE_BD = BigDecimal.valueOf(100_000_000L);
         
         private final String symbol;
         private final String interval;
@@ -165,13 +168,13 @@ public class KlineEngine {
             currentKline.setLowPrice(price);
             currentKline.setClosePrice(price);
             currentKline.setVolume(quantity);
-            currentKline.setQuoteVolume(price * quantity);
+            currentKline.setQuoteVolume(multiplyScaled(price, quantity));
             currentKline.setTradeCount(1);
             
             // 重置主动买入统计
             if (isBuyerMaker) {
                 takerBuyVolume = quantity;
-                takerBuyQuoteVolume = price * quantity;
+                takerBuyQuoteVolume = multiplyScaled(price, quantity);
             } else {
                 takerBuyVolume = 0;
                 takerBuyQuoteVolume = 0;
@@ -192,16 +195,23 @@ public class KlineEngine {
             // 更新收盘价、成交量
             currentKline.setClosePrice(price);
             currentKline.setVolume(currentKline.getVolume() + quantity);
-            currentKline.setQuoteVolume(currentKline.getQuoteVolume() + price * quantity);
+            currentKline.setQuoteVolume(currentKline.getQuoteVolume() + multiplyScaled(price, quantity));
             currentKline.setTradeCount(currentKline.getTradeCount() + 1);
             
             // 更新主动买入统计（taker是买方时）
             if (isBuyerMaker) {
                 takerBuyVolume += quantity;
-                takerBuyQuoteVolume += price * quantity;
+                takerBuyQuoteVolume += multiplyScaled(price, quantity);
                 currentKline.setTakerBuyVolume(takerBuyVolume);
                 currentKline.setTakerBuyQuoteVolume(takerBuyQuoteVolume);
             }
+        }
+
+        private long multiplyScaled(long price, long quantity) {
+            return BigDecimal.valueOf(price)
+                    .multiply(BigDecimal.valueOf(quantity))
+                    .divide(SCALE_BD, 0, RoundingMode.DOWN)
+                    .longValue();
         }
 
         void closeCurrentKline() {

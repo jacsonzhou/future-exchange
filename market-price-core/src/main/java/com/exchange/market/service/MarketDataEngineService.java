@@ -1,7 +1,7 @@
 package com.exchange.market.service;
 
 import com.exchange.market.cache.MarketDataCache;
-import com.exchange.market.engine.KlineEngine;
+import com.exchange.market.engine.KlineEngineWithStorage;
 import com.exchange.market.engine.OrderBook;
 import com.exchange.market.engine.TradeEngine;
 import com.exchange.market.model.Trade;
@@ -38,6 +38,7 @@ public class MarketDataEngineService {
 
     private final MarketDataPublisher publisher;
     private final MarketDataCache cache;
+    private final KlineEngineWithStorage klineEngineWithStorage;
     
     // Symbol -> 引擎组映射
     private final Map<String, SymbolEngines> symbolEnginesMap;
@@ -49,9 +50,12 @@ public class MarketDataEngineService {
     // 定时任务执行器
     private ScheduledExecutorService scheduler;
 
-    public MarketDataEngineService(MarketDataPublisher publisher, MarketDataCache cache) {
+    public MarketDataEngineService(MarketDataPublisher publisher,
+                                   MarketDataCache cache,
+                                   KlineEngineWithStorage klineEngineWithStorage) {
         this.publisher = publisher;
         this.cache = cache;
+        this.klineEngineWithStorage = klineEngineWithStorage;
         this.symbolEnginesMap = new ConcurrentHashMap<>();
     }
 
@@ -88,8 +92,9 @@ public class MarketDataEngineService {
         // 更新Trade引擎
         engines.getTradeEngine().onTrade(trade);
         
-        // 更新Kline引擎
-        engines.getKlineEngine().onTrade(
+        // 更新带存储的Kline引擎（实时推送 + ClickHouse持久化）
+        klineEngineWithStorage.onTrade(
+            symbol,
             trade.getPrice(), 
             trade.getQuantity(), 
             trade.getTimestamp(), 
@@ -143,8 +148,24 @@ public class MarketDataEngineService {
                                   long lastSequence, long timestamp) {
         SymbolEngines engines = getOrCreateEngines(symbol);
         OrderBook orderBook = engines.getOrderBook();
+
+        // Match Engine 会周期性发送同序列号心跳快照（U=u=lastSeq）。
+        // 对已处理过的序列直接跳过，避免重复重建和重复推送导致前端“波动”。
+        long currentSequence = orderBook.getLastUpdateId();
+        if (currentSequence > 0 && lastSequence <= currentSequence) {
+            log.debug("[EngineService] {} Skip stale depth snapshot, incomingSeq={}, currentSeq={}",
+                symbol, lastSequence, currentSequence);
+            return;
+        }
         
         orderBook.rebuild(bids, asks, lastSequence, timestamp);
+
+        // 若由于并发或内部保护导致未应用该快照，则不再重复发布。
+        if (orderBook.getLastUpdateId() != lastSequence) {
+            log.debug("[EngineService] {} Snapshot not applied, skip publish. incomingSeq={}, actualSeq={}",
+                symbol, lastSequence, orderBook.getLastUpdateId());
+            return;
+        }
         
         log.info("[EngineService] {} OrderBook rebuilt with lastSequence={}", symbol, lastSequence);
         
@@ -182,17 +203,6 @@ public class MarketDataEngineService {
             return null;
         }
         return engines.getTradeEngine();
-    }
-
-    /**
-     * 获取Kline引擎
-     */
-    public KlineEngine getKlineEngine(String symbol) {
-        SymbolEngines engines = symbolEnginesMap.get(symbol);
-        if (engines == null) {
-            return null;
-        }
-        return engines.getKlineEngine();
     }
 
     /**
@@ -249,13 +259,11 @@ public class MarketDataEngineService {
         private final String symbol;
         private final OrderBook orderBook;
         private final TradeEngine tradeEngine;
-        private final KlineEngine klineEngine;
 
         SymbolEngines(String symbol, MarketDataPublisher publisher) {
             this.symbol = symbol;
             this.orderBook = new OrderBook(symbol, DEFAULT_PRICE_PRECISION, DEFAULT_QTY_PRECISION);
             this.tradeEngine = new TradeEngine(symbol, publisher);
-            this.klineEngine = new KlineEngine(symbol, publisher);
         }
     }
     

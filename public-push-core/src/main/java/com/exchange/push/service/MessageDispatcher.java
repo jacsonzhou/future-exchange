@@ -492,16 +492,45 @@ public class MessageDispatcher {
     }
 
     private JSONObject fetchKlineSnapshot(String channel) {
-        // kline.{interval}.{symbol}
+        // 兼容两种格式：
+        // 1) kline.{symbol}.{interval}（当前前端使用）
+        // 2) kline.{interval}.{symbol}（历史格式）
         String[] parts = channel.split("\\.");
         if (parts.length >= 3) {
-            String interval = parts[1];
-            String symbol = parts[2];
+            String first = parts[1];
+            String second = parts[2];
+            String symbol;
+            String interval;
+
+            if (isKlineIntervalToken(first) && !isKlineIntervalToken(second)) {
+                interval = first;
+                symbol = second;
+            } else {
+                symbol = first;
+                interval = second;
+            }
+
             String key = "market:snapshot:kline:" + symbol + ":" + interval;
             Object data = redisTemplate.opsForValue().get(key);
             return data != null ? JSON.parseObject(data.toString()) : null;
         }
         return null;
+    }
+
+    private boolean isKlineIntervalToken(String token) {
+        if (token == null || token.length() < 2) {
+            return false;
+        }
+        char unit = token.charAt(token.length() - 1);
+        if ("smhdwM".indexOf(unit) < 0) {
+            return false;
+        }
+        for (int i = 0; i < token.length() - 1; i++) {
+            if (!Character.isDigit(token.charAt(i))) {
+                return false;
+            }
+        }
+        return true;
     }
 
     private String extractSymbol(String channel) {
