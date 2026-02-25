@@ -2,9 +2,6 @@ package com.exchange.market.consumer;
 
 import com.alibaba.fastjson2.JSON;
 import com.alibaba.fastjson2.JSONObject;
-import com.exchange.market.engine.OrderBook;
-import com.exchange.market.engine.TradeEngine;
-import com.exchange.market.engine.KlineEngine;
 import com.exchange.market.model.Trade;
 import com.exchange.market.service.MarketDataEngineService;
 import lombok.RequiredArgsConstructor;
@@ -18,7 +15,6 @@ import java.nio.charset.StandardCharsets;
 import java.math.RoundingMode;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.concurrent.CompletableFuture;
 
 /**
  * Kafka撮合事件消费者（Match Event Consumer）
@@ -64,7 +60,7 @@ public class MatchEventConsumer {
                 String json = new String(record.value(), StandardCharsets.UTF_8);
                 processTradeEvent(json);
             }
-            // 手动确认
+            // 手动确认：仅在整批成交事件处理成功后提交offset
             ack.acknowledge();
         } catch (Exception e) {
             log.error("[Consumer] Failed to process trade events: {}", e.getMessage(), e);
@@ -104,58 +100,51 @@ public class MatchEventConsumer {
      * 修复：支持字符串类型的 tradeId（如 "BTCUSDT-1771754637042-3"）
      */
     private void processTradeEvent(String json) {
-        try {
-            JSONObject event = JSON.parseObject(json);
-            String eventType = event.getString("eventType");
-            
-            if (!"TRADE".equals(eventType)) {
-                return;
-            }
-            
-            String symbol = event.getString("symbol");
-            long sequence = event.getLongValue("sequence");
-            
-            // 修复：tradeId 可能是字符串（如 "BTCUSDT-1771754637042-3"），需要特殊处理
-            long tradeId;
-            Object tradeIdObj = event.get("tradeId");
-            if (tradeIdObj instanceof String) {
-                // 从字符串中提取数字部分或使用 hashCode
-                String tradeIdStr = (String) tradeIdObj;
-                try {
-                    // 尝试直接解析（如果是纯数字字符串）
-                    tradeId = Long.parseLong(tradeIdStr);
-                } catch (NumberFormatException e) {
-                    // 如果是复杂字符串（如 "BTCUSDT-1771754637042-3"），使用 hashCode
-                    tradeId = tradeIdStr.hashCode();
-                }
-            } else {
-                tradeId = event.getLongValue("tradeId");
-            }
-            
-            long price = event.getLongValue("price");
-            long quantity = event.getLongValue("quantity");
-            boolean isBuyerMaker = event.getBooleanValue("isBuyerMaker");
-            long timestamp = event.getLongValue("timestamp");
-            
-            // 构建Trade对象
-            Trade trade = Trade.builder()
-                    .tradeId(tradeId)
-                    .sequence(sequence)
-                    .symbol(symbol)
-                    .price(price)
-                    .quantity(quantity)
-                    .isBuyerMaker(isBuyerMaker)
-                    .timestamp(timestamp)
-                    .build();
-            
-            // 异步处理（不阻塞消费线程）
-            CompletableFuture.runAsync(() -> {
-                engineService.onTrade(symbol, trade);
-            });
-            
-        } catch (Exception e) {
-            log.error("[Consumer] Failed to parse trade event: {}", json, e);
+        JSONObject event = JSON.parseObject(json);
+        String eventType = event.getString("eventType");
+        
+        if (!"TRADE".equals(eventType)) {
+            return;
         }
+        
+        String symbol = event.getString("symbol");
+        long sequence = event.getLongValue("sequence");
+        
+        // 修复：tradeId 可能是字符串（如 "BTCUSDT-1771754637042-3"），需要特殊处理
+        long tradeId;
+        Object tradeIdObj = event.get("tradeId");
+        if (tradeIdObj instanceof String) {
+            // 从字符串中提取数字部分或使用 hashCode
+            String tradeIdStr = (String) tradeIdObj;
+            try {
+                // 尝试直接解析（如果是纯数字字符串）
+                tradeId = Long.parseLong(tradeIdStr);
+            } catch (NumberFormatException e) {
+                // 如果是复杂字符串（如 "BTCUSDT-1771754637042-3"），使用 hashCode
+                tradeId = tradeIdStr.hashCode();
+            }
+        } else {
+            tradeId = event.getLongValue("tradeId");
+        }
+        
+        long price = event.getLongValue("price");
+        long quantity = event.getLongValue("quantity");
+        boolean isBuyerMaker = event.getBooleanValue("isBuyerMaker");
+        long timestamp = event.getLongValue("timestamp");
+        
+        // 构建Trade对象
+        Trade trade = Trade.builder()
+                .tradeId(tradeId)
+                .sequence(sequence)
+                .symbol(symbol)
+                .price(price)
+                .quantity(quantity)
+                .isBuyerMaker(isBuyerMaker)
+                .timestamp(timestamp)
+                .build();
+        
+        // 同步处理，保证处理成功后再ack，避免“先提交offset后落库失败”
+        engineService.onTrade(symbol, trade);
     }
 
     /**

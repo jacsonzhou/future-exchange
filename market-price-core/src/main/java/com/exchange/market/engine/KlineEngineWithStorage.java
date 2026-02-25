@@ -108,16 +108,22 @@ public class KlineEngineWithStorage {
         // 先从内存获取最新的
         SymbolKlineEngine engine = symbolEngines.get(symbol);
         Kline current = engine != null ? engine.getCurrentKline(interval) : null;
+
+        // 服务重启后内存可能为空，回退到 ClickHouse realtime 读取当前未收线
+        if (current == null) {
+            current = klineService.getLatestKline(symbol, interval);
+        }
         
         // 从 ClickHouse 查询历史数据
         List<Kline> history = klineService.getRecentKlines(symbol, interval, limit);
         
         // 如果当前 K 线存在且不在历史列表中，添加到头部
         if (current != null) {
+            final Kline finalCurrent = current;
             boolean exists = history.stream()
-                .anyMatch(k -> k.getOpenTime() == current.getOpenTime());
+                .anyMatch(k -> k.getOpenTime() == finalCurrent.getOpenTime());
             if (!exists) {
-                history.add(0, current);
+                history.add(0, finalCurrent);
             }
         }
         
