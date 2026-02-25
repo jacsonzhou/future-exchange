@@ -116,7 +116,7 @@ public class MessageDispatcher {
         }
         
         String json = JSON.toJSONString(data);
-        log.info("[WS-LINK] >>> WebSocket sending, sessionId={}, size={}bytes", sessionId, json.length());
+        log.debug("[WS-LINK] >>> WebSocket sending, sessionId={}, size={}bytes", sessionId, json.length());
         
         // 高优先级消息立即发送
         if (isHighPriority(data)) {
@@ -142,7 +142,7 @@ public class MessageDispatcher {
         // 对于深度消息，校验序列号连续性
         ChannelType channelType = ChannelType.fromChannel(channel);
         if (channelType == ChannelType.DEPTH) {
-            log.info("[WS-LINK] Processing depth message, channel={}, U={}, u={}", 
+            log.debug("[WS-LINK] Processing depth message, channel={}, U={}, u={}", 
                 channel, data.getLongValue("U"), data.getLongValue("u"));
             
             // 校验序列号连续性
@@ -155,7 +155,7 @@ public class MessageDispatcher {
             
             // 深度数据使用队列聚合
             channelQueues.computeIfAbsent(channel, k -> new ConcurrentLinkedQueue<>()).offer(data);
-            log.info("[WS-LINK] Depth message queued for aggregation, channel={}", channel);
+            log.debug("[WS-LINK] Depth message queued for aggregation, channel={}", channel);
             return;
         }
         
@@ -333,7 +333,7 @@ public class MessageDispatcher {
         
         try {
             session.sendMessage(new TextMessage(json));
-            log.info("[WS-LINK] >>> WebSocket sent (immediate), sessionId={}, size={}bytes", sessionId, json.length());
+            log.debug("[WS-LINK] >>> WebSocket sent (immediate), sessionId={}, size={}bytes", sessionId, json.length());
             
             // 更新统计
             ConnectionMetadata metadata = connectionManager.getMetadata(sessionId);
@@ -434,7 +434,7 @@ public class MessageDispatcher {
             return;
         }
         
-        log.info("[WS-LINK] >>> Broadcasting aggregated depth, channel={}, subscribers={}", channel, subscribers.size());
+        log.debug("[WS-LINK] >>> Broadcasting aggregated depth, channel={}, subscribers={}", channel, subscribers.size());
         
         for (String sessionId : subscribers) {
             WebSocketSession session = connectionManager.getSession(sessionId);

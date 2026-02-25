@@ -119,7 +119,7 @@ public class KafkaConsumerManager {
             lastActivityTime.put(channel, System.currentTimeMillis());
             messageCounters.merge(channel, 1L, Long::sum);
             
-            log.info("[PUSH-LINK] <<< Kafka consumed, channel={}, partition={}, offset={}, size={}bytes",
+            log.debug("[PUSH-LINK] <<< Kafka consumed, channel={}, partition={}, offset={}, size={}bytes",
                 channel, record.partition(), record.offset(), record.value().length());
             
             // 解析消息

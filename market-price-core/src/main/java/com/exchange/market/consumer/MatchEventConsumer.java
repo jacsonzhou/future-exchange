@@ -80,15 +80,15 @@ public class MatchEventConsumer {
         containerFactory = "depthEventKafkaListenerContainerFactory"
     )
     public void onDepthEvent(List<ConsumerRecord<String, String>> records, Acknowledgment ack) {
-        log.info("[Consumer] >>> onDepthEvent called, records size={}", records.size());
+        log.debug("[Consumer] >>> onDepthEvent called, records size={}", records.size());
         try {
             for (ConsumerRecord<String, String> record : records) {
-                log.info("[Consumer] Processing record: topic={}, partition={}, offset={}, value length={}", 
+                log.debug("[Consumer] Processing record: topic={}, partition={}, offset={}, value length={}", 
                     record.topic(), record.partition(), record.offset(), record.value().length());
                 processDepthEvent(record.value());
             }
             ack.acknowledge();
-            log.info("[Consumer] <<< onDepthEvent completed");
+            log.debug("[Consumer] <<< onDepthEvent completed");
         } catch (Exception e) {
             log.error("[Consumer] Failed to process depth events: {}", e.getMessage(), e);
         }
@@ -154,10 +154,10 @@ public class MatchEventConsumer {
      * Match Engine 格式: {"e": "depthUpdate", "s": "BTCUSDT", "U": 1, "u": 2, "b": [...], "a": [...]}
      */
     private void processDepthEvent(String json) {
-        log.info("[Consumer] =====> processDepthEvent called, json length={}", json.length());
+        log.debug("[Consumer] =====> processDepthEvent called, json length={}", json.length());
         try {
             JSONObject event = JSON.parseObject(json);
-            log.info("[Consumer] JSON parsed, e={}", event.getString("e"));
+            log.debug("[Consumer] JSON parsed, e={}", event.getString("e"));
             
             // Match Engine 格式：e = "depthUpdate", s = symbol
             String eventType = event.getString("e");
@@ -213,7 +213,7 @@ public class MatchEventConsumer {
                 return;
             }
             
-            log.info("[Consumer] Process depth event, symbol={}, firstU={}, lastU={}, bids={}, asks={}", 
+            log.debug("[Consumer] Process depth event, symbol={}, firstU={}, lastU={}, bids={}, asks={}", 
                 symbol, firstUpdateId, lastUpdateId, 
                 bids != null ? bids.size() : 0, asks != null ? asks.size() : 0);
             
@@ -225,7 +225,7 @@ public class MatchEventConsumer {
             final List<long[]> finalAsks = asks != null ? asks : new ArrayList<>();
             final boolean finalIsSnapshot = isSnapshot;
             
-            log.info("[Consumer] Calling engineService, isSnapshot={}, bids={}, asks={}", finalIsSnapshot, finalBids.size(), finalAsks.size());
+            log.debug("[Consumer] Calling engineService, isSnapshot={}, bids={}, asks={}", finalIsSnapshot, finalBids.size(), finalAsks.size());
             if (finalIsSnapshot) {
                 // 快照：必须按 Kafka 消费顺序同步处理，避免旧快照覆盖新盘口
                 engineService.rebuildOrderBook(finalSymbol, finalBids, finalAsks, finalSequence, finalTimestamp);
