@@ -251,10 +251,12 @@
             left: 10px;
             z-index: 10;
             display: flex;
+            flex-wrap: wrap;
             gap: 5px;
+            max-width: 72%;
         }
         .kline-toolbar button {
-            padding: 4px 10px;
+            padding: 4px 8px;
             background: #21262d;
             border: 1px solid #30363d;
             color: #c9d1d9;
@@ -499,9 +501,20 @@
                         <div class="kline-container" id="klineContainer">
                             <div class="kline-toolbar">
                                 <button onclick="changeKlineInterval('1m')" class="kline-interval-btn active" data-interval="1m">1m</button>
+                                <button onclick="changeKlineInterval('3m')" class="kline-interval-btn" data-interval="3m">3m</button>
                                 <button onclick="changeKlineInterval('5m')" class="kline-interval-btn" data-interval="5m">5m</button>
                                 <button onclick="changeKlineInterval('15m')" class="kline-interval-btn" data-interval="15m">15m</button>
+                                <button onclick="changeKlineInterval('30m')" class="kline-interval-btn" data-interval="30m">30m</button>
                                 <button onclick="changeKlineInterval('1h')" class="kline-interval-btn" data-interval="1h">1h</button>
+                                <button onclick="changeKlineInterval('2h')" class="kline-interval-btn" data-interval="2h">2h</button>
+                                <button onclick="changeKlineInterval('4h')" class="kline-interval-btn" data-interval="4h">4h</button>
+                                <button onclick="changeKlineInterval('6h')" class="kline-interval-btn" data-interval="6h">6h</button>
+                                <button onclick="changeKlineInterval('8h')" class="kline-interval-btn" data-interval="8h">8h</button>
+                                <button onclick="changeKlineInterval('12h')" class="kline-interval-btn" data-interval="12h">12h</button>
+                                <button onclick="changeKlineInterval('1d')" class="kline-interval-btn" data-interval="1d">1d</button>
+                                <button onclick="changeKlineInterval('3d')" class="kline-interval-btn" data-interval="3d">3d</button>
+                                <button onclick="changeKlineInterval('1w')" class="kline-interval-btn" data-interval="1w">1w</button>
+                                <button onclick="changeKlineInterval('1M')" class="kline-interval-btn" data-interval="1M">1M</button>
                             </div>
                             <div class="kline-price" id="klineCurrentPrice">--</div>
                             <div class="kline-chart" id="klineChart"></div>
@@ -2959,7 +2972,14 @@
         function getKlineIntervalMs(interval) {
             const unit = interval.slice(-1);
             const value = parseInt(interval.slice(0, -1));
-            const multipliers = { 's': 1000, 'm': 60 * 1000, 'h': 60 * 60 * 1000, 'd': 24 * 60 * 60 * 1000 };
+            const multipliers = {
+                's': 1000,
+                'm': 60 * 1000,
+                'h': 60 * 60 * 1000,
+                'd': 24 * 60 * 60 * 1000,
+                'w': 7 * 24 * 60 * 60 * 1000,
+                'M': 30 * 24 * 60 * 60 * 1000
+            };
             return value * (multipliers[unit] || 60000);
         }
         

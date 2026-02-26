@@ -240,11 +240,22 @@ public class BinanceWebSocketClient {
                 if (interval == null || interval.isBlank()) {
                     continue;
                 }
-                streams.add(symbol + "@kline_" + interval.toLowerCase(Locale.ROOT));
+                streams.add(symbol + "@kline_" + normalizeIntervalForStream(interval));
             }
         }
         
         return streams;
+    }
+
+    /**
+     * Binance interval is mostly lowercase, except monthly interval must stay "1M".
+     */
+    private String normalizeIntervalForStream(String interval) {
+        String normalized = interval.trim();
+        if ("1M".equalsIgnoreCase(normalized)) {
+            return "1M";
+        }
+        return normalized.toLowerCase(Locale.ROOT);
     }
 
     /**
