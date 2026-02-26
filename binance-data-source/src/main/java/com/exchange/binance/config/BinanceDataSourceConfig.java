@@ -2,7 +2,6 @@ package com.exchange.binance.config;
 
 import lombok.Data;
 import org.springframework.boot.context.properties.ConfigurationProperties;
-import org.springframework.stereotype.Component;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -13,7 +12,8 @@ import java.util.List;
  * 配置项示例：
  * <pre>
  * binance.datasource:
- *   ws-url: "wss://data-stream.binance.com"
+ *   ws-url: "wss://fstream.binance.com"
+ *   rest-base-url: "https://fapi.binance.com"
  *   symbols:
  *     - BTCUSDT
  *     - ETHUSDT
@@ -27,14 +27,18 @@ import java.util.List;
  * </pre>
  */
 @Data
-@Component
 @ConfigurationProperties(prefix = "binance.datasource")
 public class BinanceDataSourceConfig {
 
     /**
      * WebSocket连接地址
      */
-    private String wsUrl = "wss://data-stream.binance.com";
+    private String wsUrl = "wss://fstream.binance.com";
+
+    /**
+     * REST API基础地址（用于拉取深度快照）
+     */
+    private String restBaseUrl = "https://fapi.binance.com";
 
     /**
      * 数据源标识（用于topic命名和消息source字段）
@@ -84,9 +88,13 @@ public class BinanceDataSourceConfig {
     private boolean klineEnabled = true;
 
     /**
-     * K线周期列表（币安格式：1m/5m/15m/1h/4h/1d）
+     * K线周期列表（币安标准：1m,3m,5m,15m,30m,1h,2h,4h,6h,8h,12h,1d,3d,1w,1M）
      */
-    private List<String> klineIntervals = new ArrayList<>(List.of("1m"));
+    private List<String> klineIntervals = new ArrayList<>(List.of(
+            "1m", "3m", "5m", "15m", "30m",
+            "1h", "2h", "4h", "6h", "8h", "12h",
+            "1d", "3d", "1w", "1M"
+    ));
 
     /**
      * 重连配置

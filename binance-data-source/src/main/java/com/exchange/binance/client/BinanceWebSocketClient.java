@@ -201,7 +201,7 @@ public class BinanceWebSocketClient {
 
     private String normalizeWsBaseUrl(String rawUrl) {
         if (rawUrl == null || rawUrl.isBlank()) {
-            return "wss://data-stream.binance.com";
+            return "wss://fstream.binance.com";
         }
         String url = rawUrl.trim();
         while (url.endsWith("/")) {

@@ -113,6 +113,13 @@
             background: #161b22;
             border-bottom: 1px solid #30363d;
             align-items: center;
+            flex-wrap: wrap;
+        }
+        .interval-group {
+            display: flex;
+            gap: 5px;
+            flex-wrap: wrap;
+            max-width: 62%;
         }
         .chart-toolbar button {
             padding: 4px 12px;
@@ -141,6 +148,13 @@
             font-size: 16px;
             font-weight: 600;
             font-family: 'SF Mono', monospace;
+        }
+        .kline-stats {
+            width: 100%;
+            font-size: 11px;
+            color: #8b949e;
+            font-family: 'SF Mono', monospace;
+            padding-top: 3px;
         }
         .current-price.up { color: #3fb950; }
         .current-price.down { color: #f85149; }
@@ -271,16 +285,12 @@
         <!-- 中间：K线图表 -->
         <div class="panel">
             <div class="chart-toolbar">
-                <button onclick="changeInterval('1m')" class="interval-btn active" data-interval="1m">1m</button>
-                <button onclick="changeInterval('5m')" class="interval-btn" data-interval="5m">5m</button>
-                <button onclick="changeInterval('15m')" class="interval-btn" data-interval="15m">15m</button>
-                <button onclick="changeInterval('1h')" class="interval-btn" data-interval="1h">1h</button>
-                <button onclick="changeInterval('4h')" class="interval-btn" data-interval="4h">4h</button>
-                <button onclick="changeInterval('1d')" class="interval-btn" data-interval="1d">1d</button>
+                <div class="interval-group" id="intervalGroup"></div>
                 <div class="separator"></div>
                 <button onclick="chartType='candlestick'; updateChartType();" class="chart-type-btn active">K线</button>
                 <button onclick="chartType='line'; updateChartType();" class="chart-type-btn">线形</button>
                 <div class="current-price" id="currentPrice">--</div>
+                <div class="kline-stats" id="klineStats">O: -- H: -- L: -- C: -- V: -- Q: --</div>
             </div>
             <div class="chart-container" id="chartContainer">
                 <div class="loading">
@@ -334,7 +344,14 @@
             MARKET_PRICE_API: 'http://localhost:8095',  // market-price-core API
             PUBLIC_PUSH_WS: 'ws://localhost:8096/ws/market',
             SYMBOL: 'BTCUSDT',
-            DEFAULT_INTERVAL: '1m'
+            DEFAULT_INTERVAL: '1m',
+            USE_EXTERNAL_FEED: true,
+            EXTERNAL_SOURCE: 'binance',
+            KLINE_INTERVALS: [
+                '1m', '3m', '5m', '15m', '30m',
+                '1h', '2h', '4h', '6h', '8h', '12h',
+                '1d', '3d', '1w', '1M'
+            ]
         };
 
         // ==================== 状态 ====================
@@ -355,9 +372,23 @@
 
         // ==================== 初始化 ====================
         document.addEventListener('DOMContentLoaded', () => {
+            renderIntervalButtons();
             initChart();
             connectWebSocket();
         });
+
+        function renderIntervalButtons() {
+            const group = document.getElementById('intervalGroup');
+            group.innerHTML = '';
+            CONFIG.KLINE_INTERVALS.forEach(interval => {
+                const button = document.createElement('button');
+                button.textContent = interval;
+                button.className = 'interval-btn' + (interval === state.currentInterval ? ' active' : '');
+                button.dataset.interval = interval;
+                button.onclick = () => changeInterval(interval);
+                group.appendChild(button);
+            });
+        }
 
         // ==================== 图表初始化 ====================
         function initChart() {
@@ -509,7 +540,12 @@
                 state.klineData.set(interval, candleData);
                 
                 const lastCandle = candleData[candleData.length - 1];
+                const lastRaw = klines[klines.length - 1];
                 updateCurrentPrice(lastCandle.close, lastCandle.close);
+                document.getElementById('klineStats').textContent =
+                    `O: ${lastCandle.open.toFixed(2)} H: ${lastCandle.high.toFixed(2)} ` +
+                    `L: ${lastCandle.low.toFixed(2)} C: ${lastCandle.close.toFixed(2)} ` +
+                    `V: ${formatQty(lastRaw[5] || 0).toFixed(4)} Q: ${formatMoney(lastRaw[7] || 0)}`;
                 
                 console.log(`[Kline] 已加载 ${klines.length} 根真实K线数据`);
                 
@@ -527,6 +563,7 @@
             if (state.volumeSeries) {
                 state.volumeSeries.setData([]);
             }
+            document.getElementById('klineStats').textContent = 'O: -- H: -- L: -- C: -- V: -- Q: --';
         }
         
         // 兼容旧函数名
@@ -573,14 +610,42 @@
             }
         }
 
+        function klineChannel(interval) {
+            if (CONFIG.USE_EXTERNAL_FEED) {
+                return `kline.ext.${CONFIG.EXTERNAL_SOURCE}.${CONFIG.SYMBOL}.${interval}`;
+            }
+            return `kline.${CONFIG.SYMBOL}.${interval}`;
+        }
+
+        function depthChannel() {
+            if (CONFIG.USE_EXTERNAL_FEED) {
+                return `depth.ext.${CONFIG.EXTERNAL_SOURCE}.${CONFIG.SYMBOL}`;
+            }
+            return `depth.${CONFIG.SYMBOL}`;
+        }
+
+        function tradeChannel() {
+            if (CONFIG.USE_EXTERNAL_FEED) {
+                return `trade.ext.${CONFIG.EXTERNAL_SOURCE}.${CONFIG.SYMBOL}`;
+            }
+            return `trade.${CONFIG.SYMBOL}`;
+        }
+
+        function tickerChannel() {
+            if (CONFIG.USE_EXTERNAL_FEED) {
+                return `ticker.ext.${CONFIG.EXTERNAL_SOURCE}.${CONFIG.SYMBOL}`;
+            }
+            return `ticker.${CONFIG.SYMBOL}`;
+        }
+
         function subscribeChannels() {
             if (!state.ws || state.ws.readyState !== WebSocket.OPEN) return;
             
             const channels = [
-                `kline.${CONFIG.SYMBOL}.${state.currentInterval}`,
-                `depth.${CONFIG.SYMBOL}`,
-                `trade.${CONFIG.SYMBOL}`,
-                `ticker.${CONFIG.SYMBOL}`
+                klineChannel(state.currentInterval),
+                depthChannel(),
+                tradeChannel(),
+                tickerChannel()
             ];
             
             state.ws.send(JSON.stringify({
@@ -622,27 +687,48 @@
             if (!data.k) return;
             
             const k = data.k;
+            const open = formatPrice(k.o);
+            const high = formatPrice(k.h);
+            const low = formatPrice(k.l);
+            const close = formatPrice(k.c);
+            const baseVolume = formatQty(k.v);
+            const quoteVolume = formatMoney(k.q || 0);
             const candle = {
                 time: Math.floor(k.t / 1000),
-                open: formatPrice(k.o),
-                high: formatPrice(k.h),
-                low: formatPrice(k.l),
-                close: formatPrice(k.c)
+                open: open,
+                high: high,
+                low: low,
+                close: close
             };
             
             const volume = {
                 time: Math.floor(k.t / 1000),
-                value: formatQty(k.v),
-                color: k.c >= k.o ? 'rgba(63, 185, 80, 0.5)' : 'rgba(248, 81, 73, 0.5)'
+                value: baseVolume,
+                color: close >= open ? 'rgba(63, 185, 80, 0.5)' : 'rgba(248, 81, 73, 0.5)'
             };
             
             // 更新图表
             state.candlestickSeries.update(candle);
             state.volumeSeries.update(volume);
+
+            const current = state.klineData.get(state.currentInterval) || [];
+            const last = current[current.length - 1];
+            if (!last || last.time !== candle.time) {
+                current.push(candle);
+            } else {
+                current[current.length - 1] = candle;
+            }
+            if (current.length > 1500) {
+                current.shift();
+            }
+            state.klineData.set(state.currentInterval, current);
             
             // 更新当前价格
             updateCurrentPrice(candle.close, state.lastPrice || candle.open);
             state.lastPrice = candle.close;
+            document.getElementById('klineStats').textContent =
+                `O: ${open.toFixed(2)} H: ${high.toFixed(2)} L: ${low.toFixed(2)} ` +
+                `C: ${close.toFixed(2)} V: ${baseVolume.toFixed(4)} Q: ${quoteVolume}`;
             
             // 更新时间
             document.getElementById('lastUpdate').textContent = 
@@ -813,6 +899,8 @@
 
         // ==================== 工具函数 ====================
         function changeInterval(interval) {
+            const previousInterval = state.currentInterval;
+
             // 更新按钮状态
             document.querySelectorAll('.interval-btn').forEach(btn => {
                 btn.classList.toggle('active', btn.dataset.interval === interval);
@@ -825,14 +913,14 @@
                 // 取消旧订阅
                 state.ws.send(JSON.stringify({
                     method: 'UNSUBSCRIBE',
-                    params: [`kline.${CONFIG.SYMBOL}.${state.currentInterval}`],
+                    params: [klineChannel(previousInterval)],
                     id: Date.now()
                 }));
                 
                 // 订阅新周期
                 state.ws.send(JSON.stringify({
                     method: 'SUBSCRIBE',
-                    params: [`kline.${CONFIG.SYMBOL}.${interval}`],
+                    params: [klineChannel(interval)],
                     id: Date.now()
                 }));
             }
@@ -869,7 +957,14 @@
         function getIntervalMs(interval) {
             const unit = interval.slice(-1);
             const value = parseInt(interval.slice(0, -1));
-            const multipliers = { 's': 1000, 'm': 60 * 1000, 'h': 60 * 60 * 1000, 'd': 24 * 60 * 60 * 1000 };
+            const multipliers = {
+                's': 1000,
+                'm': 60 * 1000,
+                'h': 60 * 60 * 1000,
+                'd': 24 * 60 * 60 * 1000,
+                'w': 7 * 24 * 60 * 60 * 1000,
+                'M': 30 * 24 * 60 * 60 * 1000
+            };
             return value * (multipliers[unit] || 60000);
         }
 

@@ -131,6 +131,14 @@ Push:
 }
 ```
 
+### 4.4 Kline Interval Standard
+
+K 线周期遵循 Binance Futures 标准集合：
+
+- `1m`, `3m`, `5m`, `15m`, `30m`
+- `1h`, `2h`, `4h`, `6h`, `8h`, `12h`
+- `1d`, `3d`, `1w`, `1M`
+
 ## 5. Snapshot Key Spec
 
 ### 5.1 Internal

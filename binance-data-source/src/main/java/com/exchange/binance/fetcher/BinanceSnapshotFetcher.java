@@ -3,8 +3,10 @@ package com.exchange.binance.fetcher;
 import com.alibaba.fastjson2.JSON;
 import com.alibaba.fastjson2.JSONArray;
 import com.alibaba.fastjson2.JSONObject;
+import com.exchange.binance.config.BinanceDataSourceConfig;
 import lombok.Getter;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
 import java.math.BigDecimal;
@@ -32,22 +34,20 @@ import java.util.List;
  *   - limit=5000: 权重50
  * - 默认限制：1200请求权重/分钟
  *
- * API文档：
- * https://binance-docs.github.io/apidocs/spot/en/#order-book
+ * API文档（U本位合约）：
+ * https://developers.binance.com/docs/derivatives/usds-margined-futures/market-data/rest-api/Order-Book
  */
 @Slf4j
 @Component
 public class BinanceSnapshotFetcher {
 
+    @Autowired
+    private BinanceDataSourceConfig config;
+
     private final HttpClient httpClient;
 
-    // 币安REST API地址
-    private static final String SNAPSHOT_URL_TEMPLATE =
-            "https://api.binance.com/api/v3/depth?symbol=%s&limit=%d";
-
-    // 备用地址（中国大陆可能需要）
-    private static final String SNAPSHOT_URL_TEMPLATE_CN =
-            "https://api.binance.com/api/v3/depth?symbol=%s&limit=%d";
+    // U本位合约深度快照路径
+    private static final String SNAPSHOT_PATH = "/fapi/v1/depth";
 
     // 金额精度：8位小数
     private static final int PRICE_SCALE = 8;
@@ -86,7 +86,9 @@ public class BinanceSnapshotFetcher {
                 limit = 1000;
             }
 
-            String url = String.format(SNAPSHOT_URL_TEMPLATE, symbol.toUpperCase(), limit);
+            String baseUrl = resolveRestBaseUrl();
+            String url = String.format("%s%s?symbol=%s&limit=%d",
+                    baseUrl, SNAPSHOT_PATH, symbol.toUpperCase(), limit);
 
             log.debug("[SnapshotFetcher] Fetching snapshot for {}: url={}", symbol, url);
 
@@ -140,6 +142,18 @@ public class BinanceSnapshotFetcher {
                     symbol, e.getMessage(), latency);
             return null;
         }
+    }
+
+    private String resolveRestBaseUrl() {
+        String raw = config != null ? config.getRestBaseUrl() : null;
+        if (raw == null || raw.isBlank()) {
+            return "https://fapi.binance.com";
+        }
+        String trimmed = raw.trim();
+        while (trimmed.endsWith("/")) {
+            trimmed = trimmed.substring(0, trimmed.length() - 1);
+        }
+        return trimmed;
     }
 
     /**

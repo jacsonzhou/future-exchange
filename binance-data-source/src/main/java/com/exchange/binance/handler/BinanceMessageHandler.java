@@ -11,6 +11,7 @@ import com.exchange.binance.model.BinanceTrade;
 import com.exchange.binance.publisher.BinanceDataPublisher;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.context.annotation.Lazy;
 import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Component;
 
@@ -56,6 +57,7 @@ public class BinanceMessageHandler {
     private BinanceDataSourceConfig config;
 
     @Autowired(required = false)
+    @Lazy
     private BinanceMetricsCollector metricsCollector;
 
     // 每个symbol一个OrderBookManager
@@ -177,8 +179,14 @@ public class BinanceMessageHandler {
 
             // 仅在ACTIVE状态发布数据
             if (manager.getStatus() == OrderBookManager.OrderBookStatus.ACTIVE) {
+                // 对外发布使用“本地重建后的完整前N档”，而不是原始增量，
+                // 便于 public-push/前端直接展示稳定盘口快照。
+                OrderBookManager.Snapshot snapshot = manager.getSnapshot(config.getDepthLevels());
+                List<long[]> topBids = snapshot.getBids();
+                List<long[]> topAsks = snapshot.getAsks();
+
                 // 价格合理性检查
-                if (!validatePrices(symbol, bids, asks)) {
+                if (!validatePrices(symbol, topBids, topAsks)) {
                     log.warn("[BinanceHandler] Price validation failed for {}, skip publishing", symbol);
                     return;
                 }
@@ -188,8 +196,8 @@ public class BinanceMessageHandler {
                         .eventTime(eventTime)
                         .firstUpdateId(firstUpdateId)
                         .lastUpdateId(lastUpdateId)
-                        .bids(bids)
-                        .asks(asks)
+                        .bids(topBids)
+                        .asks(topAsks)
                         .build();
 
                 publisher.publishDepth(depth);
