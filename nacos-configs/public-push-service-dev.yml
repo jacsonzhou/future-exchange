@@ -106,6 +106,10 @@ public-push:
       ticker-all: "market.ticker.all"
       mark-price: "market.markprice.{symbol}"
       mark-price-all: "market.markprice.all"
+      ext-trade: "market.ext.{source}.trade.{symbol}"
+      ext-depth: "market.ext.{source}.depth.{symbol}"
+      ext-kline: "market.ext.{source}.kline.{symbol}.{interval}"
+      ext-ticker: "market.ext.{source}.ticker.{symbol}"
 
 # Logging配置
 logging:

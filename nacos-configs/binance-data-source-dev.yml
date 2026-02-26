@@ -27,7 +27,10 @@ spring:
 binance:
   datasource:
     # WebSocket连接地址
-    ws-url: wss://data-stream.binance.com/ws
+    ws-url: wss://data-stream.binance.com
+
+    # 数据源标识（用于外部行情通道命名）
+    source: binance
     
     # 订阅的交易对列表
     symbols:
@@ -54,6 +57,15 @@ binance:
     
     # 是否启用Ticker
     ticker-enabled: true
+
+    # 是否启用K线
+    kline-enabled: true
+
+    # 订阅K线周期
+    kline-intervals:
+      - 1m
+      - 5m
+      - 15m
     
     # 重连配置
     reconnect:
@@ -66,16 +78,17 @@ binance:
     heartbeat:
       enabled: true
       interval-sec: 30
-      timeout-sec: 10
+      timeout-sec: 90
     
     # Kafka输出配置
     kafka:
       enabled: true
-      topic-prefix: market
-      depth-topic-format: "market.depth.%s"
-      trade-topic-format: "market.trade.%s"
-      agg-trade-topic-format: "market.aggtrade.%s"
-      ticker-topic-format: "market.ticker.%s"
+      topic-prefix: market.ext
+      depth-topic-format: "market.ext.%s.depth.%s"
+      trade-topic-format: "market.ext.%s.trade.%s"
+      agg-trade-topic-format: "market.ext.%s.aggtrade.%s"
+      ticker-topic-format: "market.ext.%s.ticker.%s"
+      kline-topic-format: "market.ext.%s.kline.%s.%s"
 
 # Logging配置
 logging:

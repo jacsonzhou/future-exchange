@@ -18,6 +18,7 @@ import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 
 /**
@@ -61,6 +62,9 @@ public class BinanceMessageHandler {
     private final ConcurrentHashMap<String, OrderBookManager> orderBookManagers =
             new ConcurrentHashMap<>();
 
+    // 防重入重建控制：每个symbol同一时刻只允许一个重建任务
+    private final Set<String> rebuildingSymbols = ConcurrentHashMap.newKeySet();
+
     // 金额精度：8位小数
     private static final int PRICE_SCALE = 8;
     private static final long PRICE_MULTIPLIER = 100_000_000L;
@@ -101,6 +105,8 @@ public class BinanceMessageHandler {
                     handleAggTrade(data);
                 } else if (stream.contains("@ticker")) {
                     handleTicker(data);
+                } else if (stream.contains("@kline_")) {
+                    handleKline(data);
                 }
             }
             return;
@@ -118,6 +124,9 @@ public class BinanceMessageHandler {
                 break;
             case "24hrTicker":
                 handleTicker(message);
+                break;
+            case "kline":
+                handleKline(message);
                 break;
             case "bookTicker":
                 handleBookTicker(message);
@@ -162,10 +171,7 @@ public class BinanceMessageHandler {
             boolean success = manager.onDepthUpdate(firstUpdateId, lastUpdateId, bids, asks);
 
             if (!success) {
-                // 需要重建订单簿
-                log.warn("[BinanceHandler] OrderBook rebuild triggered for {}: U={}, u={}, last={}",
-                        symbol, firstUpdateId, lastUpdateId, manager.getLastUpdateId());
-                rebuildOrderBookAsync(manager);
+                triggerRebuildIfNeeded(manager, firstUpdateId, lastUpdateId);
                 return;
             }
 
@@ -208,6 +214,20 @@ public class BinanceMessageHandler {
         }
     }
 
+    private void triggerRebuildIfNeeded(OrderBookManager manager, long firstUpdateId, long lastUpdateId) {
+        String symbol = manager.getSymbol();
+        if (!rebuildingSymbols.add(symbol)) {
+            log.debug("[BinanceHandler] Rebuild already in progress for {}, skip duplicate trigger", symbol);
+            return;
+        }
+
+        // 切换到 REBUILDING，后续增量进入缓冲区，避免快照窗口内消息丢失。
+        manager.markRebuilding();
+        log.warn("[BinanceHandler] OrderBook rebuild triggered for {}: U={}, u={}, last={}",
+                symbol, firstUpdateId, lastUpdateId, manager.getLastUpdateId());
+        rebuildOrderBookAsync(manager);
+    }
+
     /**
      * 重建订单簿（异步执行，避免阻塞WebSocket线程）
      */
@@ -225,7 +245,7 @@ public class BinanceMessageHandler {
             if (snapshot == null) {
                 log.error("[BinanceHandler] ❌ Failed to fetch snapshot for {}, will retry on next gap",
                         symbol);
-                // TODO: 可以调度延迟重试
+                manager.reset();
                 return;
             }
 
@@ -241,6 +261,9 @@ public class BinanceMessageHandler {
 
         } catch (Exception e) {
             log.error("[BinanceHandler] Error rebuilding orderbook for {}: {}", symbol, e.getMessage(), e);
+            manager.reset();
+        } finally {
+            rebuildingSymbols.remove(symbol);
         }
     }
 
@@ -421,6 +444,29 @@ public class BinanceMessageHandler {
 
         } catch (Exception e) {
             log.error("[BinanceHandler] Failed to handle ticker: {}", message, e);
+        }
+    }
+
+    /**
+     * 处理K线事件
+     */
+    private void handleKline(JSONObject message) {
+        try {
+            String symbol = message.getString("s");
+            long eventTime = message.getLongValue("E");
+            JSONObject kline = message.getJSONObject("k");
+            if (symbol == null || symbol.isBlank() || kline == null) {
+                return;
+            }
+
+            String interval = kline.getString("i");
+            if (interval == null || interval.isBlank()) {
+                return;
+            }
+
+            publisher.publishKline(symbol, interval, eventTime, kline);
+        } catch (Exception e) {
+            log.error("[BinanceHandler] Failed to handle kline: {}", message, e);
         }
     }
 

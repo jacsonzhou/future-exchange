@@ -97,6 +97,10 @@ public class PublicPushProperties {
             private String tickerAll = "market.ticker.all";
             private String markPrice = "market.markprice.{symbol}";
             private String markPriceAll = "market.markprice.all";
+            private String extTrade = "market.ext.{source}.trade.{symbol}";
+            private String extDepth = "market.ext.{source}.depth.{symbol}";
+            private String extKline = "market.ext.{source}.kline.{symbol}.{interval}";
+            private String extTicker = "market.ext.{source}.ticker.{symbol}";
         }
     }
 }

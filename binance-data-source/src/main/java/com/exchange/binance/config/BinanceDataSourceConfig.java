@@ -13,10 +13,11 @@ import java.util.List;
  * 配置项示例：
  * <pre>
  * binance.datasource:
- *   ws-url: "wss://data-stream.binance.com/ws"
+ *   ws-url: "wss://data-stream.binance.com"
  *   symbols:
  *     - BTCUSDT
  *     - ETHUSDT
+ *   source: "binance"
  *   depth-levels: 20
  *   batch-window-ms: 100
  *   reconnect:
@@ -33,7 +34,12 @@ public class BinanceDataSourceConfig {
     /**
      * WebSocket连接地址
      */
-    private String wsUrl = "wss://data-stream.binance.com/ws";
+    private String wsUrl = "wss://data-stream.binance.com";
+
+    /**
+     * 数据源标识（用于topic命名和消息source字段）
+     */
+    private String source = "binance";
 
     /**
      * 订阅的交易对列表
@@ -71,6 +77,16 @@ public class BinanceDataSourceConfig {
      * 是否启用Ticker
      */
     private boolean tickerEnabled = true;
+
+    /**
+     * 是否启用K线数据
+     */
+    private boolean klineEnabled = true;
+
+    /**
+     * K线周期列表（币安格式：1m/5m/15m/1h/4h/1d）
+     */
+    private List<String> klineIntervals = new ArrayList<>(List.of("1m"));
 
     /**
      * 重连配置
@@ -143,21 +159,26 @@ public class BinanceDataSourceConfig {
         /**
          * 深度Topic格式: {prefix}.depth.{symbol}
          */
-        private String depthTopicFormat = "market.depth.%s";
+        private String depthTopicFormat = "market.ext.%s.depth.%s";
 
         /**
          * 成交Topic格式: {prefix}.trade.{symbol}
          */
-        private String tradeTopicFormat = "market.trade.%s";
+        private String tradeTopicFormat = "market.ext.%s.trade.%s";
 
         /**
          * 聚合成交Topic格式
          */
-        private String aggTradeTopicFormat = "market.aggtrade.%s";
+        private String aggTradeTopicFormat = "market.ext.%s.aggtrade.%s";
 
         /**
          * Ticker Topic格式
          */
-        private String tickerTopicFormat = "market.ticker.%s";
+        private String tickerTopicFormat = "market.ext.%s.ticker.%s";
+
+        /**
+         * Kline Topic格式
+         */
+        private String klineTopicFormat = "market.ext.%s.kline.%s.%s";
     }
 }

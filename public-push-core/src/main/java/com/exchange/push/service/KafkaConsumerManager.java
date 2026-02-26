@@ -160,6 +160,8 @@ public class KafkaConsumerManager {
             case TRADE:
             case AGG_TRADE:
             case TICKER:
+            case EXT_TRADE:
+            case EXT_TICKER:
             case MARK_PRICE:
                 // 需要交易对字段
                 if (!message.containsKey("s")) {
@@ -167,12 +169,14 @@ public class KafkaConsumerManager {
                 }
                 break;
             case DEPTH:
+            case EXT_DEPTH:
                 // 深度消息需要序列号字段
                 if (!message.containsKey("U") || !message.containsKey("u")) {
                     return false;
                 }
                 break;
             case KLINE:
+            case EXT_KLINE:
                 // K线消息需要k字段
                 if (!message.containsKey("k")) {
                     return false;
@@ -191,15 +195,53 @@ public class KafkaConsumerManager {
      */
     private String channelToTopic(String channel) {
         PublicPushProperties.KafkaConfig.TopicConfig topicConfig = properties.getKafka().getTopics();
-        
-        if (channel.startsWith("trade.")) {
+
+        if (channel.startsWith("trade.ext.")) {
+            String[] parts = channel.split("\\.");
+            if (parts.length >= 4) {
+                String source = parts[2];
+                String symbol = parts[3];
+                return topicConfig.getExtTrade()
+                        .replace("{source}", source)
+                        .replace("{symbol}", symbol);
+            }
+        } else if (channel.startsWith("depth.ext.")) {
+            String[] parts = channel.split("\\.");
+            if (parts.length >= 4) {
+                String source = parts[2];
+                String symbol = stripSpeedSuffix(parts[3]);
+                return topicConfig.getExtDepth()
+                        .replace("{source}", source)
+                        .replace("{symbol}", symbol);
+            }
+        } else if (channel.startsWith("kline.ext.")) {
+            String[] parts = channel.split("\\.");
+            if (parts.length >= 5) {
+                String source = parts[2];
+                String symbol = parts[3];
+                String interval = parts[4];
+                return topicConfig.getExtKline()
+                        .replace("{source}", source)
+                        .replace("{symbol}", symbol)
+                        .replace("{interval}", interval);
+            }
+        } else if (channel.startsWith("ticker.ext.")) {
+            String[] parts = channel.split("\\.");
+            if (parts.length >= 4) {
+                String source = parts[2];
+                String symbol = parts[3];
+                return topicConfig.getExtTicker()
+                        .replace("{source}", source)
+                        .replace("{symbol}", symbol);
+            }
+        } else if (channel.startsWith("trade.")) {
             String symbol = channel.substring(6);
             return topicConfig.getTrade().replace("{symbol}", symbol);
         } else if (channel.startsWith("aggTrade.")) {
             String symbol = channel.substring(9);
             return topicConfig.getAggTrade().replace("{symbol}", symbol);
         } else if (channel.startsWith("depth.")) {
-            String symbol = channel.substring(6).replace("@100ms", "").replace("@500ms", "");
+            String symbol = stripSpeedSuffix(channel.substring(6));
             return topicConfig.getDepth().replace("{symbol}", symbol);
         } else if (channel.startsWith("kline.")) {
             // kline.{symbol}.{interval} -> market.kline.{symbol}.{interval}
@@ -227,6 +269,13 @@ public class KafkaConsumerManager {
         
         // 默认：使用频道名作为Topic后缀
         return "market." + channel;
+    }
+
+    private String stripSpeedSuffix(String symbolToken) {
+        if (symbolToken == null || symbolToken.isBlank()) {
+            return symbolToken;
+        }
+        return symbolToken.replaceAll("@\\d+ms$", "");
     }
 
     /**

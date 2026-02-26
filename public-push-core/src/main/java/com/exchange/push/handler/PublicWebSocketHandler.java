@@ -23,6 +23,7 @@ import java.util.Set;
  * 
  * 协议：
  * - 订阅: {"method": "SUBSCRIBE", "params": ["trade.BTCUSDT", "depth.BTCUSDT@100ms"], "id": 1}
+ * - 外部行情订阅: {"method": "SUBSCRIBE", "params": ["depth.ext.binance.BTCUSDT", "kline.ext.binance.BTCUSDT.1m"], "id": 2}
  * - 取消订阅: {"method": "UNSUBSCRIBE", "params": ["depth.BTCUSDT@100ms"], "id": 2}
  * - 心跳: {"ping": 1704067200123}
  * - 心跳响应: {"pong": 1704067200123}

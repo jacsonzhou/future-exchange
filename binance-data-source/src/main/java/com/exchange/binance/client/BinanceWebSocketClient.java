@@ -14,8 +14,11 @@ import jakarta.annotation.PreDestroy;
 import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.WebSocket;
+import java.nio.ByteBuffer;
+import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.List;
+import java.util.Locale;
 import java.util.concurrent.CompletionStage;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
@@ -64,8 +67,6 @@ public class BinanceWebSocketClient {
     private final AtomicLong connectTime = new AtomicLong(0);
 
     private static final int MAX_STREAMS_PER_CONNECTION = 100;
-    private static final long PONG_TIMEOUT_MS = 10000;
-
     @PostConstruct
     public void init() {
         httpClient = HttpClient.newBuilder()
@@ -176,14 +177,37 @@ public class BinanceWebSocketClient {
                 .flatMap(symbol -> buildStreamsForSymbol(symbol.toLowerCase()).stream())
                 .collect(Collectors.toList());
 
+        String baseUrl = normalizeWsBaseUrl(config.getWsUrl());
+
         if (streams.size() <= MAX_STREAMS_PER_CONNECTION) {
-            // 使用combined stream（更高效）
+            // 使用combined stream（更高效）: {base}/stream?streams=...
             String streamParam = String.join("/", streams);
-            return config.getWsUrl() + "/stream?streams=" + streamParam;
+            String streamBase = baseUrl.endsWith("/ws")
+                    ? baseUrl.substring(0, baseUrl.length() - 3)
+                    : baseUrl;
+            return streamBase + "/stream?streams=" + streamParam;
         } else {
-            // 使用单连接，通过消息订阅
-            return config.getWsUrl() + "/ws";
+            // 使用单连接，通过消息订阅: {base}/ws
+            if (baseUrl.endsWith("/ws")) {
+                return baseUrl;
+            }
+            if (baseUrl.contains("/stream")) {
+                int idx = baseUrl.indexOf("/stream");
+                baseUrl = baseUrl.substring(0, idx);
+            }
+            return baseUrl + "/ws";
         }
+    }
+
+    private String normalizeWsBaseUrl(String rawUrl) {
+        if (rawUrl == null || rawUrl.isBlank()) {
+            return "wss://data-stream.binance.com";
+        }
+        String url = rawUrl.trim();
+        while (url.endsWith("/")) {
+            url = url.substring(0, url.length() - 1);
+        }
+        return url;
     }
 
     /**
@@ -208,6 +232,16 @@ public class BinanceWebSocketClient {
         // Ticker
         if (config.isTickerEnabled()) {
             streams.add(symbol + "@ticker");
+        }
+
+        // Kline
+        if (config.isKlineEnabled()) {
+            for (String interval : config.getKlineIntervals()) {
+                if (interval == null || interval.isBlank()) {
+                    continue;
+                }
+                streams.add(symbol + "@kline_" + interval.toLowerCase(Locale.ROOT));
+            }
         }
         
         return streams;
@@ -256,9 +290,7 @@ public class BinanceWebSocketClient {
      */
     private void sendPing() {
         if (webSocket != null && connected) {
-            JSONObject ping = new JSONObject();
-            ping.put("ping", System.currentTimeMillis());
-            sendMessage(ping.toJSONString());
+            webSocket.sendPing(ByteBuffer.wrap("hb".getBytes(StandardCharsets.UTF_8)));
         }
     }
 
@@ -267,6 +299,7 @@ public class BinanceWebSocketClient {
      */
     private void startHeartbeat() {
         int interval = config.getHeartbeat().getIntervalSec();
+        long timeoutMs = Math.max(1000L, config.getHeartbeat().getTimeoutSec() * 1000L);
         
         heartbeatScheduler.scheduleAtFixedRate(() -> {
             if (!connected) {
@@ -277,8 +310,8 @@ public class BinanceWebSocketClient {
             long lastPong = lastPongTime.get();
             long now = System.currentTimeMillis();
             
-            if (now - lastPong > PONG_TIMEOUT_MS) {
-                log.warn("[BinanceWS] Heartbeat timeout, reconnecting...");
+            if (now - lastPong > timeoutMs) {
+                log.warn("[BinanceWS] Heartbeat timeout ({}ms), reconnecting...", timeoutMs);
                 disconnect();
                 scheduleReconnect();
                 return;
@@ -289,7 +322,7 @@ public class BinanceWebSocketClient {
             
         }, interval, interval, TimeUnit.SECONDS);
         
-        log.info("[BinanceWS] Heartbeat started, interval={}s", interval);
+        log.info("[BinanceWS] Heartbeat started, interval={}s, timeout={}ms", interval, timeoutMs);
     }
 
     /**
@@ -364,6 +397,7 @@ public class BinanceWebSocketClient {
                 messageBuffer.setLength(0);
                 
                 messagesReceived.incrementAndGet();
+                lastPongTime.set(System.currentTimeMillis());
                 
                 try {
                     handleMessage(message);
@@ -373,6 +407,12 @@ public class BinanceWebSocketClient {
             }
             
             return WebSocket.Listener.super.onText(webSocket, data, last);
+        }
+
+        @Override
+        public CompletionStage<?> onPong(WebSocket webSocket, ByteBuffer message) {
+            lastPongTime.set(System.currentTimeMillis());
+            return WebSocket.Listener.super.onPong(webSocket, message);
         }
 
         @Override

@@ -58,7 +58,7 @@ public class KafkaConfig {
      */
     @Bean
     public NewTopic binanceDepthTopic() {
-        return TopicBuilder.name("market.depth.BTCUSDT")
+        return TopicBuilder.name("market.ext.binance.depth.BTCUSDT")
                 .partitions(1)
                 .replicas(1)
                 .build();
@@ -66,7 +66,7 @@ public class KafkaConfig {
 
     @Bean
     public NewTopic binanceTradeTopic() {
-        return TopicBuilder.name("market.trade.BTCUSDT")
+        return TopicBuilder.name("market.ext.binance.trade.BTCUSDT")
                 .partitions(1)
                 .replicas(1)
                 .build();
@@ -74,7 +74,15 @@ public class KafkaConfig {
 
     @Bean
     public NewTopic binanceTickerTopic() {
-        return TopicBuilder.name("market.ticker.BTCUSDT")
+        return TopicBuilder.name("market.ext.binance.ticker.BTCUSDT")
+                .partitions(1)
+                .replicas(1)
+                .build();
+    }
+
+    @Bean
+    public NewTopic binanceKlineTopic() {
+        return TopicBuilder.name("market.ext.binance.kline.BTCUSDT.1m")
                 .partitions(1)
                 .replicas(1)
                 .build();

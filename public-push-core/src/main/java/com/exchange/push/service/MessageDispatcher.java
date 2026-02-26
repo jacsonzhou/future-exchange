@@ -151,7 +151,7 @@ public class MessageDispatcher {
         
         // 对于深度消息，校验序列号连续性
         ChannelType channelType = ChannelType.fromChannel(channel);
-        if (channelType == ChannelType.DEPTH) {
+        if (channelType == ChannelType.DEPTH || channelType == ChannelType.EXT_DEPTH) {
             log.debug("[WS-LINK] Processing depth message, channel={}, U={}, u={}", 
                 channel, data.getLongValue("U"), data.getLongValue("u"));
             
@@ -287,15 +287,19 @@ public class MessageDispatcher {
             
             switch (channelType) {
                 case DEPTH:
+                case EXT_DEPTH:
                     snapshot = fetchDepthSnapshot(channel);
                     break;
                 case TICKER:
+                case EXT_TICKER:
                     snapshot = fetchTickerSnapshot(channel);
                     break;
                 case TRADE:
+                case EXT_TRADE:
                     snapshot = fetchTradeSnapshot(channel);
                     break;
                 case KLINE:
+                case EXT_KLINE:
                     snapshot = fetchKlineSnapshot(channel);
                     break;
                 default:
@@ -499,24 +503,48 @@ public class MessageDispatcher {
     // ========== 快照获取方法 ==========
 
     private JSONObject fetchDepthSnapshot(String channel) {
-        String symbol = extractSymbol(channel);
-        String key = "market:snapshot:depth:" + symbol;
+        ExternalChannel ext = parseExternalChannel(channel);
+        String key;
+        if (ext != null && "depth".equals(ext.type())) {
+            key = "market:snapshot:depth:ext:" + ext.source() + ":" + ext.symbol();
+        } else {
+            String symbol = extractSymbol(channel);
+            key = "market:snapshot:depth:" + symbol;
+        }
         return fetchSnapshotFromRedis(key);
     }
 
     private JSONObject fetchTickerSnapshot(String channel) {
-        String symbol = extractSymbol(channel);
-        String key = "market:snapshot:ticker:" + symbol;
+        ExternalChannel ext = parseExternalChannel(channel);
+        String key;
+        if (ext != null && "ticker".equals(ext.type())) {
+            key = "market:snapshot:ticker:ext:" + ext.source() + ":" + ext.symbol();
+        } else {
+            String symbol = extractSymbol(channel);
+            key = "market:snapshot:ticker:" + symbol;
+        }
         return fetchSnapshotFromRedis(key);
     }
 
     private JSONObject fetchTradeSnapshot(String channel) {
-        String symbol = extractSymbol(channel);
-        String key = "market:snapshot:trade:" + symbol;
+        ExternalChannel ext = parseExternalChannel(channel);
+        String key;
+        if (ext != null && "trade".equals(ext.type())) {
+            key = "market:snapshot:trade:ext:" + ext.source() + ":" + ext.symbol();
+        } else {
+            String symbol = extractSymbol(channel);
+            key = "market:snapshot:trade:" + symbol;
+        }
         return fetchSnapshotFromRedis(key);
     }
 
     private JSONObject fetchKlineSnapshot(String channel) {
+        ExternalChannel ext = parseExternalChannel(channel);
+        if (ext != null && "kline".equals(ext.type()) && ext.interval() != null) {
+            String key = "market:snapshot:kline:ext:" + ext.source() + ":" + ext.symbol() + ":" + ext.interval();
+            return fetchSnapshotFromRedis(key);
+        }
+
         // 兼容两种格式：
         // 1) kline.{symbol}.{interval}（当前前端使用）
         // 2) kline.{interval}.{symbol}（历史格式）
@@ -595,6 +623,11 @@ public class MessageDispatcher {
     }
 
     private String extractSymbol(String channel) {
+        ExternalChannel ext = parseExternalChannel(channel);
+        if (ext != null) {
+            return ext.symbol();
+        }
+
         // depth.BTCUSDT@100ms -> BTCUSDT
         // ticker.BTCUSDT -> BTCUSDT
         int dotIndex = channel.indexOf('.');
@@ -605,6 +638,40 @@ public class MessageDispatcher {
         }
         return channel;
     }
+
+    private ExternalChannel parseExternalChannel(String channel) {
+        if (channel == null || channel.isBlank()) {
+            return null;
+        }
+        String[] parts = channel.split("\\.");
+        if (parts.length < 4 || !"ext".equals(parts[1])) {
+            return null;
+        }
+
+        String type = parts[0];
+        String source = parts[2];
+        if (source == null || source.isBlank()) {
+            return null;
+        }
+
+        if ("kline".equals(type) && parts.length >= 5) {
+            return new ExternalChannel(type, source, stripSpeedSuffix(parts[3]), parts[4]);
+        }
+
+        if ("depth".equals(type) || "trade".equals(type) || "ticker".equals(type)) {
+            return new ExternalChannel(type, source, stripSpeedSuffix(parts[3]), null);
+        }
+        return null;
+    }
+
+    private String stripSpeedSuffix(String symbolToken) {
+        if (symbolToken == null || symbolToken.isBlank()) {
+            return symbolToken;
+        }
+        return symbolToken.replaceAll("@\\d+ms$", "");
+    }
+
+    private record ExternalChannel(String type, String source, String symbol, String interval) {}
 
     /**
      * 关闭服务

@@ -75,6 +75,11 @@ public class OrderBookManager {
      */
     private static final int MAX_DEPTH = 1000;
 
+    /**
+     * 重建期间最大增量缓存条数
+     */
+    private static final int MAX_BUFFERED_UPDATES = 20_000;
+
     public OrderBookManager(String symbol) {
         this.symbol = symbol;
         log.info("[OrderBook-{}] Initialized", symbol);
@@ -104,6 +109,10 @@ public class OrderBookManager {
 
         // Case 2: 重建中，缓存更新
         if (status == OrderBookStatus.REBUILDING) {
+            if (bufferedUpdates.size() >= MAX_BUFFERED_UPDATES) {
+                // 丢弃最旧的一条，避免重建期间无限堆积
+                bufferedUpdates.remove(0);
+            }
             bufferedUpdates.add(new DepthUpdate(firstUpdateId, lastUpdateId, bidUpdates, askUpdates));
             log.debug("[OrderBook-{}] Buffered update during rebuilding: U={}, u={}, buffered={}",
                     symbol, firstUpdateId, lastUpdateId, bufferedUpdates.size());
@@ -137,6 +146,19 @@ public class OrderBookManager {
             status = OrderBookStatus.STALE;
             return false;  // 触发重建
         }
+    }
+
+    /**
+     * 显式进入重建状态（单飞重建控制）
+     *
+     * @return true=成功进入重建态；false=已经在重建态
+     */
+    public synchronized boolean markRebuilding() {
+        if (status == OrderBookStatus.REBUILDING) {
+            return false;
+        }
+        status = OrderBookStatus.REBUILDING;
+        return true;
     }
 
     /**
