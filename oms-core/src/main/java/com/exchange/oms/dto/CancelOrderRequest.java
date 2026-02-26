@@ -1,5 +1,6 @@
 package com.exchange.oms.dto;
 
+import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import lombok.Data;
 
 import java.io.Serializable;
@@ -8,6 +9,7 @@ import java.io.Serializable;
  * 撤单请求
  */
 @Data
+@JsonIgnoreProperties(ignoreUnknown = true)
 public class CancelOrderRequest implements Serializable {
     
     private static final long serialVersionUID = 1L;
@@ -37,4 +39,3 @@ public class CancelOrderRequest implements Serializable {
      */
     private String clientOrderId;
 }
-

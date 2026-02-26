@@ -1,6 +1,5 @@
 package com.exchange.user.service.client;
 
-import com.exchange.user.dto.Result;
 import org.springframework.cloud.openfeign.FeignClient;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -22,7 +21,7 @@ public interface LedgerClient {
      * @return 创建结果
      */
     @PostMapping("/initial-funding")
-    Result<InitialFundingResponse> createInitialFunding(@RequestBody InitialFundingRequest request);
+    InitialFundingResponse createInitialFunding(@RequestBody InitialFundingRequest request);
 
     /**
      * 初始资金请求

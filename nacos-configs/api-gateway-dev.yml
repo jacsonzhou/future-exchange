@@ -54,6 +54,41 @@ spring:
               args:
                 name: orderServiceCircuitBreaker
                 fallbackUri: forward:/fallback/order
+
+        - id: order-service-cancel-legacy
+          uri: lb://oms-core
+          predicates:
+            - Path=/api/order/cancel
+          filters:
+            - RewritePath=/api/order/cancel, /api/v1/oms/order/cancel
+            # 熔断降级
+            - name: CircuitBreaker
+              args:
+                name: orderServiceCircuitBreaker
+                fallbackUri: forward:/fallback/order
+
+        - id: order-service-cancel-v1
+          uri: lb://oms-core
+          predicates:
+            - Path=/api/v1/order/cancel
+          filters:
+            - RewritePath=/api/v1/order/cancel, /api/v1/oms/order/cancel
+            # 熔断降级
+            - name: CircuitBreaker
+              args:
+                name: orderServiceCircuitBreaker
+                fallbackUri: forward:/fallback/order
+
+        - id: order-service-cancel
+          uri: lb://oms-core
+          predicates:
+            - Path=/api/v1/oms/order/cancel
+          filters:
+            # 熔断降级
+            - name: CircuitBreaker
+              args:
+                name: orderServiceCircuitBreaker
+                fallbackUri: forward:/fallback/order
         
         - id: order-service-query
           uri: lb://oms-core

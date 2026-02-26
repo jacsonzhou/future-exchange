@@ -42,6 +42,9 @@ public class MarketDataEngineService {
     
     // Symbol -> 引擎组映射
     private final Map<String, SymbolEngines> symbolEnginesMap;
+
+    // Symbol -> 最近一次发布的盘口签名（用于抑制重复快照推送）
+    private final Map<String, String> lastDepthSignatureMap;
     
     // 默认价格精度
     private static final int DEFAULT_PRICE_PRECISION = 8;
@@ -57,6 +60,7 @@ public class MarketDataEngineService {
         this.cache = cache;
         this.klineEngineWithStorage = klineEngineWithStorage;
         this.symbolEnginesMap = new ConcurrentHashMap<>();
+        this.lastDepthSignatureMap = new ConcurrentHashMap<>();
     }
 
     @PostConstruct
@@ -124,6 +128,11 @@ public class MarketDataEngineService {
             // 使用 snapshot 的数据（已经是 List<long[]> 格式）
             List<long[]> finalBids = snapshot.getBids() != null ? snapshot.getBids() : (bids != null ? bids : new ArrayList<>());
             List<long[]> finalAsks = snapshot.getAsks() != null ? snapshot.getAsks() : (asks != null ? asks : new ArrayList<>());
+
+            if (!shouldPublishDepth(symbol, finalBids, finalAsks)) {
+                log.debug("[EngineService] Skip duplicate depth publish, symbol={}, seq={}", symbol, sequence);
+                return;
+            }
             
             MarketDataPublisher.DepthUpdate update = new MarketDataPublisher.DepthUpdate();
             update.setSymbol(symbol);
@@ -148,15 +157,6 @@ public class MarketDataEngineService {
                                   long lastSequence, long timestamp) {
         SymbolEngines engines = getOrCreateEngines(symbol);
         OrderBook orderBook = engines.getOrderBook();
-
-        // Match Engine 会周期性发送同序列号心跳快照（U=u=lastSeq）。
-        // 对已处理过的序列直接跳过，避免重复重建和重复推送导致前端“波动”。
-        long currentSequence = orderBook.getLastUpdateId();
-        if (currentSequence > 0 && lastSequence <= currentSequence) {
-            log.debug("[EngineService] {} Skip stale depth snapshot, incomingSeq={}, currentSeq={}",
-                symbol, lastSequence, currentSequence);
-            return;
-        }
         
         orderBook.rebuild(bids, asks, lastSequence, timestamp);
 
@@ -166,8 +166,6 @@ public class MarketDataEngineService {
                 symbol, lastSequence, orderBook.getLastUpdateId());
             return;
         }
-        
-        log.info("[EngineService] {} OrderBook rebuilt with lastSequence={}", symbol, lastSequence);
         
         // 发布快照
         OrderBook.DepthSnapshot snapshot = orderBook.getSnapshot(100);
@@ -179,7 +177,13 @@ public class MarketDataEngineService {
         update.setAsks(snapshot.getAsks());
         update.setTimestamp(timestamp);
         update.setSnapshot(true);
-        
+
+        if (!shouldPublishDepth(symbol, update.getBids(), update.getAsks())) {
+            log.debug("[EngineService] {} Skip duplicate snapshot publish, seq={}", symbol, lastSequence);
+            return;
+        }
+
+        log.info("[EngineService] {} OrderBook rebuilt with lastSequence={}", symbol, lastSequence);
         publisher.publishDepth(symbol, update);
     }
 
@@ -192,6 +196,15 @@ public class MarketDataEngineService {
             return null;
         }
         return engines.getOrderBook();
+    }
+
+    /**
+     * 获取或创建订单簿
+     *
+     * 查询接口在“空盘”阶段也需要返回空深度，而不是 Symbol not found。
+     */
+    public OrderBook getOrCreateOrderBook(String symbol) {
+        return getOrCreateEngines(symbol).getOrderBook();
     }
 
     /**
@@ -224,6 +237,40 @@ public class MarketDataEngineService {
      */
     private void flushAggTrades() {
         // 聚合成交在TradeEngine内部处理，这里可以添加额外的刷新逻辑
+    }
+
+    private boolean shouldPublishDepth(String symbol, List<long[]> bids, List<long[]> asks) {
+        String signature = buildDepthSignature(bids, asks);
+        String previous = lastDepthSignatureMap.put(symbol, signature);
+        return !signature.equals(previous);
+    }
+
+    private String buildDepthSignature(List<long[]> bids, List<long[]> asks) {
+        StringBuilder sb = new StringBuilder(512);
+        if (bids != null) {
+            sb.append('B').append(bids.size()).append(':');
+            for (long[] level : bids) {
+                if (level == null || level.length < 2) {
+                    continue;
+                }
+                sb.append(level[0]).append('@').append(level[1]).append('|');
+            }
+        } else {
+            sb.append("B0:");
+        }
+        sb.append(';');
+        if (asks != null) {
+            sb.append('A').append(asks.size()).append(':');
+            for (long[] level : asks) {
+                if (level == null || level.length < 2) {
+                    continue;
+                }
+                sb.append(level[0]).append('@').append(level[1]).append('|');
+            }
+        } else {
+            sb.append("A0:");
+        }
+        return sb.toString();
     }
 
     /**

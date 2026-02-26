@@ -90,6 +90,28 @@ spring:
             - Path=/api/order/create
           filters:
             - RewritePath=/api/order/create, /api/v1/oms/order/submit
+
+        # 撤单（兼容旧路径）
+        - id: order-service-cancel-legacy
+          uri: lb://oms-core
+          predicates:
+            - Path=/api/order/cancel
+          filters:
+            - RewritePath=/api/order/cancel, /api/v1/oms/order/cancel
+
+        # 撤单（兼容 v1 简化路径）
+        - id: order-service-cancel-v1
+          uri: lb://oms-core
+          predicates:
+            - Path=/api/v1/order/cancel
+          filters:
+            - RewritePath=/api/v1/order/cancel, /api/v1/oms/order/cancel
+
+        # 撤单（OMS 原生路径）
+        - id: order-service-cancel
+          uri: lb://oms-core
+          predicates:
+            - Path=/api/v1/oms/order/cancel
         
         # 订单列表查询
         - id: order-service-list

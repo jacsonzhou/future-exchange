@@ -19,7 +19,10 @@ import org.springframework.stereotype.Component;
  * 2. 调用AccountSnapshotService更新Snapshot
  * 3. 保证顺序性和幂等性
  * 
- * Topic: trade-entry-{symbol}
+ * Topic:
+ * - trade-entry-{symbol}
+ * - account-entry-{symbol}（账务新通道，SYSTEM 与未来按 symbol 拆分均兼容）
+ * - trade-entry-SYSTEM（SYSTEM账务事件，兼容旧通道）
  * Partition: 1（单Symbol单线程）
  * Group: snapshot-service
  * 
@@ -44,9 +47,12 @@ public class TradeEntryEventConsumer {
      * 3. 自动提交offset
      */
     @KafkaListener(
-        topics = "${snapshot.kafka.topics}", // trade-entry-BTCUSDT,trade-entry-ETHUSDT,account-entry-SYSTEM
+        topicPattern = "(trade-entry-.*)|(account-entry-.*)",
         groupId = "snapshot-service",
-        concurrency = "1" // 单线程保证顺序
+        concurrency = "1", // 单线程保证顺序
+        properties = {
+            "auto.offset.reset=earliest"
+        }
     )
     public void consumeTradeEntry(
             @Payload String message,

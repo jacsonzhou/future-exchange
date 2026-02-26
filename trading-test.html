@@ -336,6 +336,26 @@
         .status-partial { background: #d29922; color: #0d1117; }
         .status-filled { background: #238636; color: white; }
         .status-cancelled { background: #484f58; color: #8b949e; }
+        .order-action-btn {
+            padding: 3px 10px;
+            border: none;
+            border-radius: 4px;
+            font-size: 11px;
+            cursor: pointer;
+            transition: all 0.2s ease;
+        }
+        .order-action-cancel {
+            background: #da3633;
+            color: #ffffff;
+        }
+        .order-action-cancel:hover:not(:disabled) {
+            background: #f85149;
+        }
+        .order-action-btn:disabled {
+            background: #484f58;
+            color: #8b949e;
+            cursor: not-allowed;
+        }
         
         /* Position card */
         .position-card {
@@ -645,6 +665,8 @@
         };
 
         let positionRefreshTimer = null;
+        let publicReconnectTimer = null;
+        let privateReconnectTimer = null;
 
         // 清理历史残留的无效 token（例如字符串 "undefined"/"null"）
         state.token = normalizeToken(state.token);
@@ -659,6 +681,7 @@
 
         // ==================== 用户挂单跟踪 ====================
         let userPendingOrders = new Map(); // orderId -> {price, side, quantity}
+        const cancelingOrderIds = new Set();
         
         // ==================== 真实盘口数据 ====================
         let currentOrderBook = {
@@ -673,14 +696,18 @@
         let klineVolumeSeries = null;
         let currentKlineInterval = '1m';
         let klineDataMap = new Map(); // interval -> candle data array
+        let lastKlineTimeMap = new Map(); // interval -> latest candle time(second)
+        let klineFetchSeq = 0; // 防止切换周期时旧请求覆盖新图表
         let lastKlinePrice = 0;
 
         // ==================== 初始化 ====================
         document.addEventListener('DOMContentLoaded', () => {
             log('info', '页面加载完成');
+            restoreUserContextFromToken();
             
-            if (state.token && state.userId) {
-                log('info', `检测到登录状态，用户ID: ${state.userId}`);
+            if (state.token) {
+                const loginHint = state.userId ? `用户ID: ${state.userId}` : '用户ID恢复中';
+                log('info', `检测到登录状态，${loginHint}`);
                 showMainApp();
             } else {
                 log('info', '未登录，请先登录或注册');
@@ -692,6 +719,10 @@
             if (rawToken === undefined || rawToken === null) return null;
             let token = String(rawToken).trim();
             if (!token || token === 'undefined' || token === 'null') return null;
+            if ((token.startsWith('"') && token.endsWith('"')) ||
+                (token.startsWith("'") && token.endsWith("'"))) {
+                token = token.substring(1, token.length - 1).trim();
+            }
             if (token.startsWith('Bearer ')) {
                 token = token.substring(7).trim();
             }
@@ -701,6 +732,42 @@
         function isLikelyJwt(token) {
             if (!token || typeof token !== 'string') return false;
             return /^[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/.test(token);
+        }
+
+        function decodeJwtPayload(token) {
+            if (!isLikelyJwt(token)) return null;
+            try {
+                const parts = token.split('.');
+                if (parts.length < 2) return null;
+                const base64 = parts[1].replace(/-/g, '+').replace(/_/g, '/');
+                const pad = '='.repeat((4 - base64.length % 4) % 4);
+                const json = atob(base64 + pad);
+                return JSON.parse(json);
+            } catch (_) {
+                return null;
+            }
+        }
+
+        function restoreUserContextFromToken() {
+            if (!state.token || !isLikelyJwt(state.token)) return;
+            const payload = decodeJwtPayload(state.token);
+            if (!payload) return;
+
+            if (!state.userId) {
+                const inferredUserId = payload.userId ?? payload.uid ?? payload.sub ?? payload.id;
+                if (inferredUserId !== undefined && inferredUserId !== null && String(inferredUserId).trim() !== '') {
+                    state.userId = String(inferredUserId);
+                    localStorage.setItem('userId', state.userId);
+                }
+            }
+
+            if (!state.username) {
+                const inferredUsername = payload.username ?? payload.userName ?? payload.name;
+                if (inferredUsername) {
+                    state.username = String(inferredUsername);
+                    localStorage.setItem('username', state.username);
+                }
+            }
         }
 
         function switchTab(tab) {
@@ -825,9 +892,12 @@
         }
 
         function showMainApp() {
+            restoreUserContextFromToken();
             document.getElementById('authModal').classList.add('hidden');
             document.getElementById('mainApp').classList.remove('hidden');
-            document.getElementById('currentUser').textContent = `用户: ${state.username} (ID: ${state.userId})`;
+            const usernameText = state.username || 'N/A';
+            const userIdText = state.userId || 'N/A';
+            document.getElementById('currentUser').textContent = `用户: ${usernameText} (ID: ${userIdText})`;
             
             // 初始化K线图表
             setTimeout(() => initKlineChart(), 100);
@@ -836,6 +906,8 @@
             refreshOrderBookOnce();
             
             refreshBalance();
+            // 默认展示持仓页，刷新后自动拉取一次持仓
+            loadPositions();
             
             // 连接 WebSocket
             // 公有推送无需登录，私有推送需要 token
@@ -921,40 +993,54 @@
             }
         }
         
+        function normalizeDepthLevels(levels, side) {
+            if (!Array.isArray(levels)) return [];
+            const parsed = [];
+            levels.forEach(item => {
+                const price = Array.isArray(item)
+                    ? item[0]
+                    : (item.price ?? item.p ?? item.askPrice ?? item.bidPrice ?? item.offerPrice);
+                const qty = Array.isArray(item)
+                    ? item[1]
+                    : (item.qty ?? item.q ?? item.quantity ?? item.size ?? item.volume ?? item.askQty ?? item.bidQty);
+                const priceNum = normalizePriceNumber(price);
+                const qtyNum = normalizeQtyNumber(qty);
+                if (!Number.isFinite(priceNum) || !Number.isFinite(qtyNum) || qtyNum <= 0) {
+                    return;
+                }
+                parsed.push({ price: priceNum, qty: qtyNum });
+            });
+
+            parsed.sort((a, b) => side === 'ask' ? (a.price - b.price) : (b.price - a.price));
+            return parsed.slice(0, 8);
+        }
+
         // 更新盘口显示
         function updateOrderBookDisplay(data) {
             if (!data) return;
             
-            // 卖单 (Asks) - 红色，从高到低显示（最低的卖价在下方，靠近买单）
-            if (data.asks && data.asks.length > 0) {
-                // 只显示最低的8档，倒序显示（价格高的在上面）
-                const asks = data.asks.slice(0, 8).reverse();
+            const asksAsc = normalizeDepthLevels(data.asks, 'ask'); // 低价 -> 高价
+            const bidsDesc = normalizeDepthLevels(data.bids, 'bid'); // 高价 -> 低价
+
+            // 卖单累计按最优卖价向外累加，再倒序显示（高价在上）
+            if (asksAsc.length > 0) {
+                let askCum = 0;
+                const asksWithCum = asksAsc.map(level => {
+                    askCum += level.price * level.qty;
+                    return { ...level, cum: askCum };
+                });
+                const asksToRender = asksWithCum.slice().reverse();
+
                 let asksHtml = '';
-                asks.forEach((item) => {
-                    // 支持数组格式 [price, qty] 或对象格式
-                    const price = Array.isArray(item)
-                        ? item[0]
-                        : (item.price ?? item.p ?? item.askPrice ?? item.offerPrice);
-                    const qty = Array.isArray(item)
-                        ? item[1]
-                        : (item.qty ?? item.q ?? item.quantity ?? item.size ?? item.volume ?? item.askQty);
-                    
-                    const priceNum = normalizePriceNumber(price);
-                    const qtyNum = normalizeQtyNumber(qty);
-                    
-                    if (isNaN(priceNum) || isNaN(qtyNum)) {
-                        log('warn', `无效的深度数据: price=${price}, qty=${qty}`);
-                        return;
-                    }
-                    const displayPrice = Number(priceNum.toFixed(2));
-                    const displayQty = Number(qtyNum.toFixed(2));
-                    const displayTotal = Number((displayPrice * displayQty).toFixed(2));
-                    
+                asksToRender.forEach(level => {
+                    const displayPrice = Number(level.price.toFixed(2));
+                    const displayQty = Number(level.qty.toFixed(2));
+                    const displayCum = Number(level.cum.toFixed(2));
                     asksHtml += `
                         <div class="orderbook-row orderbook-ask">
                             <span class="orderbook-price">${displayPrice.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
                             <span class="orderbook-qty">${displayQty.toFixed(2)}</span>
-                            <span class="orderbook-total">${displayTotal.toFixed(2)}</span>
+                            <span class="orderbook-total">${displayCum.toFixed(2)}</span>
                         </div>
                     `;
                 });
@@ -963,35 +1049,20 @@
                 document.getElementById('orderbookAsks').innerHTML = '<div style="text-align:center;padding:10px;color:#8b949e;">暂无卖单</div>';
             }
             
-            // 买单 (Bids) - 绿色，从高到低显示
-            if (data.bids && data.bids.length > 0) {
-                const bids = data.bids.slice(0, 8);
+            // 买单累计按最优买价向外累加
+            if (bidsDesc.length > 0) {
+                let bidCum = 0;
                 let bidsHtml = '';
-                bids.forEach((item) => {
-                    // 支持数组格式 [price, qty] 或对象格式
-                    const price = Array.isArray(item)
-                        ? item[0]
-                        : (item.price ?? item.p ?? item.bidPrice);
-                    const qty = Array.isArray(item)
-                        ? item[1]
-                        : (item.qty ?? item.q ?? item.quantity ?? item.size ?? item.volume ?? item.bidQty);
-                    
-                    const priceNum = normalizePriceNumber(price);
-                    const qtyNum = normalizeQtyNumber(qty);
-                    
-                    if (isNaN(priceNum) || isNaN(qtyNum)) {
-                        log('warn', `无效的深度数据: price=${price}, qty=${qty}`);
-                        return;
-                    }
-                    const displayPrice = Number(priceNum.toFixed(2));
-                    const displayQty = Number(qtyNum.toFixed(2));
-                    const displayTotal = Number((displayPrice * displayQty).toFixed(2));
-                    
+                bidsDesc.forEach(level => {
+                    bidCum += level.price * level.qty;
+                    const displayPrice = Number(level.price.toFixed(2));
+                    const displayQty = Number(level.qty.toFixed(2));
+                    const displayCum = Number(bidCum.toFixed(2));
                     bidsHtml += `
                         <div class="orderbook-row orderbook-bid">
                             <span class="orderbook-price">${displayPrice.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
                             <span class="orderbook-qty">${displayQty.toFixed(2)}</span>
-                            <span class="orderbook-total">${displayTotal.toFixed(2)}</span>
+                            <span class="orderbook-total">${displayCum.toFixed(2)}</span>
                         </div>
                     `;
                 });
@@ -1000,16 +1071,10 @@
                 document.getElementById('orderbookBids').innerHTML = '<div style="text-align:center;padding:10px;color:#8b949e;">暂无买单</div>';
             }
             
-            // 价差计算（数据已从WebSocket接收，已是格式化后的价格）
-            if (data.asks && data.bids && data.asks[0] && data.bids[0]) {
-                const ask = Array.isArray(data.asks[0]) ? data.asks[0][0] : data.asks[0]?.price;
-                const bid = Array.isArray(data.bids[0]) ? data.bids[0][0] : data.bids[0]?.price;
-                const bestAsk = normalizePriceNumber(ask);
-                const bestBid = normalizePriceNumber(bid);
-                if (isFinite(bestAsk) && isFinite(bestBid)) {
-                    const spread = bestAsk - bestBid;
-                    document.getElementById('orderbookSpread').textContent = `价差: ${spread.toFixed(2)} USDT`;
-                }
+            // 价差
+            if (asksAsc[0] && bidsDesc[0]) {
+                const spread = asksAsc[0].price - bidsDesc[0].price;
+                document.getElementById('orderbookSpread').textContent = `价差: ${spread.toFixed(2)} USDT`;
             }
         }
 
@@ -1168,17 +1233,19 @@
                     
                     // 🔥 查询OMS预扣保证金（从OMS服务）
                     let preHoldMargin = 0;
-                    try {
-                        const preHoldRes = await fetch(`${CONFIG.API_GATEWAY}/api/v1/oms/prehold/${state.userId}`, {
-                            headers: { 'Authorization': `Bearer ${state.token}` }
-                        });
-                        if (preHoldRes.ok) {
-                            const preHoldData = await preHoldRes.json();
-                            preHoldMargin = preHoldData.data || preHoldData.preHold || 0;
+                    if (state.userId) {
+                        try {
+                            const preHoldRes = await fetch(`${CONFIG.API_GATEWAY}/api/v1/oms/prehold/${state.userId}`, {
+                                headers: { 'Authorization': `Bearer ${state.token}` }
+                            });
+                            if (preHoldRes.ok) {
+                                const preHoldData = await preHoldRes.json();
+                                preHoldMargin = preHoldData.data || preHoldData.preHold || 0;
+                            }
+                        } catch (e) {
+                            // OMS预扣查询失败，继续显示已知余额
+                            log('warn', '预扣保证金查询失败: ' + e.message);
                         }
-                    } catch (e) {
-                        // OMS预扣查询失败，继续显示已知余额
-                        log('warn', '预扣保证金查询失败: ' + e.message);
                     }
                     
                     // 计算余额显示
@@ -1227,6 +1294,34 @@
             btn.className = side === 'BUY' ? 'btn btn-primary' : 'btn btn-danger';
         }
 
+        function getBestBidAsk() {
+            const bidRaw = wsOrderBookData?.bids?.[0]?.[0] ?? currentOrderBook?.bids?.[0]?.[0];
+            const askRaw = wsOrderBookData?.asks?.[0]?.[0] ?? currentOrderBook?.asks?.[0]?.[0];
+            return {
+                bestBid: normalizePriceNumber(bidRaw),
+                bestAsk: normalizePriceNumber(askRaw)
+            };
+        }
+
+        function isLikelyPriceQtySwapped(price, quantity) {
+            if (!Number.isFinite(price) || !Number.isFinite(quantity) || price <= 0 || quantity <= 0) {
+                return false;
+            }
+            const { bestBid, bestAsk } = getBestBidAsk();
+            const marketRef = Number.isFinite(bestAsk) && bestAsk > 0
+                ? bestAsk
+                : (Number.isFinite(bestBid) && bestBid > 0 ? bestBid : 0);
+
+            // 价格极低 + 数量极大，且偏离当前盘口，强烈怀疑写反（如 1 USDT 买 70000 BTC）
+            if (price <= 10 && quantity >= 1000) {
+                return true;
+            }
+            if (marketRef > 0 && price < marketRef * 0.05 && quantity >= 100) {
+                return true;
+            }
+            return false;
+        }
+
         async function submitOrder() {
             const symbol = document.getElementById('symbol').value;
             const orderType = document.getElementById('orderType').value;
@@ -1247,16 +1342,29 @@
             const price = orderType === 'MARKET' ? 0 : Number(rawPrice.toFixed(2));
             const quantity = Number(rawQuantity.toFixed(2));
 
-            // 转换为系统内部精度 (8位小数)
-            const priceInt = orderType === 'MARKET' ? 0 : Math.round(price * 100000000);
-            const quantityInt = Math.round(quantity * 100000000);
+            if (orderType === 'LIMIT' && isLikelyPriceQtySwapped(price, quantity)) {
+                const proceedAsIs = confirm(
+                    `检测到参数可能写反：当前价格=${price}，数量=${quantity}。\n` +
+                    `点击“确定”按当前参数继续下单；点击“取消”将自动交换为 价格=${quantity}、数量=${price} 并取消本次提交。`
+                );
+                if (!proceedAsIs) {
+                    document.getElementById('price').value = quantity;
+                    document.getElementById('quantity').value = price;
+                    log('warn', `已交换输入框参数: price=${quantity}, quantity=${price}，请确认后重新下单`);
+                    return;
+                }
+            }
+
+            // 统一按十进制字符串下单，避免前端和OMS重复缩放导致数量放大
+            const priceDecimal = orderType === 'MARKET' ? '0' : Number(price).toFixed(8);
+            const quantityDecimal = Number(quantity).toFixed(8);
 
             const request = {
                 symbol: symbol,
                 side: state.tradeSide,
                 type: orderType,  // 注意：OMS期望字段名是 type 而不是 orderType
-                price: String(priceInt),  // 转为字符串
-                quantity: String(quantityInt),  // 转为字符串
+                price: priceDecimal,
+                quantity: quantityDecimal,
                 leverage: leverage,
                 timeInForce: 'GTC',  // 默认有效期类型
                 clientOrderId: `web_${Date.now()}`
@@ -1266,6 +1374,7 @@
                 const btnText = document.getElementById('submitOrderBtn')?.textContent || '';
                 log('info', `下单方向确认: side=${state.tradeSide}, 按钮=${btnText}`);
                 log('info', `提交订单: ${state.tradeSide} ${symbol} ${orderType} 价格:${price} 数量:${quantity}`);
+                log('debug', `下单入参: price=${priceDecimal}, quantity=${quantityDecimal}`);
                 
                 // 使用 API Gateway 路由路径 /api/order/create
                 const res = await fetch(`${CONFIG.API_GATEWAY}/api/order/create`, {
@@ -1329,25 +1438,37 @@
         }
 
         function connectPublicWS() {
-            if (state.publicWs) state.publicWs.close();
+            if (publicReconnectTimer) {
+                clearTimeout(publicReconnectTimer);
+                publicReconnectTimer = null;
+            }
+            if (state.publicWs && (state.publicWs.readyState === WebSocket.OPEN || state.publicWs.readyState === WebSocket.CONNECTING)) {
+                state.publicWs.__intentionalClose = true;
+                state.publicWs.close(1000, 'reconnect');
+            }
             
             updateWsStatus('public', 'connecting');
             log('info', '正在连接公有推送...');
             
             try {
-                state.publicWs = new WebSocket(CONFIG.PUBLIC_PUSH_WS);
+                const ws = new WebSocket(CONFIG.PUBLIC_PUSH_WS);
+                ws.__intentionalClose = false;
+                state.publicWs = ws;
                 
-                state.publicWs.onopen = () => {
+                ws.onopen = () => {
+                    // 旧连接回调直接忽略，避免覆盖当前状态
+                    if (ws !== state.publicWs) return;
                     updateWsStatus('public', 'connected');
                     log('success', '公有推送已连接');
                     
                     // 订阅行情数据（订阅成功后会自动收到快照数据）
-                    subscribePublic(['trade.BTCUSDT', 'depth.BTCUSDT', 'kline.BTCUSDT.1m']);
-                    log('info', '已订阅: trade.BTCUSDT, depth.BTCUSDT, kline.BTCUSDT.1m');
+                    const klineChannel = `kline.BTCUSDT.${currentKlineInterval}`;
+                    subscribePublic(['trade.BTCUSDT', 'depth.BTCUSDT', klineChannel]);
+                    log('info', `已订阅: trade.BTCUSDT, depth.BTCUSDT, ${klineChannel}`);
                     log('info', '等待服务器推送快照数据...');
                 };
                 
-                state.publicWs.onmessage = (e) => {
+                ws.onmessage = (e) => {
                     try {
                         const msg = JSON.parse(e.data);
                         log('debug', '收到 WebSocket 消息: ' + JSON.stringify(msg).substring(0, 200));
@@ -1357,13 +1478,21 @@
                     }
                 };
                 
-                state.publicWs.onclose = (event) => {
+                ws.onclose = (event) => {
+                    if (ws !== state.publicWs) return;
                     updateWsStatus('public', 'disconnected');
                     log('warn', `公有推送已断开 (代码: ${event.code})`);
-                    setTimeout(connectPublicWS, 5000);
+                    if (!ws.__intentionalClose) {
+                        if (!publicReconnectTimer) {
+                            publicReconnectTimer = setTimeout(() => {
+                                publicReconnectTimer = null;
+                                connectPublicWS();
+                            }, 5000);
+                        }
+                    }
                 };
                 
-                state.publicWs.onerror = (err) => {
+                ws.onerror = (err) => {
                     log('error', '公有推送错误: ' + (err.message || 'WebSocket 连接失败，请检查服务是否运行 (public-push-core:8096)'));
                 };
             } catch (err) {
@@ -1381,7 +1510,14 @@
                 return;
             }
             
-            if (state.privateWs) state.privateWs.close();
+            if (privateReconnectTimer) {
+                clearTimeout(privateReconnectTimer);
+                privateReconnectTimer = null;
+            }
+            if (state.privateWs && (state.privateWs.readyState === WebSocket.OPEN || state.privateWs.readyState === WebSocket.CONNECTING)) {
+                state.privateWs.__intentionalClose = true;
+                state.privateWs.close(1000, 'reconnect');
+            }
             
             updateWsStatus('private', 'connecting');
             log('info', '正在连接私有推送...');
@@ -1390,22 +1526,29 @@
                 // 通过 query 参数传递 token
                 const wsUrl = `${CONFIG.PRIVATE_PUSH_WS}?token=${encodeURIComponent(state.token)}`;
                 log('info', `WebSocket URL: ${wsUrl.replace(state.token, '***')}`);
-                state.privateWs = new WebSocket(wsUrl);
+                const ws = new WebSocket(wsUrl);
+                ws.__intentionalClose = false;
+                state.privateWs = ws;
                 
-                state.privateWs.onopen = () => {
+                ws.onopen = () => {
+                    if (ws !== state.privateWs) return;
                     updateWsStatus('private', 'connected');
                     log('success', '私有推送已连接');
                     
                     // 订阅私有频道
                     subscribePrivate(['executionReport', 'account', 'position']);
+                    // 刷新后私有连接建立时主动同步一次账户与持仓
+                    refreshBalance();
+                    loadPositions();
                 };
                 
-                state.privateWs.onmessage = (e) => {
+                ws.onmessage = (e) => {
                     const msg = JSON.parse(e.data);
                     handlePrivateMessage(msg);
                 };
                 
-                state.privateWs.onclose = (event) => {
+                ws.onclose = (event) => {
+                    if (ws !== state.privateWs) return;
                     updateWsStatus('private', 'disconnected');
                     if (event.code === 1006) {
                         log('error', `私有推送异常断开 (代码: ${event.code})`);
@@ -1413,12 +1556,17 @@
                         log('warn', `私有推送已断开 (代码: ${event.code}, 原因: ${event.reason || '未知'})`);
                     }
                     // 检查是否需要重连
-                    if (state.token) {
-                        setTimeout(connectPrivateWS, 5000);
+                    if (state.token && !ws.__intentionalClose) {
+                        if (!privateReconnectTimer) {
+                            privateReconnectTimer = setTimeout(() => {
+                                privateReconnectTimer = null;
+                                connectPrivateWS();
+                            }, 5000);
+                        }
                     }
                 };
                 
-                state.privateWs.onerror = (err) => {
+                ws.onerror = (err) => {
                     log('error', '私有推送错误: ' + (err.message || 'WebSocket 连接失败，请检查服务是否运行'));
                 };
             } catch (err) {
@@ -1475,6 +1623,11 @@
                 return;
             }
             
+            // 连接确认
+            if (msg.result === 'connected') {
+                return;
+            }
+
             // 订阅确认
             if (msg.result === 'subscribed') {
                 const subscribed = msg.data?.subscribed || msg.data || [];
@@ -1483,6 +1636,13 @@
                 if (subscribed.includes('depth.BTCUSDT')) {
                     log('info', '深度频道订阅成功，等待服务器推送快照数据...');
                 }
+                return;
+            }
+
+            // 退订确认
+            if (msg.result === 'unsubscribed') {
+                const unsubscribed = msg.data || [];
+                log('success', `退订成功: ${JSON.stringify(unsubscribed)}`);
                 return;
             }
             
@@ -1558,6 +1718,20 @@
                 log('warn', '深度数据为空');
                 return;
             }
+
+            const updateId = normalizeRawNumber(depthData.u ?? depthData.lastUpdateId ?? depthData.updateId);
+            const eventTs = normalizeRawNumber(depthData.E ?? depthData.T ?? Date.now());
+            if (wsOrderBookData) {
+                const prevUpdateId = normalizeRawNumber(wsOrderBookData.updateId);
+                const prevTs = normalizeRawNumber(wsOrderBookData.timestamp);
+                // 忽略乱序旧消息，避免成交后盘口回跳
+                if (Number.isFinite(updateId) && Number.isFinite(prevUpdateId) && updateId < prevUpdateId) {
+                    return;
+                }
+                if (Number.isFinite(eventTs) && Number.isFinite(prevTs) && eventTs < prevTs) {
+                    return;
+                }
+            }
             
             // 支持多种字段名
             let bids = depthData.b || depthData.bids || depthData.B || [];
@@ -1583,7 +1757,8 @@
             wsOrderBookData = {
                 bids: bids,
                 asks: asks,
-                timestamp: depthData.E || depthData.T || Date.now()
+                timestamp: Number.isFinite(eventTs) ? eventTs : Date.now(),
+                updateId: Number.isFinite(updateId) ? updateId : undefined
             };
             lastOrderBookUpdate = Date.now();
             
@@ -1845,10 +2020,12 @@
                 
                 const headers = {
                     'Authorization': `Bearer ${state.token}`,
-                    'X-User-Id': String(state.userId),
                     'X-Trace-Id': `web_trace_${Date.now()}`,
                     'X-Request-Id': `web_req_${Date.now()}`
                 };
+                if (state.userId) {
+                    headers['X-User-Id'] = String(state.userId);
+                }
 
                 let res = await fetch(url, { headers });
                 if (!res.ok && (res.status === 404 || res.status === 405)) {
@@ -1880,6 +2057,7 @@
         
         function renderOrders(orders, filter) {
             const container = document.getElementById('ordersList');
+            const showActionColumn = filter === 'active';
             
             if (orders.length === 0) {
                 container.innerHTML = `
@@ -1902,23 +2080,40 @@
                             <th>数量</th>
                             <th>已成交</th>
                             <th>状态</th>
+                            ${showActionColumn ? '<th>操作</th>' : ''}
                         </tr>
                     </thead>
                     <tbody>
             `;
             
             orders.forEach(order => {
-                const time = new Date(order.createTime).toLocaleTimeString('zh-CN');
+                const createTs = normalizeRawNumber(order.createTime ?? order.createdAt ?? order.time);
+                const time = Number.isFinite(createTs) ? new Date(createTs).toLocaleTimeString('zh-CN') : '--';
                 const sideClass = order.side === 'BUY' ? 'side-buy' : 'side-sell';
                 const sideText = order.side === 'BUY' ? '买入' : '卖出';
                 const statusClass = getStatusClass(order.status);
                 const statusText = getStatusText(order.status);
+                const orderId = String(order.orderId ?? order.id ?? '');
                 // 统一先归一化数量，避免展示值与百分比计算口径不一致
                 const normalizedTotalQty = normalizeQtyNumber(order.quantity);
                 const normalizedFilledQty = normalizeQtyNumber(order.filledQuantity);
                 const totalQty = Number.isFinite(normalizedTotalQty) && normalizedTotalQty > 0 ? normalizedTotalQty : 1;
                 const filledQty = Number.isFinite(normalizedFilledQty) ? normalizedFilledQty : 0;
                 const filledPct = totalQty > 0 ? (filledQty / totalQty * 100).toFixed(1) : '0.0';
+                let actionCellHtml = '<span style="color:#8b949e;">--</span>';
+
+                if (showActionColumn && isOrderCancelable(order.status) && orderId) {
+                    const canceling = cancelingOrderIds.has(orderId);
+                    const escapedOrderId = escapeForSingleQuotedAttr(orderId);
+                    const escapedSymbol = escapeForSingleQuotedAttr(order.symbol || '');
+                    actionCellHtml = `
+                        <button
+                            class="order-action-btn order-action-cancel"
+                            onclick="cancelOrder('${escapedOrderId}', '${escapedSymbol}')"
+                            ${canceling ? 'disabled' : ''}
+                        >${canceling ? '撤销中...' : '撤销'}</button>
+                    `;
+                }
                 
                 html += `
                     <tr>
@@ -1929,12 +2124,146 @@
                         <td>${formatQty(order.quantity)}</td>
                         <td>${formatQty(order.filledQuantity)} (${filledPct}%)</td>
                         <td><span class="status-badge ${statusClass}">${statusText}</span></td>
+                        ${showActionColumn ? `<td>${actionCellHtml}</td>` : ''}
                     </tr>
                 `;
             });
             
             html += '</tbody></table>';
             container.innerHTML = html;
+        }
+
+        function escapeForSingleQuotedAttr(value) {
+            return String(value ?? '')
+                .replace(/\\/g, '\\\\')
+                .replace(/'/g, "\\'");
+        }
+
+        function normalizeOrderStatus(status) {
+            if (status === null || status === undefined) {
+                return '';
+            }
+            if (typeof status === 'number') {
+                return status;
+            }
+            const raw = String(status).trim();
+            if (/^-?\d+$/.test(raw)) {
+                return Number(raw);
+            }
+            return raw.toUpperCase();
+        }
+
+        function isOrderCancelable(status) {
+            const normalized = normalizeOrderStatus(status);
+            return normalized === 'NEW' ||
+                normalized === 'PENDING_RISK' ||
+                normalized === 'FROZEN' ||
+                normalized === 'PARTIALLY_FILLED' ||
+                normalized === 0 ||
+                normalized === 1 ||
+                normalized === 2 ||
+                normalized === 3;
+        }
+
+        async function cancelOrder(orderId, symbol) {
+            const normalizedOrderId = String(orderId || '').trim();
+            if (!normalizedOrderId) {
+                alert('订单号无效，无法撤销');
+                return;
+            }
+
+            if (!isLikelyJwt(state.token)) {
+                alert('登录已失效，请重新登录');
+                return;
+            }
+
+            if (cancelingOrderIds.has(normalizedOrderId)) {
+                return;
+            }
+
+            if (!confirm(`确认撤销订单 ${normalizedOrderId} 吗？`)) {
+                return;
+            }
+
+            cancelingOrderIds.add(normalizedOrderId);
+
+            const payload = {
+                orderId: normalizedOrderId
+            };
+            if (state.userId && !Number.isNaN(Number(state.userId))) {
+                payload.userId = Number(state.userId);
+            }
+
+            const headers = {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${state.token}`,
+                'X-Trace-Id': `web_trace_${Date.now()}`,
+                'X-Request-Id': `web_req_${Date.now()}`,
+                'X-Idempotency-Key': `cancel_${normalizedOrderId}_${Date.now()}`
+            };
+            if (state.userId) {
+                headers['X-User-Id'] = String(state.userId);
+            }
+
+            const cancelUrls = [
+                `${CONFIG.API_GATEWAY}/api/order/cancel`,
+                `${CONFIG.API_GATEWAY}/api/v1/oms/order/cancel`
+            ];
+
+            let lastError = '';
+            let success = false;
+            for (const url of cancelUrls) {
+                try {
+                    const res = await fetch(url, {
+                        method: 'POST',
+                        headers,
+                        body: JSON.stringify(payload)
+                    });
+                    const data = await res.json().catch(() => ({}));
+                    const wrapped = data.data || {};
+                    const code = Number(data.code ?? wrapped.code ?? data.status);
+                    const statusText = String(data.status || wrapped.status || '').toUpperCase();
+                    const apiSuccess = res.ok && (
+                        data.success === true ||
+                        wrapped.success === true ||
+                        code === 0 ||
+                        code === 200 ||
+                        data.code === 'SUCCESS' ||
+                        statusText === 'OK' ||
+                        statusText === 'CANCELED'
+                    );
+
+                    if (apiSuccess) {
+                        success = true;
+                        const cached = orderCache.get(normalizedOrderId);
+                        if (cached) {
+                            cached.status = 'CANCELED';
+                        }
+                        userPendingOrders.delete(normalizedOrderId);
+                        log('success', `撤单成功: orderId=${normalizedOrderId}`);
+                        refreshBalance();
+                        loadOrders(state.currentOrderFilter);
+                        setTimeout(() => loadOrders(state.currentOrderFilter), 300);
+                        break;
+                    }
+
+                    const errMsg = data.errorMessage || data.message || data.msg ||
+                        wrapped.errorMessage || wrapped.message || `HTTP ${res.status}`;
+                    lastError = `${url} -> ${errMsg}`;
+                } catch (err) {
+                    lastError = `${url} -> ${err.message}`;
+                }
+            }
+
+            if (!success) {
+                log('error', `撤单失败: ${lastError}`);
+                alert(`撤单失败: ${lastError}`);
+            }
+
+            cancelingOrderIds.delete(normalizedOrderId);
+            if (state.currentBottomTab === 'orders') {
+                loadOrders(state.currentOrderFilter);
+            }
         }
         
         function getStatusClass(status) {
@@ -2129,6 +2458,10 @@
                 });
                 log('info', `📝 新增订单缓存: ${orderId} -> ${status}`);
             }
+
+            if (status === 'CANCELED' || status === 'FILLED' || status === 'REJECTED') {
+                userPendingOrders.delete(orderId);
+            }
             
             // 🔥 修复：收到成交报告后，强制刷新订单列表（无论当前在哪个Tab）
             // 因为订单状态可能从 active 变为 history
@@ -2156,6 +2489,7 @@
                     }
                 }, 500);
             }
+
 
             const hasTradeDelta = Number(lastFilledQty) > 0;
             const isTradeExec = execType === 'TRADE' || execType === 'FILLED' || execType === 'PARTIALLY_FILLED';
@@ -2377,10 +2711,29 @@
             log('success', 'K线图表初始化完成');
         }
         
+        function toKlineTimeSeconds(value) {
+            const raw = normalizeRawNumber(value);
+            if (!Number.isFinite(raw)) {
+                return NaN;
+            }
+            return Math.floor(raw >= 1_000_000_000_000 ? raw / 1000 : raw);
+        }
+
+        function toKlinePriceNumber(value) {
+            const num = normalizePriceNumber(value);
+            return Number.isFinite(num) ? num : NaN;
+        }
+
+        function toKlineVolumeNumber(value) {
+            const num = normalizeQtyNumber(value);
+            return Number.isFinite(num) ? num : NaN;
+        }
+
         // 从 API Gateway 获取真实历史K线数据
         async function fetchHistoricalKlines() {
             const symbol = document.getElementById('symbol')?.value || 'BTCUSDT';
             const interval = currentKlineInterval;
+            const fetchSeq = ++klineFetchSeq;
             
             log('info', `正在加载 ${symbol} ${interval} 历史K线数据...`);
             
@@ -2389,6 +2742,11 @@
                 const response = await fetch(
                     `${CONFIG.API_GATEWAY}/api/v1/klines?symbol=${symbol}&interval=${interval}&limit=200`
                 );
+
+                // 周期切换后忽略旧请求
+                if (fetchSeq !== klineFetchSeq || interval !== currentKlineInterval) {
+                    return;
+                }
                 
                 if (!response.ok) {
                     // API可能还没准备好，显示空图表
@@ -2403,7 +2761,7 @@
                     throw new Error(result.message || '获取K线数据失败');
                 }
                 
-                const klines = result.data || [];
+                const klines = Array.isArray(result.data) ? result.data : [];
                 
                 if (klines.length === 0) {
                     log('warn', '暂无历史K线数据，等待实时成交生成...');
@@ -2411,33 +2769,42 @@
                     return;
                 }
                 
-                // 转换数据格式
-                const candleData = [];
-                const volumeData = [];
-                
+                // 转换并排序（图表要求按时间升序，且数值字段必须是 number）
+                const rows = [];
                 klines.forEach(k => {
-                    // API返回格式: [openTime, open, high, low, close, volume, closeTime, quoteVolume, count, takerBuyVolume, takerBuyQuoteVolume]
-                    const openTime = Math.floor(k[0] / 1000); // 转换为秒级时间戳
-                    const open = formatPrice(k[1]);
-                    const high = formatPrice(k[2]);
-                    const low = formatPrice(k[3]);
-                    const close = formatPrice(k[4]);
-                    const volume = formatQty(k[5]);
-                    
-                    candleData.push({
-                        time: openTime,
-                        open: open,
-                        high: high,
-                        low: low,
-                        close: close
-                    });
-                    
-                    volumeData.push({
-                        time: openTime,
-                        value: volume,
-                        color: close >= open ? 'rgba(63, 185, 80, 0.5)' : 'rgba(248, 81, 73, 0.5)'
-                    });
+                    const openTime = toKlineTimeSeconds(Array.isArray(k) ? k[0] : (k.openTime ?? k.t ?? k.time));
+                    const open = toKlinePriceNumber(Array.isArray(k) ? k[1] : (k.open ?? k.o));
+                    const high = toKlinePriceNumber(Array.isArray(k) ? k[2] : (k.high ?? k.h));
+                    const low = toKlinePriceNumber(Array.isArray(k) ? k[3] : (k.low ?? k.l));
+                    const close = toKlinePriceNumber(Array.isArray(k) ? k[4] : (k.close ?? k.c));
+                    const volume = toKlineVolumeNumber(Array.isArray(k) ? k[5] : (k.volume ?? k.v));
+                    if (!Number.isFinite(openTime) || !Number.isFinite(open) || !Number.isFinite(high) ||
+                        !Number.isFinite(low) || !Number.isFinite(close) || !Number.isFinite(volume)) {
+                        return;
+                    }
+                    rows.push({ time: openTime, open, high, low, close, volume });
                 });
+
+                if (rows.length === 0) {
+                    log('warn', '历史K线数据格式异常，等待实时成交生成...');
+                    showEmptyKlineChart();
+                    return;
+                }
+
+                rows.sort((a, b) => a.time - b.time);
+
+                const candleData = rows.map(item => ({
+                    time: item.time,
+                    open: item.open,
+                    high: item.high,
+                    low: item.low,
+                    close: item.close
+                }));
+                const volumeData = rows.map(item => ({
+                    time: item.time,
+                    value: item.volume,
+                    color: item.close >= item.open ? 'rgba(63, 185, 80, 0.5)' : 'rgba(248, 81, 73, 0.5)'
+                }));
                 
                 // 设置数据
                 klineSeries.setData(candleData);
@@ -2446,12 +2813,17 @@
                 
                 // 更新当前价格
                 const lastCandle = candleData[candleData.length - 1];
+                lastKlineTimeMap.set(interval, lastCandle.time);
                 lastKlinePrice = lastCandle.close;
                 updateKlinePriceDisplay(lastCandle.close, lastCandle.close);
                 
-                log('success', `已加载 ${klines.length} 根真实K线数据`);
+                log('success', `已加载 ${candleData.length} 根真实K线数据`);
                 
             } catch (err) {
+                // 周期切换导致的旧请求报错直接忽略
+                if (fetchSeq !== klineFetchSeq || interval !== currentKlineInterval) {
+                    return;
+                }
                 log('warn', `历史K线暂未就绪: ${err.message}，等待WebSocket实时数据...`);
                 showEmptyKlineChart();
             }
@@ -2465,6 +2837,7 @@
             if (klineVolumeSeries) {
                 klineVolumeSeries.setData([]);
             }
+            lastKlineTimeMap.set(currentKlineInterval, 0);
             // 显示当前价格（从盘口获取）
             const price = currentOrderBook.bids[0] ? 
                 parseFloat(currentOrderBook.bids[0][0]) / 1e8 : 0;
@@ -2479,31 +2852,55 @@
         }
         
         function updateKline(data) {
-            if (!data || !data.k || !klineSeries) return;
+            if (!data || !data.k || !klineSeries || !klineVolumeSeries) return;
             
             const k = data.k;
             
             // 只处理当前周期的K线
             if (k.i !== currentKlineInterval) return;
+
+            const candleTime = toKlineTimeSeconds(k.t ?? k.openTime ?? k.time);
+            const open = toKlinePriceNumber(k.o ?? k.open);
+            const high = toKlinePriceNumber(k.h ?? k.high);
+            const low = toKlinePriceNumber(k.l ?? k.low);
+            const close = toKlinePriceNumber(k.c ?? k.close);
+            const volumeValue = toKlineVolumeNumber(k.v ?? k.volume);
+            if (!Number.isFinite(candleTime) || !Number.isFinite(open) || !Number.isFinite(high) ||
+                !Number.isFinite(low) || !Number.isFinite(close) || !Number.isFinite(volumeValue)) {
+                return;
+            }
+
+            const lastTime = lastKlineTimeMap.get(k.i) || 0;
+            if (lastTime > 0 && candleTime < lastTime) {
+                // 忽略旧桶，避免 LightweightCharts 抛出 oldest data 错误
+                return;
+            }
             
             const candle = {
-                time: Math.floor(k.t / 1000),
-                open: formatPrice(k.o),
-                high: formatPrice(k.h),
-                low: formatPrice(k.l),
-                close: formatPrice(k.c)
+                time: candleTime,
+                open: open,
+                high: high,
+                low: low,
+                close: close
             };
             
             const volume = {
-                time: Math.floor(k.t / 1000),
-                value: formatQty(k.v),
-                color: k.c >= k.o ? 'rgba(63, 185, 80, 0.5)' : 'rgba(248, 81, 73, 0.5)'
+                time: candleTime,
+                value: volumeValue,
+                color: close >= open ? 'rgba(63, 185, 80, 0.5)' : 'rgba(248, 81, 73, 0.5)'
             };
             
             // 更新图表
-            klineSeries.update(candle);
-            klineVolumeSeries.update(volume);
+            try {
+                klineSeries.update(candle);
+                klineVolumeSeries.update(volume);
+            } catch (err) {
+                log('warn', `K线更新忽略: ${err.message}`);
+                return;
+            }
             
+            lastKlineTimeMap.set(k.i, candleTime);
+
             // 更新当前价格显示
             updateKlinePriceDisplay(candle.close, lastKlinePrice || candle.open);
             lastKlinePrice = candle.close;
@@ -2526,29 +2923,34 @@
         }
         
         function changeKlineInterval(interval) {
+            const previousInterval = currentKlineInterval;
+            
             // 更新按钮状态
             document.querySelectorAll('.kline-interval-btn').forEach(btn => {
                 btn.classList.toggle('active', btn.dataset.interval === interval);
             });
+
+            if (!interval || interval === previousInterval) {
+                return;
+            }
             
             currentKlineInterval = interval;
             
             // 重新订阅
             if (state.publicWs && state.publicWs.readyState === WebSocket.OPEN) {
-                // 取消旧订阅
-                state.publicWs.send(JSON.stringify({
-                    method: 'UNSUBSCRIBE',
-                    params: [`kline.BTCUSDT.${currentKlineInterval}`],
-                    id: Date.now()
-                }));
-                
+                // 取消旧订阅（必须先记录旧周期，否则会退订到新周期）
+                if (previousInterval) {
+                    state.publicWs.send(JSON.stringify({
+                        method: 'UNSUBSCRIBE',
+                        params: [`kline.BTCUSDT.${previousInterval}`],
+                        id: Date.now()
+                    }));
+                }
                 // 订阅新周期
-                setTimeout(() => {
-                    subscribePublic([`kline.BTCUSDT.${interval}`]);
-                }, 100);
+                subscribePublic([`kline.BTCUSDT.${interval}`]);
             }
             
-            // 重新生成数据
+            // 重新加载当前周期历史数据
             generateInitialKlineData();
             
             log('info', `切换K线周期: ${interval}`);
@@ -2663,11 +3065,22 @@
         }
 
         function normalizePriceNumber(value) {
-            const num = normalizeRawNumber(value);
+            if (value === null || value === undefined || value === '') {
+                return NaN;
+            }
+            const raw = String(value).trim();
+            if (!raw) {
+                return NaN;
+            }
+            const num = Number(raw);
             if (!Number.isFinite(num)) {
                 return NaN;
             }
-            // 价格的 8 位精度 long 一般远大于正常展示价格
+            // 若服务端已返回小数字符串（如 60000.00000000），不再二次缩放
+            if (raw.includes('.') || raw.includes('e') || raw.includes('E')) {
+                return num;
+            }
+            // 兼容纯整数字符串的 8 位精度 long（如 5000000000000 -> 50000）
             if (Number.isInteger(num) && Math.abs(num) >= 100000000) {
                 return num / 100000000;
             }
@@ -2675,11 +3088,22 @@
         }
 
         function normalizeQtyNumber(value) {
-            const num = normalizeRawNumber(value);
+            if (value === null || value === undefined || value === '') {
+                return NaN;
+            }
+            const raw = String(value).trim();
+            if (!raw) {
+                return NaN;
+            }
+            const num = Number(raw);
             if (!Number.isFinite(num)) {
                 return NaN;
             }
-            // 数量可能是混合格式；当值很大且为整数时按 8 位精度转换（兼容 80000000 -> 0.80）
+            // 若服务端已返回小数字符串（如 1939992.00000000），按原始单位显示
+            if (raw.includes('.') || raw.includes('e') || raw.includes('E')) {
+                return num;
+            }
+            // 兼容纯整数字符串的 8 位精度 long（如 100000000 -> 1）
             if (Number.isInteger(num) && Math.abs(num) >= 1000000) {
                 return num / 100000000;
             }

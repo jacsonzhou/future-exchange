@@ -115,10 +115,7 @@ public class MarketDataServiceImpl implements MarketDataService {
      * 获取深度快照
      */
     public OrderBook.DepthSnapshot getDepthSnapshot(String symbol, int limit) {
-        OrderBook orderBook = engineService.getOrderBook(symbol);
-        if (orderBook == null) {
-            return null;
-        }
+        OrderBook orderBook = engineService.getOrCreateOrderBook(symbol);
         return orderBook.getSnapshot(limit);
     }
 

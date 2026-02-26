@@ -10,14 +10,13 @@ import org.apache.kafka.clients.consumer.ConsumerRecords;
 import org.apache.kafka.clients.consumer.KafkaConsumer;
 import org.apache.kafka.common.TopicPartition;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.data.redis.core.RedisTemplate;
-import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Service;
 
 import java.time.Duration;
 import java.util.Collections;
 import java.util.Properties;
-import java.util.UUID;
 import java.util.concurrent.TimeUnit;
 
 /**
@@ -41,14 +40,15 @@ public class ReplayServiceImpl implements ReplayService {
     @Autowired(required = false)
     private RedisTemplate<String, Object> redisTemplate;
     
-    private static final String KAFKA_BOOTSTRAP_SERVERS = "localhost:9092";
     private static final String REPLAY_PROGRESS_KEY_PREFIX = "replay:progress:";
+
+    @Value("${spring.kafka.bootstrap-servers:localhost:9092}")
+    private String kafkaBootstrapServers;
     
     /**
-     * 按Symbol重放（异步）
+     * 按Symbol重放
      */
     @Override
-    @Async
     public String replaySymbol(String symbol) {
         String replayId = "REPLAY_" + symbol + "_" + System.currentTimeMillis();
         
@@ -61,47 +61,43 @@ public class ReplayServiceImpl implements ReplayService {
         try {
             // 1. 创建Kafka Consumer（从头消费）
             KafkaConsumer<String, String> consumer = createReplayConsumer(replayId);
-            
-            // 2. 订阅Topic
-            String topic = "trade-entry-" + symbol;
-            TopicPartition partition = new TopicPartition(topic, 0);
-            consumer.assign(Collections.singletonList(partition));
-            
-            // 3. 从头开始
-            consumer.seekToBeginning(Collections.singletonList(partition));
-            
-            log.info("[ReplayService] Start consuming from beginning, topic={}", topic);
-            
-            // 4. 消费并重放
-            boolean running = true;
-            
-            while (running) {
-                ConsumerRecords<String, String> records = consumer.poll(Duration.ofSeconds(5));
-                
-                if (records.isEmpty()) {
-                    log.info("[ReplayService] No more records, replay completed");
-                    break;
-                }
-                
-                for (ConsumerRecord<String, String> record : records) {
-                    try {
-                        // 解析事件
-                        TradeEntryEvent event = parseEvent(record.value());
-                        
-                        // 重放到AccountSnapshotService
-                        accountSnapshotService.onTradeEntryEvent(event);
-                        
-                        processedCount++;
-                        
-                        // 更新进度
-                        if (processedCount % 100 == 0) {
-                            updateProgress(replayId, processedCount);
-                            log.info("[ReplayService] Replay progress: {}", processedCount);
+
+            // 2. 按 topic 顺序重放（SYSTEM 兼容新旧通道）
+            for (String topic : resolveReplayTopics(symbol)) {
+                TopicPartition partition = new TopicPartition(topic, 0);
+                consumer.assign(Collections.singletonList(partition));
+                consumer.seekToBeginning(Collections.singletonList(partition));
+
+                log.info("[ReplayService] Start consuming from beginning, topic={}", topic);
+
+                while (true) {
+                    ConsumerRecords<String, String> records = consumer.poll(Duration.ofSeconds(5));
+
+                    if (records.isEmpty()) {
+                        log.info("[ReplayService] No more records for topic={}, continue next topic", topic);
+                        break;
+                    }
+
+                    for (ConsumerRecord<String, String> record : records) {
+                        try {
+                            // 解析事件
+                            TradeEntryEvent event = parseEvent(record.value());
+
+                            // 重放到AccountSnapshotService
+                            accountSnapshotService.onTradeEntryEvent(event);
+
+                            processedCount++;
+
+                            // 更新进度
+                            if (processedCount % 100 == 0) {
+                                updateProgress(replayId, processedCount);
+                                log.info("[ReplayService] Replay progress: {}", processedCount);
+                            }
+
+                        } catch (Exception e) {
+                            log.error("[ReplayService] ❌ Replay record error, topic={}, offset={}",
+                                topic, record.offset(), e);
                         }
-                        
-                    } catch (Exception e) {
-                        log.error("[ReplayService] ❌ Replay record error, offset={}", 
-                            record.offset(), e);
                     }
                 }
             }
@@ -126,7 +122,6 @@ public class ReplayServiceImpl implements ReplayService {
      * 按时间区间重放
      */
     @Override
-    @Async
     public String replayRange(String symbol, Long startTs, Long endTs) {
         // TODO: 实现按时间区间过滤
         return replaySymbol(symbol);
@@ -151,7 +146,7 @@ public class ReplayServiceImpl implements ReplayService {
      */
     private KafkaConsumer<String, String> createReplayConsumer(String replayId) {
         Properties props = new Properties();
-        props.put(ConsumerConfig.BOOTSTRAP_SERVERS_CONFIG, KAFKA_BOOTSTRAP_SERVERS);
+        props.put(ConsumerConfig.BOOTSTRAP_SERVERS_CONFIG, kafkaBootstrapServers);
         props.put(ConsumerConfig.GROUP_ID_CONFIG, "replay-" + replayId);
         props.put(ConsumerConfig.KEY_DESERIALIZER_CLASS_CONFIG, 
             "org.apache.kafka.common.serialization.StringDeserializer");
@@ -185,5 +180,17 @@ public class ReplayServiceImpl implements ReplayService {
             );
         }
     }
-}
 
+    /**
+     * SYSTEM 账务事件历史上存在双通道：
+     * - 旧: trade-entry-SYSTEM
+     * - 新: account-entry-SYSTEM
+     * 为兼容历史数据，Replay SYSTEM 时按两个 topic 顺序重放。
+     */
+    private java.util.List<String> resolveReplayTopics(String symbol) {
+        if ("SYSTEM".equalsIgnoreCase(symbol)) {
+            return java.util.List.of("trade-entry-SYSTEM", "account-entry-SYSTEM");
+        }
+        return java.util.List.of("trade-entry-" + symbol);
+    }
+}

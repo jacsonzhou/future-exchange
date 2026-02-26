@@ -155,6 +155,14 @@ public class OmsServiceImpl implements OmsService {
                 order.getQuantity(),
                 request.getLeverage() != null ? request.getLeverage() : 10 // 默认10倍杠杆
             );
+
+            if (requiredMargin.compareTo(BigDecimal.ZERO) <= 0) {
+                log.warn("[OMS] Reject order due to invalid required margin, userId={}, orderId={}, price={}, qty={}, leverage={}, margin={}",
+                    request.getUserId(), orderId, order.getPrice(), order.getQuantity(),
+                    request.getLeverage(), requiredMargin);
+                updateOrderStatus(order, 6, "INVALID_MARGIN", "Invalid margin, check price/quantity scale");
+                throw new OmsException(OmsErrorCode.OMS_4003.getCode(), "数量/价格精度不合法");
+            }
             
             if (ledgerClient != null) {
                 try {
@@ -235,31 +243,48 @@ public class OmsServiceImpl implements OmsService {
                 throw new OmsException(OmsErrorCode.OMS_2002);
             }
             
-            // 4. 解冻保证金（如果订单已冻结）
-            if (order.getFreezeStatus() != null && order.getFreezeStatus() == 1 && ledgerClient != null) {
+            // 4. 解冻剩余保证金：
+            // 优先依赖 freeze_status=1（已冻结），兼容历史数据状态位缺失时按状态兜底。
+            boolean hasFrozenMargin = order.getFreezeStatus() != null && order.getFreezeStatus() == 1;
+            boolean legacyFrozenState = (order.getFreezeStatus() == null || order.getFreezeStatus() == 0)
+                && order.getStatus() != null
+                && (order.getStatus() == 2 || order.getStatus() == 3);
+            if (ledgerClient != null && (hasFrozenMargin || legacyFrozenState)) {
                 try {
+                    BigDecimal remainingQty = order.getRemainingQuantity();
+                    if (remainingQty == null || remainingQty.compareTo(BigDecimal.ZERO) <= 0) {
+                        log.info("[OMS] Skip unfreeze, no remaining quantity, orderId={}", orderId);
+                    } else {
                     // 计算解冻金额：剩余数量 * 价格 / 杠杆
                     BigDecimal unfreezeAmount = calculateRequiredMargin(
                         order.getPrice(),
-                        order.getRemainingQuantity(),
+                        remainingQty,
                         10 // 默认10倍杠杆，实际应该从订单中读取
                     );
-                    
-                    com.exchange.oms.client.LedgerClient.UnfreezeRequest unfreezeRequest = 
-                        new com.exchange.oms.client.LedgerClient.UnfreezeRequest();
-                    unfreezeRequest.setUserId(order.getUserId());
-                    unfreezeRequest.setCurrency("USDT");
-                    unfreezeRequest.setAmount(unfreezeAmount);
-                    unfreezeRequest.setOrderId(orderId);
-                    
-                    ledgerClient.unfreezeMargin(unfreezeRequest);
-                    log.info("[OMS] ✅ Unfreeze margin success, userId={}, amount={}, orderId={}", 
-                        order.getUserId(), unfreezeAmount, orderId);
+
+                        if (unfreezeAmount.compareTo(BigDecimal.ZERO) <= 0) {
+                            log.warn("[OMS] Skip unfreeze, invalid amount, orderId={}, amount={}", orderId, unfreezeAmount);
+                        } else {
+                            com.exchange.oms.client.LedgerClient.UnfreezeRequest unfreezeRequest =
+                                new com.exchange.oms.client.LedgerClient.UnfreezeRequest();
+                            unfreezeRequest.setUserId(order.getUserId());
+                            unfreezeRequest.setCurrency("USDT");
+                            unfreezeRequest.setAmount(unfreezeAmount);
+                            unfreezeRequest.setOrderId(orderId);
+
+                            ledgerClient.unfreezeMargin(unfreezeRequest);
+                            log.info("[OMS] ✅ Unfreeze margin success, userId={}, amount={}, orderId={}",
+                                order.getUserId(), unfreezeAmount, orderId);
+                        }
+                    }
                 } catch (Exception e) {
-                    log.error("[OMS] ❌ Unfreeze margin failed, userId={}, orderId={}", 
+                    log.error("[OMS] ❌ Unfreeze margin failed, userId={}, orderId={}",
                         order.getUserId(), orderId, e);
                     // 解冻失败不影响撤单，记录日志即可
                 }
+            } else if (ledgerClient != null) {
+                log.info("[OMS] Skip unfreeze, no frozen margin marker, orderId={}, status={}, freezeStatus={}",
+                    orderId, order.getStatus(), order.getFreezeStatus());
             }
             
             // 5. 更新状态=CANCELED
@@ -657,12 +682,18 @@ public class OmsServiceImpl implements OmsService {
         if (raw == null || raw.isBlank()) {
             return BigDecimal.ZERO;
         }
-        BigDecimal value = new BigDecimal(raw);
-        if (raw != null && raw.contains(".")) {
-            return value.multiply(SCALE_BD).setScale(0, RoundingMode.HALF_UP);
+        String valueText = raw.trim();
+        BigDecimal value = new BigDecimal(valueText);
+        int dotIndex = valueText.indexOf('.');
+        if (dotIndex < 0) {
+            // 无小数点：按“已缩放整数”处理，避免 10000000(=0.1) 被再次乘 1e8
+            return value.setScale(0, RoundingMode.HALF_UP);
         }
-        if (value.abs().compareTo(SCALE_BD) >= 0) {
-            return value;
+        String fraction = valueText.substring(dotIndex + 1);
+        boolean fractionAllZero = !fraction.isEmpty() && fraction.chars().allMatch(ch -> ch == '0');
+        if (fractionAllZero && value.abs().compareTo(SCALE_BD) >= 0) {
+            // 兼容异常格式：已缩放值被序列化成 xx.0000000000000000
+            return value.setScale(0, RoundingMode.HALF_UP);
         }
         return value.multiply(SCALE_BD).setScale(0, RoundingMode.HALF_UP);
     }

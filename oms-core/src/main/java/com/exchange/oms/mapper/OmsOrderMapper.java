@@ -28,7 +28,12 @@ public interface OmsOrderMapper extends BaseMapper<OmsOrder> {
     /**
      * 更新订单状态（乐观锁）
      */
-    @Update("UPDATE t_order SET status = #{newStatus}, updated_at = #{updatedAt}, version = version + 1 " +
+    @Update("UPDATE t_order SET status = #{newStatus}, " +
+            "freeze_status = CASE " +
+            "  WHEN #{newStatus} = 2 THEN 1 " +
+            "  WHEN #{newStatus} IN (4,5,6) THEN 2 " +
+            "  ELSE freeze_status END, " +
+            "updated_at = #{updatedAt}, version = version + 1 " +
             "WHERE id = #{orderId} AND status = #{oldStatus} AND version = #{version}")
     int updateStatus(
         @Param("orderId") Long orderId,
@@ -42,7 +47,11 @@ public interface OmsOrderMapper extends BaseMapper<OmsOrder> {
      * 更新已成交数量
      */
     @Update("UPDATE t_order SET filled_quantity = filled_quantity + #{delta}, " +
-            "status = #{newStatus}, updated_at = #{updatedAt}, version = version + 1 " +
+            "status = #{newStatus}, " +
+            "freeze_status = CASE " +
+            "  WHEN #{newStatus} IN (4,5,6) THEN 2 " +
+            "  ELSE freeze_status END, " +
+            "updated_at = #{updatedAt}, version = version + 1 " +
             "WHERE id = #{orderId} AND version = #{version}")
     int updateFilledQuantity(
         @Param("orderId") Long orderId,
@@ -51,7 +60,7 @@ public interface OmsOrderMapper extends BaseMapper<OmsOrder> {
         @Param("updatedAt") Long updatedAt,
         @Param("version") Integer version
     );
-    
+
     /**
      * 查询用户的活跃订单
      */
@@ -112,5 +121,3 @@ public interface OmsOrderMapper extends BaseMapper<OmsOrder> {
             "</script>")
     List<OmsOrder> selectByStatuses(@Param("statuses") List<Integer> statuses);
 }
-
-

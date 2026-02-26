@@ -82,45 +82,51 @@ public class SubscriptionManager {
     /**
      * 订阅频道
      */
-    public SubscribeResult subscribe(String sessionId, String channel) {
+    public synchronized SubscribeResult subscribe(String sessionId, String channel) {
         // 检查session是否存在
         if (!connectionManager.exists(sessionId)) {
             return SubscribeResult.error(channel, "Session not found");
         }
-        
-        // 检查订阅数限制
-        Set<String> currentSubs = sessionChannels.get(sessionId);
-        int maxSubs = properties.getSubscription().getMaxSubscriptionsPerSession();
-        if (currentSubs != null && currentSubs.size() >= maxSubs) {
-            return SubscribeResult.error(channel, 
-                    "Subscription limit exceeded: " + maxSubs);
-        }
-        
+
         // 解析频道类型
         ChannelType channelType = ChannelType.fromChannel(channel);
         if (channelType == ChannelType.UNKNOWN) {
             return SubscribeResult.error(channel, "Unknown channel type");
         }
-        
-        // 添加到索引
-        channelSubscribers.computeIfAbsent(channel, k -> ConcurrentHashMap.newKeySet())
-                          .add(sessionId);
-        sessionChannels.computeIfAbsent(sessionId, k -> ConcurrentHashMap.newKeySet())
-                       .add(channel);
-        
-        // 更新计数器
-        totalSubscriptions.incrementAndGet();
-        channelTypeCounts.get(channelType).incrementAndGet();
-        
+
+        Set<String> currentSubs = sessionChannels.computeIfAbsent(sessionId, k -> ConcurrentHashMap.newKeySet());
+
+        // 幂等：重复订阅直接返回成功，但补发快照并确保消费者仍在
+        if (currentSubs.contains(channel)) {
+            kafkaConsumerManager.ensureConsumerStarted(channel);
+            messageDispatcher.sendSnapshot(sessionId, channel);
+            log.debug("[Subscription] {} already subscribed to {}", sessionId, channel);
+            return SubscribeResult.success(channel);
+        }
+
+        // 检查订阅数限制（仅对新订阅生效）
+        int maxSubs = properties.getSubscription().getMaxSubscriptionsPerSession();
+        if (currentSubs.size() >= maxSubs) {
+            return SubscribeResult.error(channel,
+                    "Subscription limit exceeded: " + maxSubs);
+        }
+
+        // 添加到索引（session/channel 双向索引保持一致）
+        Set<String> subscribers = channelSubscribers.computeIfAbsent(channel, k -> ConcurrentHashMap.newKeySet());
+        currentSubs.add(channel);
+        subscribers.add(sessionId);
+
+        incrementCounters(channelType);
+
         // 确保Kafka消费者已启动
         kafkaConsumerManager.ensureConsumerStarted(channel);
-        
+
         // 发送快照
         messageDispatcher.sendSnapshot(sessionId, channel);
-        
+
         log.info("[Subscription] {} subscribed to {} (type: {}), total subs: {}", 
                 sessionId, channel, channelType, totalSubscriptions.get());
-        
+
         return SubscribeResult.success(channel);
     }
 
@@ -136,55 +142,60 @@ public class SubscriptionManager {
     /**
      * 取消订阅
      */
-    public void unsubscribe(String sessionId, String channel) {
+    public synchronized void unsubscribe(String sessionId, String channel) {
+        Set<String> channels = sessionChannels.get(sessionId);
+        if (channels == null || !channels.remove(channel)) {
+            // 未订阅该频道，避免错误扣减计数
+            return;
+        }
+        if (channels.isEmpty()) {
+            sessionChannels.remove(sessionId);
+        }
+
         Set<String> subs = channelSubscribers.get(channel);
         if (subs != null) {
             subs.remove(sessionId);
-            
+
             // 如果没有订阅者，停止Kafka消费者
             if (subs.isEmpty()) {
-                kafkaConsumerManager.stopConsumer(channel);
                 channelSubscribers.remove(channel);
+                kafkaConsumerManager.stopConsumer(channel);
             }
         }
-        
-        Set<String> channels = sessionChannels.get(sessionId);
-        if (channels != null) {
-            channels.remove(channel);
-        }
-        
+
         // 更新计数器
-        totalSubscriptions.decrementAndGet();
         ChannelType channelType = ChannelType.fromChannel(channel);
-        channelTypeCounts.get(channelType).decrementAndGet();
-        
+        decrementCounters(channelType);
+
         log.debug("[Subscription] {} unsubscribed from {}", sessionId, channel);
     }
 
     /**
      * 取消所有订阅
      */
-    public void unsubscribeAll(String sessionId) {
+    public synchronized void unsubscribeAll(String sessionId) {
         Set<String> channels = sessionChannels.remove(sessionId);
-        if (channels != null) {
-            for (String channel : channels) {
-                Set<String> subs = channelSubscribers.get(channel);
-                if (subs != null) {
-                    subs.remove(sessionId);
-                    if (subs.isEmpty()) {
-                        kafkaConsumerManager.stopConsumer(channel);
-                        channelSubscribers.remove(channel);
-                    }
-                }
-                
-                // 更新计数器
-                totalSubscriptions.decrementAndGet();
-                ChannelType channelType = ChannelType.fromChannel(channel);
-                channelTypeCounts.get(channelType).decrementAndGet();
-            }
-            
-            log.info("[Subscription] {} unsubscribed from {} channels", sessionId, channels.size());
+        if (channels == null || channels.isEmpty()) {
+            return;
         }
+
+        int removed = 0;
+        for (String channel : channels) {
+            Set<String> subs = channelSubscribers.get(channel);
+            if (subs != null) {
+                subs.remove(sessionId);
+                if (subs.isEmpty()) {
+                    channelSubscribers.remove(channel);
+                    kafkaConsumerManager.stopConsumer(channel);
+                }
+            }
+
+            ChannelType channelType = ChannelType.fromChannel(channel);
+            decrementCounters(channelType);
+            removed++;
+        }
+
+        log.info("[Subscription] {} unsubscribed from {} channels", sessionId, removed);
     }
 
     /**
@@ -233,5 +244,21 @@ public class SubscriptionManager {
     public int getSubscriberCount(String channel) {
         Set<String> subs = channelSubscribers.get(channel);
         return subs != null ? subs.size() : 0;
+    }
+
+    private void incrementCounters(ChannelType channelType) {
+        totalSubscriptions.incrementAndGet();
+        AtomicInteger typeCounter = channelTypeCounts.get(channelType);
+        if (typeCounter != null) {
+            typeCounter.incrementAndGet();
+        }
+    }
+
+    private void decrementCounters(ChannelType channelType) {
+        totalSubscriptions.updateAndGet(current -> Math.max(0, current - 1));
+        AtomicInteger typeCounter = channelTypeCounts.get(channelType);
+        if (typeCounter != null) {
+            typeCounter.updateAndGet(current -> Math.max(0, current - 1));
+        }
     }
 }

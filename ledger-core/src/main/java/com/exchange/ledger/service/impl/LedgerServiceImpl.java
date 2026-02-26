@@ -630,6 +630,21 @@ public class LedgerServiceImpl implements LedgerService {
     @Transactional(rollbackFor = Exception.class)
     public String createInitialFunding(Long userId, Long accountId, String currency, BigDecimal amount, String reason) {
         log.info("[LedgerService] Create initial funding, userId={}, amount={}", userId, amount);
+
+        String refTradeId = "INIT_" + userId;
+        String userFundingIdempotentKey = String.format("%s:%s:%d:%d",
+            BusinessType.INITIAL_FUNDING.getCode(), refTradeId, userId, AccountType.USER_AVAILABLE.getCode());
+
+        // 幂等保护：如果该用户初始入金已存在，直接返回成功
+        LedgerEntry existingEntry = ledgerEntryMapper.selectOne(
+            new LambdaQueryWrapper<LedgerEntry>()
+                .eq(LedgerEntry::getIdempotentKey, userFundingIdempotentKey)
+        );
+        if (existingEntry != null) {
+            log.warn("[LedgerService] Initial funding already exists, userId={}, entryId={}, idempotentKey={}",
+                userId, existingEntry.getEntryId(), userFundingIdempotentKey);
+            return String.valueOf(existingEntry.getEntryId());
+        }
         
         // 生成分录
         List<LedgerEntry> entries = new ArrayList<>();
@@ -641,7 +656,7 @@ public class LedgerServiceImpl implements LedgerService {
             amount,
             BigDecimal.ZERO,
             BusinessType.INITIAL_FUNDING,
-            "INIT_" + userId,
+            refTradeId,
             accountId
         ));
         
@@ -652,7 +667,7 @@ public class LedgerServiceImpl implements LedgerService {
             BigDecimal.ZERO,
             amount,
             BusinessType.INITIAL_FUNDING,
-            "INIT_" + userId,
+            refTradeId,
             accountId
         ));
         
@@ -660,12 +675,26 @@ public class LedgerServiceImpl implements LedgerService {
         
         // 写入LedgerEntry（批量插入，性能优化）
         if (!entries.isEmpty()) {
-            ledgerEntryMapper.batchInsert(entries);
+            try {
+                ledgerEntryMapper.batchInsert(entries);
+            } catch (DuplicateKeyException e) {
+                // 并发重复写入时，按幂等成功处理
+                LedgerEntry duplicated = ledgerEntryMapper.selectOne(
+                    new LambdaQueryWrapper<LedgerEntry>()
+                        .eq(LedgerEntry::getIdempotentKey, userFundingIdempotentKey)
+                );
+                if (duplicated != null) {
+                    log.warn("[LedgerService] Duplicate initial funding detected, treat as success, userId={}, entryId={}, message={}",
+                        userId, duplicated.getEntryId(), e.getMessage());
+                    return String.valueOf(duplicated.getEntryId());
+                }
+                throw e;
+            }
         }
         
         // 发布事件
         TradeEntryEvent event = new TradeEntryEvent();
-        event.setTradeId("INIT_" + userId);
+        event.setTradeId(refTradeId);
         event.setSymbol("SYSTEM");
         event.setEntries(entries);
         event.setEventTime(System.currentTimeMillis());

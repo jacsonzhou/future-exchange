@@ -427,6 +427,17 @@ public class OrderBook {
     public int getOrderCount() {
         return orderMap.size();
     }
+
+    /**
+     * 查询订单（用于状态回传）。
+     *
+     * 说明：
+     * - 订单仍在 orderMap 中：说明未完全成交（可能是 NEW / PARTIALLY_FILLED）
+     * - 订单不在 orderMap 中：通常说明已完全成交或已撤单
+     */
+    public Order getOrder(Long orderId) {
+        return orderMap.get(orderId);
+    }
     
     /**
      * 🔥 获取订单簿深度数据（供前端展示）

@@ -222,6 +222,11 @@ public class ConnectionManager {
         if (!properties.getRateLimit().getIpConnection().isEnabled()) {
             return true;
         }
+
+        // 本地联调环境允许快速重连，避免浏览器刷新触发 1008 导致“假活”
+        if (isLoopbackIp(clientIp)) {
+            return true;
+        }
         
         int rateLimit = properties.getRateLimit().getIpConnection().getRatePerMinute();
         long now = System.currentTimeMillis();
@@ -234,6 +239,12 @@ public class ConnectionManager {
         
         ipLastConnectionTime.put(clientIp, now);
         return true;
+    }
+
+    private boolean isLoopbackIp(String clientIp) {
+        return "127.0.0.1".equals(clientIp)
+            || "::1".equals(clientIp)
+            || "0:0:0:0:0:0:0:1".equals(clientIp);
     }
 
     /**

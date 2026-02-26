@@ -35,6 +35,9 @@ public class SessionManager {
     
     @Autowired
     private PrivatePushProperties properties;
+
+    @Autowired
+    private SubscriptionManager subscriptionManager;
     
     // SessionId -> SessionMetadata
     private final ConcurrentHashMap<String, SessionMetadata> sessions = new ConcurrentHashMap<>();
@@ -172,6 +175,9 @@ public class SessionManager {
         if (metadata == null) {
             return;
         }
+
+        // 先清理订阅关系，避免断线重连后出现重复推送
+        subscriptionManager.unsubscribeAll(sessionId);
         
         Long userId = metadata.getUserId();
         String clientIp = metadata.getClientIp();

@@ -363,13 +363,6 @@ public class OrderBook {
     public void rebuild(List<long[]> bids, List<long[]> asks, long lastId, long timestamp) {
         writeLock.lock();
         try {
-            long currentLastId = lastUpdateId.get();
-            if (currentLastId > 0 && lastId <= currentLastId) {
-                log.warn("[OrderBook] {} ignore stale snapshot, currentLastUpdateId={}, incomingLastUpdateId={}",
-                        symbol, currentLastId, lastId);
-                return;
-            }
-
             // 清空现有数据
             bidLevels.clear();
             askLevels.clear();
@@ -401,7 +394,7 @@ public class OrderBook {
             lastUpdateId.set(lastId);
             lastMessageOutputTime = timestamp;
             
-            log.info("[OrderBook] {} rebuilt, bids={}, asks={}, lastUpdateId={}", 
+            log.debug("[OrderBook] {} rebuilt, bids={}, asks={}, lastUpdateId={}", 
                     symbol, bidLevels.size(), askLevels.size(), lastId);
         } finally {
             writeLock.unlock();

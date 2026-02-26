@@ -19,7 +19,6 @@ import org.springframework.web.socket.TextMessage;
 import org.springframework.web.socket.WebSocketSession;
 
 import jakarta.annotation.PostConstruct;
-import java.io.IOException;
 import java.util.*;
 import java.util.concurrent.*;
 
@@ -93,9 +92,20 @@ public class MessageDispatcher {
         
         // 启动定时刷新任务
         long flushInterval = properties.getPush().getBatchIntervalMs();
-        flushExecutor.scheduleAtFixedRate(this::scheduledFlush, flushInterval, flushInterval, TimeUnit.MILLISECONDS);
+        flushExecutor.scheduleAtFixedRate(this::safeScheduledFlush, flushInterval, flushInterval, TimeUnit.MILLISECONDS);
         
         log.info("[Dispatcher] Initialized with flush interval: {}ms", flushInterval);
+    }
+
+    /**
+     * 包装定时任务，避免任何运行时异常导致 scheduleAtFixedRate 任务永久停止。
+     */
+    private void safeScheduledFlush() {
+        try {
+            scheduledFlush();
+        } catch (Throwable t) {
+            log.error("[Dispatcher] scheduledFlush failed, keep scheduler alive: {}", t.getMessage(), t);
+        }
     }
 
     /**
@@ -298,8 +308,9 @@ public class MessageDispatcher {
                 wrapper.put("stream", channel);
                 wrapper.put("data", snapshot);
                 wrapper.put("snapshot", true);
-                
-                sendMessage(sessionId, wrapper);
+
+                // 快照首包直接发送，避免被批量封装后客户端无法及时解析。
+                flushImmediately(sessionId, wrapper.toJSONString());
                 
                 // 更新序列号
                 ConnectionMetadata metadata = connectionManager.getMetadata(sessionId);
@@ -342,7 +353,7 @@ public class MessageDispatcher {
             }
             messagesSent.increment();
             
-        } catch (IOException e) {
+        } catch (Exception e) {
             log.error("[Dispatcher] Failed to send message to {}: {}", sessionId, e.getMessage());
         }
     }
@@ -372,6 +383,22 @@ public class MessageDispatcher {
         if (messages.isEmpty()) {
             return;
         }
+
+        // 常见场景下一次只刷出一条，直接下发原始消息可兼容仅支持 stream/data 的客户端。
+        if (messages.size() == 1) {
+            String single = messages.get(0);
+            try {
+                session.sendMessage(new TextMessage(single));
+                ConnectionMetadata metadata = connectionManager.getMetadata(sessionId);
+                if (metadata != null) {
+                    metadata.incrementMessagesSent(single.getBytes().length);
+                }
+                messagesSent.increment();
+            } catch (Exception e) {
+                log.error("[Dispatcher] Failed to send single message to {}: {}", sessionId, e.getMessage(), e);
+            }
+            return;
+        }
         
         // 构建批量消息
         JSONObject batchWrapper = new JSONObject();
@@ -389,8 +416,9 @@ public class MessageDispatcher {
             }
             messagesSent.increment(messages.size());
             
-        } catch (IOException e) {
-            log.error("[Dispatcher] Failed to send batch to {}: {}", sessionId, e.getMessage());
+        } catch (Exception e) {
+            // 包含 IllegalStateException/RuntimeException，避免调度线程被未捕获异常终止
+            log.error("[Dispatcher] Failed to send batch to {}: {}", sessionId, e.getMessage(), e);
         }
     }
 
@@ -442,8 +470,8 @@ public class MessageDispatcher {
                 try {
                     session.sendMessage(new TextMessage(json));
                     messagesSent.increment();
-                } catch (IOException e) {
-                    log.error("[WS-LINK] Failed to send: {}", sessionId);
+                } catch (Exception e) {
+                    log.error("[WS-LINK] Failed to send, sessionId={}, error={}", sessionId, e.getMessage(), e);
                 }
             }
         }
@@ -473,22 +501,19 @@ public class MessageDispatcher {
     private JSONObject fetchDepthSnapshot(String channel) {
         String symbol = extractSymbol(channel);
         String key = "market:snapshot:depth:" + symbol;
-        Object data = redisTemplate.opsForValue().get(key);
-        return data != null ? JSON.parseObject(data.toString()) : null;
+        return fetchSnapshotFromRedis(key);
     }
 
     private JSONObject fetchTickerSnapshot(String channel) {
         String symbol = extractSymbol(channel);
         String key = "market:snapshot:ticker:" + symbol;
-        Object data = redisTemplate.opsForValue().get(key);
-        return data != null ? JSON.parseObject(data.toString()) : null;
+        return fetchSnapshotFromRedis(key);
     }
 
     private JSONObject fetchTradeSnapshot(String channel) {
         String symbol = extractSymbol(channel);
         String key = "market:snapshot:trade:" + symbol;
-        Object data = redisTemplate.opsForValue().get(key);
-        return data != null ? JSON.parseObject(data.toString()) : null;
+        return fetchSnapshotFromRedis(key);
     }
 
     private JSONObject fetchKlineSnapshot(String channel) {
@@ -511,9 +536,45 @@ public class MessageDispatcher {
             }
 
             String key = "market:snapshot:kline:" + symbol + ":" + interval;
-            Object data = redisTemplate.opsForValue().get(key);
-            return data != null ? JSON.parseObject(data.toString()) : null;
+            return fetchSnapshotFromRedis(key);
         }
+        return null;
+    }
+
+    private JSONObject fetchSnapshotFromRedis(String key) {
+        Object data = redisTemplate.opsForValue().get(key);
+        if (data == null) {
+            return null;
+        }
+
+        String raw = data.toString();
+        if (raw == null || raw.isBlank()) {
+            return null;
+        }
+
+        // 正常 JSON 对象
+        try {
+            JSONObject obj = JSON.parseObject(raw);
+            if (obj != null) {
+                return obj;
+            }
+        } catch (Exception ignored) {
+            // 继续尝试双层字符串格式
+        }
+
+        // 兼容 Redis 中存储为 "\"{...}\"" 的双层字符串
+        try {
+            Object parsed = JSON.parse(raw);
+            if (parsed instanceof JSONObject) {
+                return (JSONObject) parsed;
+            }
+            if (parsed instanceof String nested && !nested.isBlank()) {
+                return JSON.parseObject(nested);
+            }
+        } catch (Exception e) {
+            log.warn("[Dispatcher] Failed to parse snapshot from redis, key={}, err={}", key, e.getMessage());
+        }
+
         return null;
     }
 

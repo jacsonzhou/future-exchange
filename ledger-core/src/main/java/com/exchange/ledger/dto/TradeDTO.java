@@ -6,6 +6,7 @@ import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import lombok.Data;
 
 import java.math.BigDecimal;
+import java.math.BigInteger;
 
 /**
  * Trade DTO（从Match Engine接收）
@@ -19,6 +20,7 @@ import java.math.BigDecimal;
 @Data
 @JsonIgnoreProperties(ignoreUnknown = true)
 public class TradeDTO {
+    private static final BigDecimal SCALED_THRESHOLD = new BigDecimal("10000000");
     
     /**
      * 成交ID（全局唯一）
@@ -69,19 +71,7 @@ public class TradeDTO {
      * 用于内部计算，自动转换 Long 为 BigDecimal
      */
     public BigDecimal getPriceAsBigDecimal() {
-        if (price == null) {
-            return null;
-        }
-        if (price instanceof BigDecimal) {
-            return (BigDecimal) price;
-        }
-        if (price instanceof Long) {
-            return Money.toBigDecimal((Long) price);
-        }
-        if (price instanceof Number) {
-            return BigDecimal.valueOf(((Number) price).doubleValue());
-        }
-        throw new IllegalArgumentException("Unsupported price type: " + price.getClass());
+        return toDecimal(price, true, "price");
     }
     
     /**
@@ -89,19 +79,7 @@ public class TradeDTO {
      * 用于内部计算，自动转换 Long 为 BigDecimal
      */
     public BigDecimal getQuantityAsBigDecimal() {
-        if (quantity == null) {
-            return null;
-        }
-        if (quantity instanceof BigDecimal) {
-            return (BigDecimal) quantity;
-        }
-        if (quantity instanceof Long) {
-            return Money.toBigDecimal((Long) quantity);
-        }
-        if (quantity instanceof Number) {
-            return BigDecimal.valueOf(((Number) quantity).doubleValue());
-        }
-        throw new IllegalArgumentException("Unsupported quantity type: " + quantity.getClass());
+        return toDecimal(quantity, true, "quantity");
     }
     
     /**
@@ -142,38 +120,14 @@ public class TradeDTO {
      * 获取 Maker 手续费（BigDecimal）
      */
     public BigDecimal getMakerFeeAsBigDecimal() {
-        if (makerFee == null) {
-            return null;
-        }
-        if (makerFee instanceof BigDecimal) {
-            return (BigDecimal) makerFee;
-        }
-        if (makerFee instanceof Long) {
-            return Money.toBigDecimal((Long) makerFee);
-        }
-        if (makerFee instanceof Number) {
-            return BigDecimal.valueOf(((Number) makerFee).doubleValue());
-        }
-        return null;
+        return toDecimal(makerFee, false, "makerFee");
     }
     
     /**
      * 获取 Taker 手续费（BigDecimal）
      */
     public BigDecimal getTakerFeeAsBigDecimal() {
-        if (takerFee == null) {
-            return null;
-        }
-        if (takerFee instanceof BigDecimal) {
-            return (BigDecimal) takerFee;
-        }
-        if (takerFee instanceof Long) {
-            return Money.toBigDecimal((Long) takerFee);
-        }
-        if (takerFee instanceof Number) {
-            return BigDecimal.valueOf(((Number) takerFee).doubleValue());
-        }
-        return null;
+        return toDecimal(takerFee, false, "takerFee");
     }
     
     /**
@@ -205,4 +159,50 @@ public class TradeDTO {
      */
     @JsonAlias("sequence")
     private Long matchSequence;
+
+    private BigDecimal toDecimal(Object value, boolean strict, String fieldName) {
+        if (value == null) {
+            return null;
+        }
+        if (value instanceof BigDecimal) {
+            return (BigDecimal) value;
+        }
+        if (value instanceof BigInteger) {
+            return Money.toBigDecimal(((BigInteger) value).longValue());
+        }
+        if (value instanceof Long || value instanceof Integer || value instanceof Short || value instanceof Byte) {
+            return Money.toBigDecimal(((Number) value).longValue());
+        }
+        if (value instanceof Float || value instanceof Double) {
+            return BigDecimal.valueOf(((Number) value).doubleValue());
+        }
+        if (value instanceof Number) {
+            return BigDecimal.valueOf(((Number) value).doubleValue());
+        }
+        if (value instanceof String) {
+            String text = ((String) value).trim();
+            if (text.isEmpty()) {
+                return null;
+            }
+            BigDecimal parsed = new BigDecimal(text);
+            if (looksLikeScaledNumber(text, parsed)) {
+                return Money.toBigDecimal(parsed.longValue());
+            }
+            return parsed;
+        }
+        if (strict) {
+            throw new IllegalArgumentException("Unsupported " + fieldName + " type: " + value.getClass());
+        }
+        return null;
+    }
+
+    private boolean looksLikeScaledNumber(String text, BigDecimal value) {
+        int dotIndex = text.indexOf('.');
+        if (dotIndex < 0) {
+            return value.abs().compareTo(SCALED_THRESHOLD) >= 0;
+        }
+        String fraction = text.substring(dotIndex + 1);
+        boolean fractionAllZero = !fraction.isEmpty() && fraction.chars().allMatch(ch -> ch == '0');
+        return fractionAllZero && value.abs().compareTo(SCALED_THRESHOLD) >= 0;
+    }
 }

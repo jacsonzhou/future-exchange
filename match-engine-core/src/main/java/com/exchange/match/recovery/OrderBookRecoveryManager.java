@@ -122,6 +122,16 @@ public class OrderBookRecoveryManager {
         persistSnapshot(latestOrderBook);
     }
 
+    public synchronized void markAppliedSequence(long sequence) {
+        if (sequence > latestAppliedSequence) {
+            latestAppliedSequence = sequence;
+        }
+    }
+
+    public synchronized long getLatestAppliedSequence() {
+        return latestAppliedSequence;
+    }
+
     private SnapshotFile loadSnapshot(OrderBook orderBook) {
         try {
             Path snapshotPath = Paths.get(snapshotFilePath);
@@ -370,4 +380,3 @@ public class OrderBookRecoveryManager {
         private Long createTimeNano;
     }
 }
-

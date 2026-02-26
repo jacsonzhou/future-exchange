@@ -4,6 +4,7 @@ import com.alibaba.fastjson2.JSON;
 import com.alibaba.fastjson2.JSONObject;
 import com.exchange.privatepush.config.PrivatePushProperties;
 import com.exchange.privatepush.model.SessionMetadata;
+import com.exchange.privatepush.service.MessageDispatcher;
 import com.exchange.privatepush.service.SessionManager;
 import com.exchange.privatepush.service.SubscriptionManager;
 import lombok.extern.slf4j.Slf4j;
@@ -50,6 +51,9 @@ public class PrivateWebSocketHandler extends TextWebSocketHandler {
 
     @Autowired
     private com.exchange.privatepush.security.JwtTokenProvider jwtTokenProvider;
+
+    @Autowired
+    private MessageDispatcher messageDispatcher;
     
     /**
      * 连接建立
@@ -257,7 +261,7 @@ public class PrivateWebSocketHandler extends TextWebSocketHandler {
         
         Long seq = json.getLong("seq");
         if (seq != null) {
-            metadata.updateAck(seq);
+            messageDispatcher.handleAck(sessionId, seq);
             log.debug("[WebSocket] ACK received, sessionId={}, seq={}", sessionId, seq);
         }
     }

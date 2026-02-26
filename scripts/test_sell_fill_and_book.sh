@@ -49,6 +49,11 @@ urlencode() {
   jq -rn --arg v "$raw" '$v|@uri'
 }
 
+to_dec8() {
+  local raw_int="$1"
+  awk -v v="$raw_int" 'BEGIN { printf "%.8f", v / 100000000 }'
+}
+
 get_nacos_token() {
   local resp token
   resp=$(curl -sS --max-time 8 -X POST "${NACOS_ADDR}/v1/auth/login" \
@@ -220,6 +225,8 @@ if [[ -z "$MATCH_STATS_URL" ]]; then
 fi
 
 log "Resolved endpoints: API_GATEWAY=${API_GATEWAY}, OMS_BASE=${OMS_BASE}, MATCH_BASE=${MATCH_BASE}"
+PRICE_DEC="$(to_dec8 "$PRICE_INT")"
+QTY_DEC="$(to_dec8 "$QTY_INT")"
 
 log "${YELLOW}[1/8] Login as ${USERNAME}${NC}"
 LOGIN_JSON=$(request_json "POST" "${API_GATEWAY}/api/v1/user/login" "" "{\"username\":\"${USERNAME}\",\"password\":\"${PASSWORD}\"}")
@@ -292,7 +299,7 @@ if [[ "$SEED_BUY_FIRST" == "true" ]]; then
   sleep 1
 fi
 
-log "Submit target ${TARGET_SIDE} order: price=50000 qty=1"
+log "Submit target ${TARGET_SIDE} order: price=${PRICE_DEC} qty=${QTY_DEC}"
 ORDER_ID=$(submit_order "$TARGET_SIDE" "$CLIENT_ORDER_ID" "$IDEMPOTENCY_KEY" "$ORDER_PAYLOAD" "$USER_ID" "$TOKEN")
 log "${GREEN}Order submitted, orderId=${ORDER_ID}${NC}"
 
@@ -351,11 +358,17 @@ if [[ "$FOUND_STATUS" != "FILLED" ]]; then
   log "Query by orderId: ${QUERY_JSON}"
   log "History list: ${HISTORY_JSON}"
   log "Active list: ${ACTIVE_JSON}"
-  if [[ -f "oms-core/logs/oms-core.log" ]]; then
+  if [[ -f "logs/oms-core.log" ]]; then
+    log "OMS log grep(orderId=${ORDER_ID}):"
+    grep -E "orderId=${ORDER_ID}|${ORDER_ID}" logs/oms-core.log | tail -n 20 || true
+  elif [[ -f "oms-core/logs/oms-core.log" ]]; then
     log "OMS log grep(orderId=${ORDER_ID}):"
     grep -E "orderId=${ORDER_ID}|${ORDER_ID}" oms-core/logs/oms-core.log | tail -n 20 || true
   fi
-  if [[ -f "match-engine-core/logs/match-engine.log" ]]; then
+  if [[ -f "logs/match-engine-core.log" ]]; then
+    log "Match log grep(orderId=${ORDER_ID}):"
+    grep -E "orderId=${ORDER_ID}|${ORDER_ID}" logs/match-engine-core.log | tail -n 20 || true
+  elif [[ -f "match-engine-core/logs/match-engine.log" ]]; then
     log "Match log grep(orderId=${ORDER_ID}):"
     grep -E "orderId=${ORDER_ID}|${ORDER_ID}" match-engine-core/logs/match-engine.log | tail -n 20 || true
   fi
@@ -419,15 +432,28 @@ COUNT_AFTER=$(safe_jq "$STATS_AFTER" '.orderCount')
 log "Stats after: ${STATS_AFTER}"
 
 log "${YELLOW}[8/8] Validate trade output and OMS state update from logs${NC}"
-MATCH_LOG="match-engine-core/logs/match-engine.log"
-OMS_LOG="oms-core/logs/oms-core.log"
+MATCH_LOG=""
+for candidate in "logs/match-engine-core.log" "match-engine-core/logs/match-engine.log" "logs/match-engine.log"; do
+  if [[ -f "$candidate" ]]; then
+    MATCH_LOG="$candidate"
+    break
+  fi
+done
+
+OMS_LOG=""
+for candidate in "logs/oms-core.log" "oms-core/logs/oms-core.log" "logs/oms.log"; do
+  if [[ -f "$candidate" ]]; then
+    OMS_LOG="$candidate"
+    break
+  fi
+done
 
 MATCH_HIT=""
 OMS_HIT=""
-if [[ -f "$MATCH_LOG" ]]; then
+if [[ -n "$MATCH_LOG" ]]; then
   MATCH_HIT=$(grep -E "orderId=${ORDER_ID}|${ORDER_ID}" "$MATCH_LOG" | tail -n 5 || true)
 fi
-if [[ -f "$OMS_LOG" ]]; then
+if [[ -n "$OMS_LOG" ]]; then
   OMS_HIT=$(grep -E "orderId=${ORDER_ID}|${ORDER_ID}" "$OMS_LOG" | tail -n 8 || true)
 fi
 

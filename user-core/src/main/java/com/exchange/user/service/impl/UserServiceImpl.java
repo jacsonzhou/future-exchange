@@ -79,17 +79,8 @@ public class UserServiceImpl implements UserService {
         accountMapper.insert(account);
         log.info("[UserService] Trading account created, accountId: {}", account.getId());
 
-        // 4. 初始化资金
-        if (initialFundingEnabled) {
-            try {
-                initUserFunding(user.getId(), account.getId());
-                accountMapper.markAsFunded(account.getId());
-                log.info("[UserService] Initial funding completed for accountId: {}", account.getId());
-            } catch (Exception e) {
-                log.error("[UserService] Failed to initialize funding, accountId: {}", account.getId(), e);
-                // 资金初始化失败不影响注册成功，用户可以后续再申请
-            }
-        }
+        // 4. 初始化资金（失败后允许登录阶段补偿）
+        ensureInitialFundingIfNeeded(user, account, "REGISTER");
 
         // 5. 构建响应
         UserResponse response = new UserResponse();
@@ -124,14 +115,19 @@ public class UserServiceImpl implements UserService {
                 "INITIAL_FUNDING"
         );
 
-        Result<LedgerClient.InitialFundingResponse> result = ledgerClient.createInitialFunding(request);
-        
-        if (result.getCode() != 200) {
-            throw new RuntimeException("Failed to create initial funding: " + result.getMessage());
+        LedgerClient.InitialFundingResponse response = ledgerClient.createInitialFunding(request);
+        if (response == null) {
+            throw new RuntimeException("Failed to create initial funding: empty response");
+        }
+        if (response.status != null && !"SUCCESS".equalsIgnoreCase(response.status)) {
+            throw new RuntimeException("Failed to create initial funding: status=" + response.status);
+        }
+        if (response.entryId == null || response.entryId.isBlank()) {
+            throw new RuntimeException("Failed to create initial funding: missing entryId");
         }
 
         log.info("[UserService] Funding initialized, entryId: {}, finalBalance: {}",
-                result.getData().entryId, result.getData().finalBalance);
+                response.entryId, response.finalBalance);
     }
 
     @Override
@@ -165,16 +161,19 @@ public class UserServiceImpl implements UserService {
         // 5. 查询默认账户
         TradingAccount account = accountMapper.selectDefaultByUserId(user.getId());
 
-        // 6. 生成JWT Token
+        // 6. 初始资金补偿（处理注册时 ledger-core 不可用的场景）
+        ensureInitialFundingIfNeeded(user, account, "LOGIN");
+
+        // 7. 生成JWT Token
         String token = jwtUtil.generateToken(user.getId(), user.getUsername(), 
                 account != null ? account.getId() : null);
 
-        // 7. 存储Token到Redis（分布式会话）
+        // 8. 存储Token到Redis（分布式会话）
         String deviceType = getDeviceType(httpRequest);
         TokenManager.DeviceInfo deviceInfo = buildDeviceInfo(httpRequest);
         tokenManager.storeToken(user.getId(), token, deviceType, deviceInfo);
 
-        // 8. 构建响应
+        // 9. 构建响应
         UserResponse response = new UserResponse();
         response.setUserId(user.getId());
         response.setUsername(user.getUsername());
@@ -189,6 +188,79 @@ public class UserServiceImpl implements UserService {
 
         log.info("[UserService] User login success, userId: {}, deviceType: {}", user.getId(), deviceType);
         return Result.success(response);
+    }
+
+    /**
+     * 确保账户已完成初始资金初始化。
+     *
+     * 设计目标：
+     * 1. 注册阶段失败时不丢失补偿机会（如 ledger-core 短暂不可用）
+     * 2. 登录阶段自动补偿，修复 is_funded=0 的历史账户
+     */
+    private void ensureInitialFundingIfNeeded(User user, TradingAccount account, String trigger) {
+        if (!Boolean.TRUE.equals(initialFundingEnabled)) {
+            return;
+        }
+        if (user == null || user.getId() == null || account == null || account.getId() == null) {
+            return;
+        }
+
+        // 兜底刷新：避免并发请求使用了过期的 funded 状态
+        TradingAccount latestAccount = accountMapper.selectById(account.getId());
+        if (latestAccount != null) {
+            account.setFunded(latestAccount.getFunded());
+        }
+        if (Boolean.TRUE.equals(account.getFunded())) {
+            return;
+        }
+
+        log.warn("[UserService] Account funding not completed, start compensation, trigger={}, userId={}, accountId={}",
+                trigger, user.getId(), account.getId());
+
+        try {
+            initUserFunding(user.getId(), account.getId());
+            accountMapper.markAsFunded(account.getId());
+            account.setFunded(true);
+            log.info("[UserService] Account funding compensation success, trigger={}, userId={}, accountId={}",
+                    trigger, user.getId(), account.getId());
+        } catch (Exception e) {
+            // 并发登录场景：可能另一条请求已完成补偿并更新 is_funded
+            TradingAccount latestInDb = accountMapper.selectById(account.getId());
+            if (latestInDb != null && Boolean.TRUE.equals(latestInDb.getFunded())) {
+                account.setFunded(true);
+                log.info("[UserService] Account already funded by concurrent request, trigger={}, userId={}, accountId={}",
+                        trigger, user.getId(), account.getId());
+                return;
+            }
+
+            // 幂等键冲突说明账本已写入成功，仅 user-core 的 funded 标记未更新
+            if (isInitialFundingAlreadyApplied(e)) {
+                accountMapper.markAsFunded(account.getId());
+                account.setFunded(true);
+                log.warn("[UserService] Initial funding already exists in ledger, mark account funded, trigger={}, userId={}, accountId={}",
+                        trigger, user.getId(), account.getId());
+                return;
+            }
+            log.error("[UserService] Account funding compensation failed, trigger={}, userId={}, accountId={}",
+                    trigger, user.getId(), account.getId(), e);
+        }
+    }
+
+    private boolean isInitialFundingAlreadyApplied(Throwable throwable) {
+        Throwable current = throwable;
+        while (current != null) {
+            String message = current.getMessage();
+            if (message != null) {
+                String lower = message.toLowerCase();
+                if ((lower.contains("duplicate") && lower.contains("idempotent"))
+                        || lower.contains("uk_idempotent")
+                        || (lower.contains("duplicate") && lower.contains("init_"))) {
+                    return true;
+                }
+            }
+            current = current.getCause();
+        }
+        return false;
     }
 
     /**

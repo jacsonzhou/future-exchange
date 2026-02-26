@@ -79,6 +79,11 @@ public class MatchingProcessor implements EventHandler<MatchEvent> {
      * 最近处理的事件序列号（用于深度心跳快照）
      */
     private AtomicLong lastProcessedSequence = new AtomicLong(0);
+
+    /**
+     * 全局序列基线（用于进程重启后延续序列，避免恢复场景序号回退）
+     */
+    private final AtomicLong sequenceBase = new AtomicLong(0);
     
     /**
      * 每N个事件发送一次深度数据
@@ -92,6 +97,13 @@ public class MatchingProcessor implements EventHandler<MatchEvent> {
             OrderBookRecoveryManager.RecoveryStats stats = recoveryManager.recover(orderBook);
             log.info("[MatchingProcessor] Recovery stats: snapshotLoaded={}, replayed={}, recoveredOrders={}, durationMs={}",
                 stats.isSnapshotLoaded(), stats.getReplayCommands(), stats.getRecoveredOrderCount(), stats.getDurationMs());
+
+            long recoveredBase = stats.getSnapshotSequence() + stats.getReplayCommands();
+            sequenceBase.set(recoveredBase);
+            lastProcessedSequence.set(recoveredBase);
+            lastDepthPublishSequence.set(recoveredBase);
+            recoveryManager.markAppliedSequence(recoveredBase);
+            log.info("[MatchingProcessor] Sequence base initialized, baseSeq={}", recoveredBase);
         }
 
         if (orderPoolEnabled) {
@@ -117,25 +129,29 @@ public class MatchingProcessor implements EventHandler<MatchEvent> {
             }
             
             String eventType = event.getOrderCommand().getEventType();
+            long globalSequence = sequenceBase.get() + sequence + 1;
             
-            log.debug("[MatchingProcessor] Process event, type={}, seq={}, orderId={}",
-                eventType, sequence, event.getOrderCommand().getOrderId());
+            log.debug("[MatchingProcessor] Process event, type={}, seq={}, globalSeq={}, orderId={}",
+                eventType, sequence, globalSequence, event.getOrderCommand().getOrderId());
             
             switch (eventType) {
                 case "ORDER_SUBMIT":
-                    handleSubmit(event.getOrderCommand(), sequence);
+                    handleSubmit(event.getOrderCommand(), globalSequence);
                     break;
                 case "ORDER_CANCEL":
-                    handleCancel(event.getOrderCommand(), sequence);
+                    handleCancel(event.getOrderCommand(), globalSequence);
                     break;
                 case "ORDER_FORCE_CANCEL":
-                    handleForceCancel(event.getOrderCommand(), sequence);
+                    handleForceCancel(event.getOrderCommand(), globalSequence);
                     break;
                 default:
                     log.warn("[MatchingProcessor] Unknown event type: {}", eventType);
             }
 
-            lastProcessedSequence.set(sequence);
+            lastProcessedSequence.accumulateAndGet(globalSequence, Math::max);
+            if (recoveryManager != null) {
+                recoveryManager.markAppliedSequence(globalSequence);
+            }
             
         } catch (Exception e) {
             log.error("[MatchingProcessor] Process event error, seq={}", sequence, e);
@@ -164,8 +180,8 @@ public class MatchingProcessor implements EventHandler<MatchEvent> {
             tradePublisher.publishTrade(trade);
         }
 
-        // 发布订单状态事件
-        publishOrderState(order, trades);
+        // 发布订单状态事件（taker + makers）
+        publishOrderStates(order, trades);
         
         // 🔥 发布深度数据
         // 策略1：每N个事件发送一次（控制频率）
@@ -294,45 +310,76 @@ public class MatchingProcessor implements EventHandler<MatchEvent> {
      * - 避免 10000000（0.10）被误解释为 10000000，导致成交数量和百分比异常
      */
     private BigDecimal normalizeFromCommand(String raw) {
-        BigDecimal value = new BigDecimal(raw);
-        if (raw.indexOf('.') < 0) {
+        String valueText = raw == null ? "" : raw.trim();
+        BigDecimal value = new BigDecimal(valueText);
+        int dotIndex = valueText.indexOf('.');
+        if (dotIndex < 0) {
             return value.divide(MONEY_SCALE, 8, RoundingMode.HALF_UP);
         }
+
+        String fraction = valueText.substring(dotIndex + 1);
+        boolean fractionAllZero = !fraction.isEmpty() && fraction.chars().allMatch(ch -> ch == '0');
+        if (fractionAllZero && value.abs().compareTo(MONEY_SCALE) >= 0) {
+            // 兼容异常格式：已缩放整数被序列化成 xx.0000000000000000
+            return value.divide(MONEY_SCALE, 8, RoundingMode.HALF_UP);
+        }
+
         return value;
     }
     
     /**
      * 发布订单状态
      */
-    private void publishOrderState(Order order, List<Trade> trades) {
-        OrderStateEvent stateEvent = new OrderStateEvent();
-        stateEvent.setEventId(generateEventId(order.getSequence()));
-        stateEvent.setSymbol(order.getSymbol());
-        stateEvent.setOrderId(order.getOrderId());
-        
-        // 计算成交增量
-        BigDecimal filledDelta = BigDecimal.ZERO;
+    private void publishOrderStates(Order takerOrder, List<Trade> trades) {
+        Map<Long, BigDecimal> filledDeltaByOrder = new HashMap<>();
+        // taker 一定要发状态（即便无成交也要发 NEW）
+        filledDeltaByOrder.put(takerOrder.getOrderId(), BigDecimal.ZERO);
+
+        // 聚合本次撮合中每个订单的成交增量（maker/taker 都统计）
         for (Trade trade : trades) {
-            if (trade.getMakerOrderId().equals(order.getOrderId()) ||
-                trade.getTakerOrderId().equals(order.getOrderId())) {
-                filledDelta = filledDelta.add(trade.getQuantity());
+            if (trade.getTakerOrderId() != null) {
+                filledDeltaByOrder.merge(trade.getTakerOrderId(), trade.getQuantity(), BigDecimal::add);
+            }
+            if (trade.getMakerOrderId() != null) {
+                filledDeltaByOrder.merge(trade.getMakerOrderId(), trade.getQuantity(), BigDecimal::add);
             }
         }
-        stateEvent.setFilledQuantityDelta(filledDelta);
-        
-        // 确定状态
-        if (order.isFullyFilled()) {
-            stateEvent.setStatus("FILLED");
-        } else if (order.getFilledQuantity().compareTo(BigDecimal.ZERO) > 0) {
-            stateEvent.setStatus("PARTIALLY_FILLED");
-        } else {
-            stateEvent.setStatus("NEW");
+
+        long eventTime = System.currentTimeMillis();
+        for (Map.Entry<Long, BigDecimal> entry : filledDeltaByOrder.entrySet()) {
+            Long orderId = entry.getKey();
+            BigDecimal filledDelta = entry.getValue() != null ? entry.getValue() : BigDecimal.ZERO;
+
+            OrderStateEvent stateEvent = new OrderStateEvent();
+            stateEvent.setEventId(generateEventId(takerOrder.getSequence()) + "-" + orderId);
+            stateEvent.setSymbol(takerOrder.getSymbol());
+            stateEvent.setOrderId(orderId);
+            stateEvent.setFilledQuantityDelta(filledDelta);
+            stateEvent.setMatchSequence(takerOrder.getSequence());
+            stateEvent.setEventTime(eventTime);
+
+            if (orderId.equals(takerOrder.getOrderId())) {
+                if (takerOrder.isFullyFilled()) {
+                    stateEvent.setStatus("FILLED");
+                } else if (filledDelta.compareTo(BigDecimal.ZERO) > 0) {
+                    stateEvent.setStatus("PARTIALLY_FILLED");
+                } else {
+                    stateEvent.setStatus("NEW");
+                }
+            } else {
+                // maker 订单：不存在于 orderBook 说明本轮已被完全吃掉
+                Order makerOrder = orderBook.getOrder(orderId);
+                if (filledDelta.compareTo(BigDecimal.ZERO) <= 0) {
+                    stateEvent.setStatus("NEW");
+                } else if (makerOrder == null) {
+                    stateEvent.setStatus("FILLED");
+                } else {
+                    stateEvent.setStatus("PARTIALLY_FILLED");
+                }
+            }
+
+            tradePublisher.publishOrderState(stateEvent);
         }
-        
-        stateEvent.setMatchSequence(order.getSequence());
-        stateEvent.setEventTime(System.currentTimeMillis());
-        
-        tradePublisher.publishOrderState(stateEvent);
     }
     
     /**

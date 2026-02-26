@@ -49,6 +49,7 @@ import java.math.RoundingMode;
 @Component
 public class OrderStateConsumer {
     private static final BigDecimal SCALE_BD = BigDecimal.valueOf(100_000_000L);
+    private static final int DEFAULT_LEVERAGE = 10;
     
     @Autowired
     private OmsOrderMapper orderMapper;
@@ -61,6 +62,9 @@ public class OrderStateConsumer {
     
     @Autowired
     private OrderStatePushPublisher orderStatePushPublisher;
+
+    @Autowired(required = false)
+    private com.exchange.oms.client.LedgerClient ledgerClient;
     
     /**
      * 消费订单状态事件（来自Match Engine）
@@ -179,6 +183,10 @@ public class OrderStateConsumer {
                     // 记录状态变更日志
                     recordStateLog(orderId, order.getUserId(), oldStatus, newStatus, 
                         "MATCH_ENGINE_REPORT", "Match engine reported: " + status);
+
+                    if (effectiveFilledDelta.compareTo(BigDecimal.ZERO) > 0) {
+                        releaseFrozenMarginForFill(order, effectiveFilledDelta);
+                    }
                     
                     log.info("[OrderStateConsumer] ✅ Order state updated, orderId={}, {}→{}, filled={}",
                         orderId, mapStatusName(oldStatus), mapStatusName(newStatus), newFilledQty);
@@ -205,7 +213,10 @@ public class OrderStateConsumer {
                 if (updated == 0) {
                     log.warn("[OrderStateConsumer] ⚠️ Order filled quantity update failed (version conflict?), orderId={}", 
                         orderId);
+                    return;
                 }
+
+                releaseFrozenMarginForFill(order, effectiveFilledDelta);
                 
                 log.info("[OrderStateConsumer] ✅ Order filled quantity updated, orderId={}, filled={}",
                     orderId, newFilledQty);
@@ -323,13 +334,65 @@ public class OrderStateConsumer {
         stateLogMapper.insert(stateLog);
     }
 
-    private BigDecimal normalizeToScaled(String raw) {
-        BigDecimal value = new BigDecimal(raw);
-        if (raw != null && raw.contains(".")) {
-            return value.multiply(SCALE_BD).setScale(0, RoundingMode.HALF_UP);
+    private void releaseFrozenMarginForFill(OmsOrder order, BigDecimal filledQuantityDelta) {
+        if (ledgerClient == null) {
+            return;
         }
-        if (value.abs().compareTo(SCALE_BD) >= 0) {
-            return value;
+        if (order == null || order.getPrice() == null || filledQuantityDelta == null) {
+            return;
+        }
+        if (filledQuantityDelta.compareTo(BigDecimal.ZERO) <= 0) {
+            return;
+        }
+
+        try {
+            BigDecimal unfreezeAmount = calculateRequiredMargin(order.getPrice(), filledQuantityDelta, DEFAULT_LEVERAGE);
+            if (unfreezeAmount.compareTo(BigDecimal.ZERO) <= 0) {
+                return;
+            }
+
+            com.exchange.oms.client.LedgerClient.UnfreezeRequest unfreezeRequest =
+                new com.exchange.oms.client.LedgerClient.UnfreezeRequest();
+            unfreezeRequest.setUserId(order.getUserId());
+            unfreezeRequest.setCurrency("USDT");
+            unfreezeRequest.setAmount(unfreezeAmount);
+            unfreezeRequest.setOrderId(order.getId());
+            ledgerClient.unfreezeMargin(unfreezeRequest);
+
+            log.info("[OrderStateConsumer] ✅ Released frozen margin on fill, orderId={}, userId={}, filledDelta={}, unfreezeAmount={}",
+                order.getId(), order.getUserId(), filledQuantityDelta, unfreezeAmount);
+        } catch (Exception e) {
+            log.error("[OrderStateConsumer] ❌ Release frozen margin failed, orderId={}", order.getId(), e);
+        }
+    }
+
+    /**
+     * 计算保证金：price 和 quantity 均为 1e8 缩放后的整数格式。
+     */
+    private BigDecimal calculateRequiredMargin(BigDecimal price, BigDecimal quantity, int leverage) {
+        if (price == null || quantity == null || leverage <= 0) {
+            return BigDecimal.ZERO;
+        }
+        BigDecimal actualPrice = price.divide(SCALE_BD, 8, RoundingMode.HALF_UP);
+        BigDecimal actualQuantity = quantity.divide(SCALE_BD, 8, RoundingMode.HALF_UP);
+        return actualPrice.multiply(actualQuantity)
+            .divide(BigDecimal.valueOf(leverage), 8, RoundingMode.HALF_UP);
+    }
+
+    private BigDecimal normalizeToScaled(String raw) {
+        if (raw == null || raw.isBlank()) {
+            return BigDecimal.ZERO;
+        }
+        String valueText = raw.trim();
+        BigDecimal value = new BigDecimal(valueText);
+        int dotIndex = valueText.indexOf('.');
+        if (dotIndex < 0) {
+            return value.setScale(0, RoundingMode.HALF_UP);
+        }
+        String fraction = valueText.substring(dotIndex + 1);
+        boolean fractionAllZero = !fraction.isEmpty() && fraction.chars().allMatch(ch -> ch == '0');
+        if (fractionAllZero && value.abs().compareTo(SCALE_BD) >= 0) {
+            return value.setScale(0, RoundingMode.HALF_UP);
         }
         return value.multiply(SCALE_BD).setScale(0, RoundingMode.HALF_UP);
     }

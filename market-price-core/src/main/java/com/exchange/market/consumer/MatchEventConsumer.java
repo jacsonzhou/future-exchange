@@ -199,12 +199,13 @@ public class MatchEventConsumer {
             
             // 解析买盘和卖盘（Match Engine 使用 "b" 和 "a"，旧格式使用 "bids" 和 "asks"）
             List<long[]> bids = parseDepthLevels(event.getJSONArray("b"));
-            if (bids == null || bids.isEmpty()) {
+            // 仅在字段缺失时回退到旧字段，空数组是合法值（表示该侧为空）
+            if (bids == null) {
                 bids = parseDepthLevels(event.getJSONArray("bids"));
             }
             
             List<long[]> asks = parseDepthLevels(event.getJSONArray("a"));
-            if (asks == null || asks.isEmpty()) {
+            if (asks == null) {
                 asks = parseDepthLevels(event.getJSONArray("asks"));
             }
             
