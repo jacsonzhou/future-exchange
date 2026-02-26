@@ -252,7 +252,8 @@ public class BinanceWebSocketClient {
      */
     private String normalizeIntervalForStream(String interval) {
         String normalized = interval.trim();
-        if ("1M".equalsIgnoreCase(normalized)) {
+        // Only monthly interval keeps uppercase "1M"; minute "1m" must remain lowercase.
+        if ("1M".equals(normalized)) {
             return "1M";
         }
         return normalized.toLowerCase(Locale.ROOT);

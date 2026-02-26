@@ -56,6 +56,16 @@ public class BinanceDataPublisher {
     private static final String SNAPSHOT_TICKER_PREFIX = "market:snapshot:ticker:ext:";
     private static final String SNAPSHOT_KLINE_PREFIX = "market:snapshot:kline:ext:";
 
+    // 标准通道兼容（用于未切到 ext.* 订阅的客户端）
+    private static final String STANDARD_TOPIC_DEPTH_PREFIX = "market.depth.";
+    private static final String STANDARD_TOPIC_TRADE_PREFIX = "market.trade.";
+    private static final String STANDARD_TOPIC_TICKER_PREFIX = "market.ticker.";
+    private static final String STANDARD_TOPIC_KLINE_PREFIX = "market.kline.";
+    private static final String STANDARD_SNAPSHOT_DEPTH_PREFIX = "market:snapshot:depth:";
+    private static final String STANDARD_SNAPSHOT_TRADE_PREFIX = "market:snapshot:trade:";
+    private static final String STANDARD_SNAPSHOT_TICKER_PREFIX = "market:snapshot:ticker:";
+    private static final String STANDARD_SNAPSHOT_KLINE_PREFIX = "market:snapshot:kline:";
+
     private static final long SCALE = 100_000_000L;
     private static final BigDecimal SCALE_BD = BigDecimal.valueOf(SCALE);
 
@@ -80,11 +90,13 @@ public class BinanceDataPublisher {
             // 发布到Kafka
             if (config.getKafka().isEnabled()) {
                 kafkaTemplate.send(topic, symbol, json);
+                publishCompatibilityMessage(STANDARD_TOPIC_DEPTH_PREFIX + symbol, symbol, json);
             }
 
             // 更新Redis快照
             redisTemplate.opsForValue().set(REDIS_DEPTH_PREFIX + symbol, json);
             redisTemplate.opsForValue().set(SNAPSHOT_DEPTH_PREFIX + source + ":" + symbol, json);
+            redisTemplate.opsForValue().set(STANDARD_SNAPSHOT_DEPTH_PREFIX + symbol, json);
 
             // 发布到Redis Pub/Sub（向后兼容）
             redisTemplate.convertAndSend("binance:depth:" + symbol, json);
@@ -117,6 +129,7 @@ public class BinanceDataPublisher {
             // 发布到Kafka
             if (config.getKafka().isEnabled()) {
                 kafkaTemplate.send(topic, symbol, json);
+                publishCompatibilityMessage(STANDARD_TOPIC_TRADE_PREFIX + symbol, symbol, json);
             }
 
             // 更新Redis快照（保留最近100条）
@@ -124,6 +137,7 @@ public class BinanceDataPublisher {
             redisTemplate.opsForList().leftPush(redisKey, json);
             redisTemplate.opsForList().trim(redisKey, 0, 99);
             redisTemplate.opsForValue().set(SNAPSHOT_TRADE_PREFIX + source + ":" + symbol, json);
+            redisTemplate.opsForValue().set(STANDARD_SNAPSHOT_TRADE_PREFIX + symbol, json);
 
             // 发布到Redis Pub/Sub
             redisTemplate.convertAndSend("binance:trade:" + symbol, json);
@@ -193,11 +207,13 @@ public class BinanceDataPublisher {
             // 发布到Kafka
             if (config.getKafka().isEnabled()) {
                 kafkaTemplate.send(topic, symbol, json);
+                publishCompatibilityMessage(STANDARD_TOPIC_TICKER_PREFIX + symbol, symbol, json);
             }
 
             // 更新Redis快照
             redisTemplate.opsForValue().set(REDIS_TICKER_PREFIX + symbol, json);
             redisTemplate.opsForValue().set(SNAPSHOT_TICKER_PREFIX + source + ":" + symbol, json);
+            redisTemplate.opsForValue().set(STANDARD_SNAPSHOT_TICKER_PREFIX + symbol, json);
 
             // 发布到Redis
             redisTemplate.convertAndSend("binance:ticker:" + symbol, json);
@@ -226,12 +242,14 @@ public class BinanceDataPublisher {
 
             if (config.getKafka().isEnabled()) {
                 kafkaTemplate.send(topic, symbol, json);
+                publishCompatibilityMessage(STANDARD_TOPIC_KLINE_PREFIX + symbol + "." + interval, symbol, json);
             }
 
             redisTemplate.opsForValue().set(
                     SNAPSHOT_KLINE_PREFIX + source + ":" + symbol + ":" + interval,
                     json
             );
+            redisTemplate.opsForValue().set(STANDARD_SNAPSHOT_KLINE_PREFIX + symbol + ":" + interval, json);
 
             // 兼容已有 binance 命名空间查询
             redisTemplate.opsForValue().set("binance:kline:" + symbol + ":" + interval, json);
@@ -372,6 +390,14 @@ public class BinanceDataPublisher {
         return config.getSource() == null || config.getSource().isBlank()
                 ? "binance"
                 : config.getSource().toLowerCase();
+    }
+
+    private void publishCompatibilityMessage(String topic, String key, String json) {
+        try {
+            kafkaTemplate.send(topic, key, json);
+        } catch (Exception e) {
+            log.warn("[BinancePublisher] Failed to publish compatibility topic {}, key={}", topic, key, e);
+        }
     }
 
     private String formatScaled(long value) {
