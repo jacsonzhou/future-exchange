@@ -201,18 +201,20 @@ public class KafkaConsumerManager {
             if (parts.length >= 4) {
                 String source = parts[2];
                 String symbol = parts[3];
-                return topicConfig.getExtTrade()
+                String topic = topicConfig.getExtTrade()
                         .replace("{source}", source)
                         .replace("{symbol}", symbol);
+                return normalizeExternalTopic(topic, source, "trade", symbol, null);
             }
         } else if (channel.startsWith("depth.ext.")) {
             String[] parts = channel.split("\\.");
             if (parts.length >= 4) {
                 String source = parts[2];
                 String symbol = stripSpeedSuffix(parts[3]);
-                return topicConfig.getExtDepth()
+                String topic = topicConfig.getExtDepth()
                         .replace("{source}", source)
                         .replace("{symbol}", symbol);
+                return normalizeExternalTopic(topic, source, "depth", symbol, null);
             }
         } else if (channel.startsWith("kline.ext.")) {
             String[] parts = channel.split("\\.");
@@ -220,19 +222,21 @@ public class KafkaConsumerManager {
                 String source = parts[2];
                 String symbol = parts[3];
                 String interval = parts[4];
-                return topicConfig.getExtKline()
+                String topic = topicConfig.getExtKline()
                         .replace("{source}", source)
                         .replace("{symbol}", symbol)
                         .replace("{interval}", interval);
+                return normalizeExternalTopic(topic, source, "kline", symbol, interval);
             }
         } else if (channel.startsWith("ticker.ext.")) {
             String[] parts = channel.split("\\.");
             if (parts.length >= 4) {
                 String source = parts[2];
                 String symbol = parts[3];
-                return topicConfig.getExtTicker()
+                String topic = topicConfig.getExtTicker()
                         .replace("{source}", source)
                         .replace("{symbol}", symbol);
+                return normalizeExternalTopic(topic, source, "ticker", symbol, null);
             }
         } else if (channel.startsWith("trade.")) {
             String symbol = channel.substring(6);
@@ -269,6 +273,38 @@ public class KafkaConsumerManager {
         
         // 默认：使用频道名作为Topic后缀
         return "market." + channel;
+    }
+
+    /**
+     * 兼容历史错误模板（market.{type}.ext.{source}.{symbol}），统一回退到标准外部通道：
+     * market.ext.{source}.{type}.{symbol}[.{interval}]
+     */
+    private String normalizeExternalTopic(String configuredTopic, String source, String type, String symbol, String interval) {
+        String canonicalTopic = switch (type) {
+            case "trade" -> String.format("market.ext.%s.trade.%s", source, symbol);
+            case "depth" -> String.format("market.ext.%s.depth.%s", source, symbol);
+            case "ticker" -> String.format("market.ext.%s.ticker.%s", source, symbol);
+            case "kline" -> String.format("market.ext.%s.kline.%s.%s", source, symbol, interval);
+            default -> configuredTopic;
+        };
+
+        if (configuredTopic == null || configuredTopic.isBlank()) {
+            return canonicalTopic;
+        }
+
+        String topic = configuredTopic.trim();
+        if (topic.startsWith("market.ext.")) {
+            return topic;
+        }
+
+        // 避免因历史模板 market.{type}.ext.* 与生产者 market.ext.{source}.{type}.* 不一致导致无消息。
+        if (topic.contains(".ext.")) {
+            log.warn("[KafkaConsumer] Non-standard ext topic template detected: {}, fallback to {}",
+                    topic, canonicalTopic);
+            return canonicalTopic;
+        }
+
+        return topic;
     }
 
     private String stripSpeedSuffix(String symbolToken) {
