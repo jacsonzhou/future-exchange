@@ -78,6 +78,16 @@ public class Trade {
      * Maker是否买方
      */
     private Boolean isMakerBuy;
+
+    /**
+     * Maker 杠杆倍数
+     */
+    private Integer makerLeverage;
+
+    /**
+     * Taker 杠杆倍数
+     */
+    private Integer takerLeverage;
     
     /**
      * 成交时间
@@ -89,4 +99,3 @@ public class Trade {
      */
     private String ext;
 }
-

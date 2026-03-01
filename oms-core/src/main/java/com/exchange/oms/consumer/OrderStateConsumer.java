@@ -346,7 +346,8 @@ public class OrderStateConsumer {
         }
 
         try {
-            BigDecimal unfreezeAmount = calculateRequiredMargin(order.getPrice(), filledQuantityDelta, DEFAULT_LEVERAGE);
+            int leverage = resolveLeverage(order.getLeverage());
+            BigDecimal unfreezeAmount = calculateRequiredMargin(order.getPrice(), filledQuantityDelta, leverage);
             if (unfreezeAmount.compareTo(BigDecimal.ZERO) <= 0) {
                 return;
             }
@@ -377,6 +378,13 @@ public class OrderStateConsumer {
         BigDecimal actualQuantity = quantity.divide(SCALE_BD, 8, RoundingMode.HALF_UP);
         return actualPrice.multiply(actualQuantity)
             .divide(BigDecimal.valueOf(leverage), 8, RoundingMode.HALF_UP);
+    }
+
+    private int resolveLeverage(Integer leverage) {
+        if (leverage == null || leverage <= 0) {
+            return DEFAULT_LEVERAGE;
+        }
+        return leverage;
     }
 
     private BigDecimal normalizeToScaled(String raw) {

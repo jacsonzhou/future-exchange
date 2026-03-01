@@ -77,6 +77,11 @@ public class OmsOrder {
      * 有效期类型
      */
     private String timeInForce;
+
+    /**
+     * 杠杆倍数
+     */
+    private Integer leverage;
     
     /**
      * 风控检查状态 0=未检查 1=通过 2=拒绝
@@ -142,6 +147,5 @@ public class OmsOrder {
         return status == 4 || status == 5 || status == 6;
     }
 }
-
 
 

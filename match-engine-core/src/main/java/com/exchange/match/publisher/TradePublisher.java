@@ -237,6 +237,12 @@ public class TradePublisher {
         if (trade.getTakerUserId() != null) {
             event.put("takerUserId", trade.getTakerUserId());
         }
+        if (trade.getMakerLeverage() != null) {
+            event.put("makerLeverage", trade.getMakerLeverage());
+        }
+        if (trade.getTakerLeverage() != null) {
+            event.put("takerLeverage", trade.getTakerLeverage());
+        }
         
         return event;
     }

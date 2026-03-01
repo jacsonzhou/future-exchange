@@ -54,6 +54,11 @@ public class Order {
      * 数量
      */
     private BigDecimal quantity;
+
+    /**
+     * 杠杆倍数
+     */
+    private Integer leverage;
     
     /**
      * 剩余数量
@@ -159,6 +164,7 @@ public class Order {
         this.priceScaled = null;
         this.price = null;
         this.quantity = null;
+        this.leverage = null;
         this.remainingQuantity = null;
         this.filledQuantity = null;
         this.sequence = null;
@@ -166,4 +172,3 @@ public class Order {
         this.clearListPointers();
     }
 }
-

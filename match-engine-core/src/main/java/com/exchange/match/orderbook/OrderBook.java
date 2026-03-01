@@ -344,6 +344,8 @@ public class OrderBook {
         trade.setPrice(price);
         trade.setQuantity(quantity);
         trade.setIsMakerBuy(makerOrder.isBuy());
+        trade.setMakerLeverage(makerOrder.getLeverage());
+        trade.setTakerLeverage(takerOrder.getLeverage());
         trade.setTradeTime(System.currentTimeMillis());
         
         // 计算手续费（示例：0.1%）

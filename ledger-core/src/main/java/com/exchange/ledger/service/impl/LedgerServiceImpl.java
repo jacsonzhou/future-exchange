@@ -90,12 +90,18 @@ public class LedgerServiceImpl implements LedgerService {
             if (price == null || quantity == null) {
                 throw new IllegalArgumentException("Price or quantity is null");
             }
+
+            // 脏消息防御：maker/taker 缺失会导致分录 user_id 为空并触发无限重试
+            // 该类消息无法入账，直接跳过并提交消费位点，避免阻塞正常交易流水。
+            if (trade.getMakerUserId() == null || trade.getTakerUserId() == null) {
+                log.error("[LedgerService] Skip invalid trade event, tradeId={}, makerUserId={}, takerUserId={}",
+                    trade.getTradeId(), trade.getMakerUserId(), trade.getTakerUserId());
+                return;
+            }
             
-            // 1. 计算成交金额
-            BigDecimal tradeAmount = price.multiply(quantity);
-            
-            // 2. 生成双录分录
-            List<LedgerEntry> entries = generateTradeEntries(trade, tradeAmount);
+            // 1. 生成双录分录
+            List<LedgerEntry> entries = generateTradeEntries(trade, price, quantity);
+            ensureUniqueIdempotentKeys(entries);
             
             // 🔥 幂等性检查：过滤掉已存在的分录
             entries = filterExistingEntries(entries);
@@ -407,8 +413,10 @@ public class LedgerServiceImpl implements LedgerService {
     /**
      * 生成成交分录
      */
-    private List<LedgerEntry> generateTradeEntries(TradeDTO trade, BigDecimal tradeAmount) {
+    private List<LedgerEntry> generateTradeEntries(TradeDTO trade, BigDecimal price, BigDecimal quantity) {
         List<LedgerEntry> entries = new ArrayList<>();
+        BigDecimal makerMarginAmount = calculateMarginByLeverage(price, quantity, trade.getMakerLeverageOrDefault());
+        BigDecimal takerMarginAmount = calculateMarginByLeverage(price, quantity, trade.getTakerLeverageOrDefault());
         
         // Maker分录
         if (trade.getIsMakerBuy()) {
@@ -417,7 +425,7 @@ public class LedgerServiceImpl implements LedgerService {
                 trade.getMakerUserId(),
                 AccountType.USER_AVAILABLE,
                 BigDecimal.ZERO,
-                tradeAmount,
+                makerMarginAmount,
                 BusinessType.TRADE_SETTLE,
                 trade.getTradeId(),
                 trade.getMakerOrderId()
@@ -426,7 +434,7 @@ public class LedgerServiceImpl implements LedgerService {
             entries.add(createEntry(
                 trade.getMakerUserId(),
                 AccountType.USER_POSITION_MARGIN,
-                tradeAmount,
+                makerMarginAmount,
                 BigDecimal.ZERO,
                 BusinessType.TRADE_SETTLE,
                 trade.getTradeId(),
@@ -438,7 +446,7 @@ public class LedgerServiceImpl implements LedgerService {
                 trade.getMakerUserId(),
                 AccountType.USER_POSITION_MARGIN,
                 BigDecimal.ZERO,
-                tradeAmount,
+                makerMarginAmount,
                 BusinessType.TRADE_SETTLE,
                 trade.getTradeId(),
                 trade.getMakerOrderId()
@@ -447,7 +455,7 @@ public class LedgerServiceImpl implements LedgerService {
             entries.add(createEntry(
                 trade.getMakerUserId(),
                 AccountType.USER_AVAILABLE,
-                tradeAmount,
+                makerMarginAmount,
                 BigDecimal.ZERO,
                 BusinessType.TRADE_SETTLE,
                 trade.getTradeId(),
@@ -462,7 +470,7 @@ public class LedgerServiceImpl implements LedgerService {
                 trade.getTakerUserId(),
                 AccountType.USER_AVAILABLE,
                 BigDecimal.ZERO,
-                tradeAmount,
+                takerMarginAmount,
                 BusinessType.TRADE_SETTLE,
                 trade.getTradeId(),
                 trade.getTakerOrderId()
@@ -471,7 +479,7 @@ public class LedgerServiceImpl implements LedgerService {
             entries.add(createEntry(
                 trade.getTakerUserId(),
                 AccountType.USER_POSITION_MARGIN,
-                tradeAmount,
+                takerMarginAmount,
                 BigDecimal.ZERO,
                 BusinessType.TRADE_SETTLE,
                 trade.getTradeId(),
@@ -483,7 +491,7 @@ public class LedgerServiceImpl implements LedgerService {
                 trade.getTakerUserId(),
                 AccountType.USER_POSITION_MARGIN,
                 BigDecimal.ZERO,
-                tradeAmount,
+                takerMarginAmount,
                 BusinessType.TRADE_SETTLE,
                 trade.getTradeId(),
                 trade.getTakerOrderId()
@@ -492,7 +500,7 @@ public class LedgerServiceImpl implements LedgerService {
             entries.add(createEntry(
                 trade.getTakerUserId(),
                 AccountType.USER_AVAILABLE,
-                tradeAmount,
+                takerMarginAmount,
                 BigDecimal.ZERO,
                 BusinessType.TRADE_SETTLE,
                 trade.getTradeId(),
@@ -520,7 +528,7 @@ public class LedgerServiceImpl implements LedgerService {
                 BigDecimal.ZERO,
                 BusinessType.TRADE_FEE,
                 trade.getTradeId(),
-                null
+                trade.getMakerOrderId()
             ));
         }
         
@@ -543,11 +551,55 @@ public class LedgerServiceImpl implements LedgerService {
                 BigDecimal.ZERO,
                 BusinessType.TRADE_FEE,
                 trade.getTradeId(),
-                null
+                trade.getTakerOrderId()
             ));
         }
         
         return entries;
+    }
+
+    /**
+     * 兼容历史 idempotent key 规则，并只在同一批分录发生冲突时做最小化去重。
+     * 这样不会影响已落库历史数据的重放幂等行为。
+     */
+    private void ensureUniqueIdempotentKeys(List<LedgerEntry> entries) {
+        if (entries == null || entries.isEmpty()) {
+            return;
+        }
+        java.util.Map<String, Integer> keyCounter = new java.util.HashMap<>();
+        for (LedgerEntry entry : entries) {
+            if (entry.getIdempotentKey() == null) {
+                continue;
+            }
+            keyCounter.put(entry.getIdempotentKey(), keyCounter.getOrDefault(entry.getIdempotentKey(), 0) + 1);
+        }
+        java.util.Map<String, Integer> seen = new java.util.HashMap<>();
+        for (int i = 0; i < entries.size(); i++) {
+            LedgerEntry entry = entries.get(i);
+            String key = entry.getIdempotentKey();
+            if (key == null) {
+                continue;
+            }
+            Integer total = keyCounter.getOrDefault(key, 0);
+            if (total <= 1) {
+                continue;
+            }
+            int index = seen.getOrDefault(key, 0);
+            seen.put(key, index + 1);
+            String orderPart = (entry.getRefOrderId() == null) ? "NA" : String.valueOf(entry.getRefOrderId());
+            entry.setIdempotentKey(key + ":" + orderPart + ":" + index);
+        }
+    }
+
+    private BigDecimal calculateMarginByLeverage(BigDecimal price, BigDecimal quantity, int leverage) {
+        if (price == null || quantity == null) {
+            return BigDecimal.ZERO;
+        }
+        if (leverage <= 0) {
+            leverage = 10;
+        }
+        BigDecimal notional = price.multiply(quantity);
+        return notional.divide(BigDecimal.valueOf(leverage), 8, java.math.RoundingMode.HALF_UP);
     }
     
     /**
@@ -580,8 +632,9 @@ public class LedgerServiceImpl implements LedgerService {
         entry.setBizSeq(getNextBizSeq());
         
         // 幂等键
-        String idempotentKey = String.format("%s:%s:%d:%d",
-            businessType.getCode(), refTradeId, userId, accountType.getCode());
+        String userPart = (userId == null) ? "null" : String.valueOf(userId);
+        String idempotentKey = String.format("%s:%s:%s:%d",
+            businessType.getCode(), refTradeId, userPart, accountType.getCode());
         entry.setIdempotentKey(idempotentKey);
         
         entry.setCreatedAt(System.currentTimeMillis());

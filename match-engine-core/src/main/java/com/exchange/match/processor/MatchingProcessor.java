@@ -292,12 +292,20 @@ public class MatchingProcessor implements EventHandler<MatchEvent> {
             order.setPrice(normalizeFromCommand(command.getPrice()));
         }
         order.setQuantity(normalizeFromCommand(command.getQuantity()));
+        order.setLeverage(resolveLeverage(command.getLeverage()));
 
         // 初始化成交相关字段
         order.setRemainingQuantity(order.getQuantity());
         order.setFilledQuantity(BigDecimal.ZERO);
 
         return order;
+    }
+
+    private Integer resolveLeverage(Integer leverage) {
+        if (leverage == null || leverage <= 0) {
+            return 10;
+        }
+        return leverage;
     }
 
     /**

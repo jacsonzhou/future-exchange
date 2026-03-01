@@ -59,6 +59,11 @@ public class OrderCommand {
      * 数量
      */
     private String quantity;
+
+    /**
+     * 杠杆倍数
+     */
+    private Integer leverage;
     
     /**
      * 事件时间
@@ -80,5 +85,4 @@ public class OrderCommand {
      */
     private String ext;
 }
-
 

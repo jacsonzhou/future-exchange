@@ -105,6 +105,16 @@ public class TradeDTO {
      */
     @JsonAlias("isBuyerMaker")
     private Boolean isMakerBuy;
+
+    /**
+     * Maker 杠杆倍数（从 OMS 透传，默认 10）
+     */
+    private Integer makerLeverage;
+
+    /**
+     * Taker 杠杆倍数（从 OMS 透传，默认 10）
+     */
+    private Integer takerLeverage;
     
     /**
      * Maker手续费（修复：支持 Long 或 BigDecimal）
@@ -159,6 +169,14 @@ public class TradeDTO {
      */
     @JsonAlias("sequence")
     private Long matchSequence;
+
+    public int getMakerLeverageOrDefault() {
+        return (makerLeverage == null || makerLeverage <= 0) ? 10 : makerLeverage;
+    }
+
+    public int getTakerLeverageOrDefault() {
+        return (takerLeverage == null || takerLeverage <= 0) ? 10 : takerLeverage;
+    }
 
     private BigDecimal toDecimal(Object value, boolean strict, String fieldName) {
         if (value == null) {

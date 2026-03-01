@@ -56,10 +56,14 @@ public class OrderEventCommand implements Serializable {
      * 数量
      */
     private String quantity;
+
+    /**
+     * 杠杆倍数
+     */
+    private Integer leverage;
     
     /**
      * 事件时间
      */
     private Long eventTime;
 }
-
