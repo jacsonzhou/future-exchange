@@ -265,4 +265,37 @@ public class CrossMarginSnapshot {
         long maxLeverage = marginRatio / 100; // 转换为百分比
         return (int) Math.min(maxLeverage, 125); // 最大125倍
     }
+
+    /**
+     * 向后兼容旧字段名（totalBalance）。
+     */
+    public Long getTotalBalance() {
+        return walletBalance;
+    }
+
+    public void setTotalBalance(Long totalBalance) {
+        this.walletBalance = totalBalance;
+    }
+
+    /**
+     * 向后兼容旧字段名（crossMargin）。
+     */
+    public Long getCrossMargin() {
+        return usedMargin;
+    }
+
+    public void setCrossMargin(Long crossMargin) {
+        this.usedMargin = crossMargin;
+    }
+
+    /**
+     * 向后兼容旧字段名（totalPositions）。
+     */
+    public Integer getTotalPositions() {
+        return positionCount;
+    }
+
+    public void setTotalPositions(Integer totalPositions) {
+        this.positionCount = totalPositions;
+    }
 }

@@ -7,6 +7,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.kafka.annotation.KafkaListener;
+import org.springframework.kafka.support.Acknowledgment;
 import org.springframework.kafka.support.KafkaHeaders;
 import org.springframework.messaging.handler.annotation.Header;
 import org.springframework.messaging.handler.annotation.Payload;
@@ -96,7 +97,8 @@ public class TradeEntryEventConsumer {
             @Payload String message,
             @Header(KafkaHeaders.RECEIVED_TOPIC) String topic,
             @Header(KafkaHeaders.RECEIVED_PARTITION) int partition,
-            @Header(KafkaHeaders.OFFSET) long offset
+            @Header(KafkaHeaders.OFFSET) long offset,
+            Acknowledgment acknowledgment
     ) {
         log.info("[TradeEntryConsumer] ⬇️ Receive event, topic={}, partition={}, offset={}",
             topic, partition, offset);
@@ -112,6 +114,9 @@ public class TradeEntryEventConsumer {
             // SYSTEM事件（如冻结/解冻）不影响持仓，直接跳过并提交offset，避免阻塞消费
             if ("SYSTEM".equalsIgnoreCase(event.getSymbol()) || "trade-entry-SYSTEM".equalsIgnoreCase(topic)) {
                 log.debug("[TradeEntryConsumer] Skip system event, topic={}, tradeId={}", topic, event.getTradeId());
+                if (acknowledgment != null) {
+                    acknowledgment.acknowledge();
+                }
                 return;
             }
 
@@ -119,11 +124,18 @@ public class TradeEntryEventConsumer {
             if (!isSymbolAllowed(event.getSymbol())) {
                 log.debug("[TradeEntryConsumer] Skip unsupported symbol event, topic={}, symbol={}, tradeId={}, supported={}",
                     topic, event.getSymbol(), event.getTradeId(), getSymbolList());
+                if (acknowledgment != null) {
+                    acknowledgment.acknowledge();
+                }
                 return;
             }
             
             // 2. 调用Service处理（从账本分录中提取持仓变动）
             positionService.onTradeEntryEvent(event);
+
+            if (acknowledgment != null) {
+                acknowledgment.acknowledge();
+            }
             
             log.info("[TradeEntryConsumer] ✅ Event processed, tradeId={}, offset={}",
                 event.getTradeId(), offset);
@@ -135,6 +147,19 @@ public class TradeEntryEventConsumer {
             // 避免SYSTEM topic 的脏数据卡死消费线程
             if ("trade-entry-SYSTEM".equalsIgnoreCase(topic)) {
                 log.warn("[TradeEntryConsumer] Skip poisoned SYSTEM message, topic={}, offset={}", topic, offset);
+                if (acknowledgment != null) {
+                    acknowledgment.acknowledge();
+                }
+                return;
+            }
+
+            // 持仓估值刷新与成交并发时可能出现乐观锁冲突，跳过本条避免同一offset无限重试
+            if (isVersionConflict(e)) {
+                log.warn("[TradeEntryConsumer] Skip version-conflict message, topic={}, offset={}, tradeId={}",
+                    topic, offset, extractTradeId(message));
+                if (acknowledgment != null) {
+                    acknowledgment.acknowledge();
+                }
                 return;
             }
 
@@ -149,5 +174,25 @@ public class TradeEntryEventConsumer {
             return true;
         }
         return configured.contains(symbol);
+    }
+
+    private boolean isVersionConflict(Throwable throwable) {
+        if (throwable == null) {
+            return false;
+        }
+        String msg = throwable.getMessage();
+        if (msg != null && msg.toLowerCase().contains("version conflict")) {
+            return true;
+        }
+        return isVersionConflict(throwable.getCause());
+    }
+
+    private String extractTradeId(String message) {
+        try {
+            TradeEntryEvent event = objectMapper.readValue(message, TradeEntryEvent.class);
+            return event.getTradeId();
+        } catch (Exception ignore) {
+            return null;
+        }
     }
 }

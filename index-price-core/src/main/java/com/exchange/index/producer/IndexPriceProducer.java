@@ -1,6 +1,7 @@
 package com.exchange.index.producer;
 
 import com.exchange.index.event.IndexPriceUpdateEvent;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
@@ -15,7 +16,10 @@ import org.springframework.stereotype.Component;
 public class IndexPriceProducer {
 
     @Autowired
-    private KafkaTemplate<String, Object> kafkaTemplate;
+    private KafkaTemplate<String, String> kafkaTemplate;
+
+    @Autowired
+    private ObjectMapper objectMapper;
 
     @Value("${index-price.kafka.topic:index-price-update}")
     private String topicName;
@@ -25,7 +29,8 @@ public class IndexPriceProducer {
      */
     public void publishIndexPriceUpdate(IndexPriceUpdateEvent event) {
         try {
-            kafkaTemplate.send(topicName, event.getData().getSymbol(), event);
+            String payload = objectMapper.writeValueAsString(event);
+            kafkaTemplate.send(topicName, event.getData().getSymbol(), payload);
             log.debug("Published index price update: symbol={}, price={}",
                     event.getData().getSymbol(), event.getData().getPrice());
         } catch (Exception e) {

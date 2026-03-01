@@ -98,6 +98,8 @@ public class LedgerServiceImpl implements LedgerService {
                     trade.getTradeId(), trade.getMakerUserId(), trade.getTakerUserId());
                 return;
             }
+
+            validateCfdCounterparty(trade);
             
             // 1. 生成双录分录
             List<LedgerEntry> entries = generateTradeEntries(trade, price, quantity);
@@ -145,6 +147,12 @@ public class LedgerServiceImpl implements LedgerService {
             event.setTakerOrderId(trade.getTakerOrderId());
             event.setMakerFee(trade.getMakerFeeAsBigDecimal());
             event.setTakerFee(trade.getTakerFeeAsBigDecimal());
+            event.setExecutionMode(trade.getExecutionMode());
+            event.setLiquiditySource(trade.getLiquiditySource());
+            event.setDealerAccountId(trade.getDealerAccountId());
+            event.setReferenceTopic(trade.getReferenceTopic());
+            event.setReferenceOffset(trade.getReferenceOffset());
+            event.setReferenceEventTime(trade.getReferenceEventTime());
 
             // 6. 发布事件到Kafka（异步，发完就不管）
             ledgerEventPublisher.publishTradeEntry(event);
@@ -155,6 +163,26 @@ public class LedgerServiceImpl implements LedgerService {
         } catch (Exception e) {
             log.error("[LedgerService] ❌ Apply trade error, tradeId={}", trade.getTradeId(), e);
             throw new RuntimeException("Apply trade failed", e);
+        }
+    }
+
+    private void validateCfdCounterparty(TradeDTO trade) {
+        if (!"CFD_DEALER".equalsIgnoreCase(trade.getExecutionMode())) {
+            return;
+        }
+        Long dealerAccountId = trade.getDealerAccountId();
+        if (dealerAccountId == null) {
+            throw new IllegalArgumentException("CFD trade missing dealerAccountId, tradeId=" + trade.getTradeId());
+        }
+        boolean dealerOnMaker = dealerAccountId.equals(trade.getMakerUserId());
+        boolean dealerOnTaker = dealerAccountId.equals(trade.getTakerUserId());
+        if (!dealerOnMaker && !dealerOnTaker) {
+            throw new IllegalArgumentException(
+                "CFD trade missing dealer counterparty user, tradeId=" + trade.getTradeId() +
+                    ", dealerAccountId=" + dealerAccountId +
+                    ", makerUserId=" + trade.getMakerUserId() +
+                    ", takerUserId=" + trade.getTakerUserId()
+            );
         }
     }
     

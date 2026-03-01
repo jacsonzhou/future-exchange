@@ -50,10 +50,15 @@ $KAFKA_HOME/bin/kafka-topics.sh --create --topic insurance-fund-changed --partit
 
 # 做市商模块
 echo ""
-echo "[5/5] Creating Market Maker topics..."
+echo "[5/6] Creating Market Maker topics..."
 $KAFKA_HOME/bin/kafka-topics.sh --create --topic mm-batch-order --partitions 64 --replication-factor 1 --bootstrap-server $BROKER_LIST 2>/dev/null || echo "  Topic mm-batch-order already exists"
 $KAFKA_HOME/bin/kafka-topics.sh --create --topic mm-fee-rebate --partitions 64 --replication-factor 1 --bootstrap-server $BROKER_LIST 2>/dev/null || echo "  Topic mm-fee-rebate already exists"
 $KAFKA_HOME/bin/kafka-topics.sh --create --topic mm-performance-update --partitions 64 --replication-factor 1 --bootstrap-server $BROKER_LIST 2>/dev/null || echo "  Topic mm-performance-update already exists"
+
+# CFD 模式模块
+echo ""
+echo "[6/6] Creating CFD topics..."
+$KAFKA_HOME/bin/kafka-topics.sh --create --topic cfd-order-command-BTCUSDT --partitions 1 --replication-factor 1 --bootstrap-server $BROKER_LIST 2>/dev/null || echo "  Topic cfd-order-command-BTCUSDT already exists"
 
 echo ""
 echo "=============================================="
@@ -63,4 +68,4 @@ echo "=============================================="
 # 列出所有新创建的topic
 echo ""
 echo "New Topics List:"
-$KAFKA_HOME/bin/kafka-topics.sh --list --bootstrap-server $BROKER_LIST | grep -E "funding|mark-price|tp-sl|margin|adl|insurance|mm-"
+$KAFKA_HOME/bin/kafka-topics.sh --list --bootstrap-server $BROKER_LIST | grep -E "funding|mark-price|tp-sl|margin|adl|insurance|mm-|cfd-order-command"

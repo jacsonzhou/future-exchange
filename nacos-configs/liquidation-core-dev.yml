@@ -1,10 +1,10 @@
 # ============================================
 # Liquidation Core (强平服务) 配置 (dev环境)
-# 端口: 8088
+# 端口: 8102
 # ============================================
 
 server:
-  port: 8088
+  port: 8102
 
 spring:
   application:
@@ -111,7 +111,7 @@ liquidation:
       url: http://position-snapshot-core:8086
       timeout: 3000
     insurance-fund:
-      url: http://adl-core:8090
+      url: http://adl-core:8103
       timeout: 3000
     clearing:
       url: http://ledger-core:8084

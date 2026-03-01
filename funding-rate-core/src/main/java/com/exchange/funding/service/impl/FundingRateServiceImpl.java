@@ -174,7 +174,7 @@ public class FundingRateServiceImpl implements FundingRateService {
                 // 计算资金费用
                 // 资金费用 = 持仓名义价值 × 资金费率
                 // 持仓名义价值 = 持仓数量 × 标记价格
-                long positionValue = Math.multiplyExact(position.getQty(), markPrice) / Money.PRECISION;
+                long positionValue = Math.multiplyExact(position.getQty(), markPrice) / Money.SCALE;
                 long fundingFee = Math.multiplyExact(positionValue, fundingRate) / RATE_PRECISION;
 
                 // 根据持仓方向调整费用符号
@@ -453,7 +453,7 @@ public class FundingRateServiceImpl implements FundingRateService {
             }
         } catch (Exception e) {
             log.error("Failed to get all positions for symbol={}", symbol, e);
-            throw new RuntimeException("Position service unavailable", e);
+            return List.of();
         }
         return List.of();
     }

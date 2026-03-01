@@ -140,3 +140,16 @@ exchange:
   oms:
     # 提交模式：kafka（生产推荐）| feign（降级/测试）
     submit-mode: kafka
+
+# ============================================================
+# CFD 路由配置（C3）
+# ============================================================
+oms:
+  execution:
+    # 默认仍走撮合，按 symbol 做覆盖
+    default-mode: MATCH_ENGINE
+    symbol-mode:
+      BTCUSDT: CFD_DEALER
+  kafka:
+    cfd-order-command:
+      topic-prefix: cfd-order-command-

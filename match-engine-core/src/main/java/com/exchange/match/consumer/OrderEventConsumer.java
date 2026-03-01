@@ -70,7 +70,7 @@ public class OrderEventConsumer {
      * - ORDER_FORCE_CANCEL：强制撤单
      */
     @KafkaListener(
-        topics = "order-events",
+        topicPattern = "${match.kafka.topic.order-pattern:(order-event-.*)|(order-events)}",
         groupId = "match-engine-group",
         concurrency = "1"  // 🔥 单线程消费，保证顺序！
     )

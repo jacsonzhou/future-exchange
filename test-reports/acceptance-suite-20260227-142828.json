@@ -1,0 +1,200 @@
+{
+  "generatedAt": 1772173708524,
+  "durationSec": 144.28,
+  "passed": 6,
+  "failed": 5,
+  "steps": [
+    {
+      "name": "runtime_schema_fix",
+      "ok": true,
+      "message": "Liquidation runtime schema aligned",
+      "details": {
+        "mysqlContainer": "web3-mysql",
+        "completedAtBefore": true,
+        "validatedAtBefore": true,
+        "completedAtAfter": true,
+        "validatedAtAfter": true
+      }
+    },
+    {
+      "name": "service_check",
+      "ok": true,
+      "message": "Required services are listening",
+      "details": {
+        "apiGateway": "http://localhost:8082",
+        "omsBase": "http://localhost:8081",
+        "matchBase": "http://localhost:8083",
+        "positionInternalBase": "http://localhost:8086",
+        "liquidationBase": "http://localhost:8102"
+      }
+    },
+    {
+      "name": "login",
+      "ok": true,
+      "message": "Login success",
+      "details": {
+        "userId": 38,
+        "tokenLen": 176
+      }
+    },
+    {
+      "name": "test_state_reset",
+      "ok": true,
+      "message": "Test account state reset to clean baseline",
+      "details": {
+        "userId": 38,
+        "symbol": "BTCUSDT",
+        "activeOrderCountBefore": 5,
+        "canceledOrders": [
+          {
+            "orderId": "285653580625481728",
+            "finalStatus": "CANCELED",
+            "cancelResponse": {
+              "orderId": null,
+              "status": null,
+              "success": false,
+              "errorCode": "OMS_9003",
+              "errorMessage": "乐观锁冲突"
+            }
+          },
+          {
+            "orderId": "285646862881394688",
+            "finalStatus": "CANCELED",
+            "cancelResponse": {
+              "orderId": "285646862881394688",
+              "status": "CANCELED",
+              "success": true,
+              "errorCode": null,
+              "errorMessage": null
+            }
+          },
+          {
+            "orderId": "285635804603092992",
+            "finalStatus": "CANCELED",
+            "cancelResponse": {
+              "orderId": null,
+              "status": null,
+              "success": false,
+              "errorCode": "OMS_2002",
+              "errorMessage": "订单状态不允许撤单"
+            }
+          },
+          {
+            "orderId": "285633895842451456",
+            "finalStatus": "CANCELED",
+            "cancelResponse": {
+              "orderId": null,
+              "status": null,
+              "success": false,
+              "errorCode": "OMS_2002",
+              "errorMessage": "订单状态不允许撤单"
+            }
+          },
+          {
+            "orderId": "284987508515672064",
+            "finalStatus": "CANCELED",
+            "cancelResponse": {
+              "orderId": "284987508515672064",
+              "status": "CANCELED",
+              "success": true,
+              "errorCode": null,
+              "errorMessage": null
+            }
+          }
+        ],
+        "activeOrderCountAfter": 0,
+        "positionRowsAfter": 0,
+        "liquidationRowsAfter": 0,
+        "liquidationEventRowsAfter": 0
+      }
+    },
+    {
+      "name": "context_snapshot",
+      "ok": true,
+      "message": "Fetched positions and orderbook depth",
+      "details": {
+        "bestBid": "680000.00000000",
+        "bestAsk": "686800.00000000",
+        "activePosition": null,
+        "positionCount": 0
+      }
+    },
+    {
+      "name": "cancel_flow",
+      "ok": true,
+      "message": "Passive order canceled successfully",
+      "details": {
+        "orderId": "285659145657389056",
+        "side": "SELL",
+        "price": "755480.00000000",
+        "cancelResponse": {
+          "orderId": null,
+          "status": null,
+          "success": false,
+          "errorCode": "OMS_9003",
+          "errorMessage": "乐观锁冲突"
+        },
+        "finalStatus": "CANCELED"
+      }
+    },
+    {
+      "name": "fill_flow",
+      "ok": false,
+      "message": "Fill flow failed",
+      "details": {
+        "error": "Aggressive open order not FILLED, status=NEW, query={'orderId': '285659175667634176', 'clientOrderId': 'acc-open-1772173654572', 'symbol': 'BTCUSDT', 'side': 'BUY', 'type': 'LIMIT', 'price': '693668', 'quantity': '1', 'filledQuantity': '0', 'status': 'NEW', 'reasonCode': 'MATCH_ENGINE_REPORT', 'reasonMsg': 'Match engine reported: NEW', 'createTime': 1772173654770}"
+      }
+    },
+    {
+      "name": "manual_close_flow",
+      "ok": false,
+      "message": "Manual close flow failed",
+      "details": {
+        "error": "No active position after fill"
+      }
+    },
+    {
+      "name": "liquidation_price_formula",
+      "ok": false,
+      "message": "Liquidation price formula check failed",
+      "details": {
+        "error": "No active position for liquidation price check"
+      }
+    },
+    {
+      "name": "pnl_push",
+      "ok": false,
+      "message": "PNL push script failed after 2 attempt(s)",
+      "details": {
+        "attempts": [
+          {
+            "attempt": 1,
+            "returncode": 1,
+            "baselineUp": null,
+            "currentUp": null,
+            "markPrice": null,
+            "stdout_tail": "[14:28:23] Login\n[14:28:25] Login ok, userId=38",
+            "stderr_tail": "FAIL: No active position found for BTCUSDT. Create a position first, then retry."
+          },
+          {
+            "attempt": 2,
+            "returncode": 1,
+            "baselineUp": null,
+            "currentUp": null,
+            "markPrice": null,
+            "stdout_tail": "[14:28:27] Login\n[14:28:27] Login ok, userId=38",
+            "stderr_tail": "FAIL: No active position found for BTCUSDT. Create a position first, then retry."
+          }
+        ]
+      }
+    },
+    {
+      "name": "liquidation_trigger_execution",
+      "ok": false,
+      "message": "Liquidation trigger stage failed",
+      "details": {
+        "error": "No active position for liquidation trigger"
+      }
+    }
+  ]
+}

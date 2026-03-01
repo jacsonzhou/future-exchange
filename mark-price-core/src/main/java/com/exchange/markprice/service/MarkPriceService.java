@@ -42,5 +42,6 @@ public interface MarkPriceService {
      * @param symbol 交易对
      * @param indexPrice 指数价格
      */
-    void onIndexPriceUpdate(String symbol, Long indexPrice);
+    void onIndexPriceUpdate(String symbol, Long indexPrice, String indexPriceId,
+                            Long sourceEventTime, String sourceTopic, Long sourceOffset);
 }

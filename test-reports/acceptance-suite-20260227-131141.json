@@ -1,0 +1,16 @@
+{
+  "generatedAt": 1772169101467,
+  "durationSec": 0.04,
+  "passed": 0,
+  "failed": 1,
+  "steps": [
+    {
+      "name": "service_check",
+      "ok": false,
+      "message": "Service check failed",
+      "details": {
+        "error": "Required services are not listening: [('oms-core', 8081), ('match-engine-core', 8083)]"
+      }
+    }
+  ]
+}

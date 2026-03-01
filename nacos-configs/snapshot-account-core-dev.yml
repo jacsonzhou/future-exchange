@@ -70,6 +70,19 @@ snapshot:
   # - account-entry-SYSTEM: SYSTEM账务分录（冻结/解冻等）
   kafka:
     topics: trade-entry-BTCUSDT,trade-entry-ETHUSDT,account-entry-SYSTEM
+    # 账户UPNL联动消费（position-snapshot -> snapshot-account）
+    position-change-topic: private-position-change
+    # 使用新消费组跳过历史脏积压，直接对齐实时链路
+    position-change-group: snapshot-position-service-v2
+    # private-position-change 为多分区，高并发消费避免单线程滞后
+    position-change-concurrency: 8
+
+  account:
+    position-upnl:
+      # 账户总 UPNL 以持仓库汇总值为权威回补，修复 Redis 残留导致的总 UPNL 偏差
+      db-fallback-enabled: true
+      # 每个用户最小回补间隔（毫秒），兼顾准确性与数据库压力
+      reconcile-interval-ms: 3000
   
   # Redis缓存TTL（小时）
   redis:

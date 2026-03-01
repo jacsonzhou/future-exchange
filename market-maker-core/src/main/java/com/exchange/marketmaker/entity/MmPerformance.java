@@ -5,6 +5,9 @@ import com.baomidou.mybatisplus.annotation.TableId;
 import com.baomidou.mybatisplus.annotation.TableName;
 import lombok.Data;
 
+import java.time.LocalDate;
+import java.time.format.DateTimeFormatter;
+
 /**
  * 做市商考核指标实体
  * 
@@ -14,6 +17,7 @@ import lombok.Data;
 @Data
 @TableName("t_mm_performance")
 public class MmPerformance {
+    private static final DateTimeFormatter BASIC_DATE_FORMATTER = DateTimeFormatter.BASIC_ISO_DATE;
     
     /**
      * 自增主键ID
@@ -195,4 +199,73 @@ public class MmPerformance {
      * 更新时间
      */
     private Long updateTime;
+
+    /**
+     * 兼容旧代码：LocalDate 转 yyyyMMdd 整数。
+     */
+    public void setPeriodDate(LocalDate periodDate) {
+        if (periodDate == null) {
+            this.periodDate = null;
+            return;
+        }
+        this.periodDate = Integer.parseInt(periodDate.format(BASIC_DATE_FORMATTER));
+    }
+
+    /**
+     * 兼容旧字段名。
+     */
+    public Integer getTotalOrderCount() {
+        return totalOrders;
+    }
+
+    public void setTotalOrderCount(Integer totalOrderCount) {
+        this.totalOrders = totalOrderCount;
+    }
+
+    public Integer getFilledOrderCount() {
+        return filledOrders;
+    }
+
+    public void setFilledOrderCount(Integer filledOrderCount) {
+        this.filledOrders = filledOrderCount;
+    }
+
+    public Integer getCancelledOrderCount() {
+        return quoteBreakCount;
+    }
+
+    public void setCancelledOrderCount(Integer cancelledOrderCount) {
+        this.quoteBreakCount = cancelledOrderCount;
+    }
+
+    public Long getAvgDepthBid() {
+        return avgDepth;
+    }
+
+    public void setAvgDepthBid(Long avgDepthBid) {
+        this.avgDepth = avgDepthBid;
+    }
+
+    public Long getAvgDepthAsk() {
+        return avgDepth;
+    }
+
+    public void setAvgDepthAsk(Long avgDepthAsk) {
+        if (avgDepthAsk == null) {
+            return;
+        }
+        if (this.avgDepth == null) {
+            this.avgDepth = avgDepthAsk;
+            return;
+        }
+        this.avgDepth = (this.avgDepth + avgDepthAsk) / 2;
+    }
+
+    public Integer getScore() {
+        return totalScore;
+    }
+
+    public void setScore(Integer score) {
+        this.totalScore = score;
+    }
 }

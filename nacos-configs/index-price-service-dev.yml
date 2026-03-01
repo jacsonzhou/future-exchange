@@ -47,7 +47,12 @@ spring:
 index-price:
   kafka:
     topic: index-price-update
+  input:
+    depth-topic-pattern: "market\\.ext\\.binance\\.depth\\..*"
+    trade-topic-pattern: "market\\.ext\\.binance\\.trade\\..*"
+    consumer-group: "index-price-ext-consumer"
   calculation:
+    source: binance_kafka
     default-components: binance,okx,coinbase
     min-valid-components: 2
     deviation-threshold: 5

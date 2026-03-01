@@ -57,37 +57,51 @@ public class MarketDataServiceWithClickHouseImpl implements MarketDataService {
             limit = 500;
         }
         limit = Math.min(limit, 1000); // 最大1000条
-        
-        // 使用 KlineEngineWithStorage 查询（包含 ClickHouse 查询）
-        List<com.exchange.market.model.Kline> modelKlines;
-        
-        if (startTime != null || endTime != null) {
-            // 时间范围查询 - 从 ClickHouse 查询
-            modelKlines = klineEngine.queryKlines(symbol, interval, startTime, endTime, limit);
-        } else {
-            // 最新数据查询
-            modelKlines = klineEngine.getKlines(symbol, interval, limit);
+
+        try {
+            // 使用 KlineEngineWithStorage 查询（包含 ClickHouse 查询）
+            List<com.exchange.market.model.Kline> modelKlines;
+
+            if (startTime != null || endTime != null) {
+                // 时间范围查询 - 从 ClickHouse 查询
+                modelKlines = klineEngine.queryKlines(symbol, interval, startTime, endTime, limit);
+            } else {
+                // 最新数据查询
+                modelKlines = klineEngine.getKlines(symbol, interval, limit);
+            }
+
+            // 转换为 entity.Kline
+            return modelKlines.stream()
+                    .map(this::convertToEntityKline)
+                    .collect(Collectors.toList());
+        } catch (Exception e) {
+            // ClickHouse 不可用时降级到缓存，避免 API 500
+            log.warn("[MarketDataServiceWithClickHouseImpl] ClickHouse query failed, fallback to cache. symbol={}, interval={}, reason={}",
+                    symbol, interval, e.getMessage());
+            return getKlinesFromCache(symbol, interval, startTime, endTime, limit);
         }
-        
-        // 转换为 entity.Kline
-        return modelKlines.stream()
-                .map(this::convertToEntityKline)
-                .collect(Collectors.toList());
     }
 
     @Override
     public Kline getLatestKline(String symbol, String interval) {
-        com.exchange.market.model.Kline modelKline = klineEngine.getCurrentKline(symbol, interval);
-        
-        if (modelKline == null) {
-            // 尝试从 ClickHouse 查询最新
-            List<com.exchange.market.model.Kline> recent = klineEngine.getKlines(symbol, interval, 1);
-            if (!recent.isEmpty()) {
-                modelKline = recent.get(0);
+        try {
+            com.exchange.market.model.Kline modelKline = klineEngine.getCurrentKline(symbol, interval);
+
+            if (modelKline == null) {
+                // 尝试从 ClickHouse 查询最新
+                List<com.exchange.market.model.Kline> recent = klineEngine.getKlines(symbol, interval, 1);
+                if (!recent.isEmpty()) {
+                    modelKline = recent.get(0);
+                }
             }
+
+            return modelKline != null ? convertToEntityKline(modelKline) : null;
+        } catch (Exception e) {
+            log.warn("[MarketDataServiceWithClickHouseImpl] getLatestKline fallback to cache. symbol={}, interval={}, reason={}",
+                    symbol, interval, e.getMessage());
+            com.exchange.market.model.Kline cached = cache.getCurrentKline(symbol, interval);
+            return cached != null ? convertToEntityKline(cached) : null;
         }
-        
-        return modelKline != null ? convertToEntityKline(modelKline) : null;
     }
 
     @Override
@@ -204,5 +218,24 @@ public class MarketDataServiceWithClickHouseImpl implements MarketDataService {
         ticker.setCount(stats.getCount());
         ticker.setTimestamp(System.currentTimeMillis());
         return ticker;
+    }
+
+    private List<Kline> getKlinesFromCache(String symbol, String interval, Long startTime, Long endTime, int limit) {
+        List<com.exchange.market.model.Kline> history = cache.getKlineHistory(symbol, interval, limit);
+        List<Kline> klines = history != null
+                ? history.stream().map(this::convertToEntityKline).collect(Collectors.toCollection(ArrayList::new))
+                : new ArrayList<>();
+
+        com.exchange.market.model.Kline modelCurrent = cache.getCurrentKline(symbol, interval);
+        Kline current = modelCurrent != null ? convertToEntityKline(modelCurrent) : null;
+        if (current != null && klines.stream().noneMatch(k -> k.getOpenTime() == current.getOpenTime())) {
+            klines.add(0, current);
+        }
+
+        return klines.stream()
+                .filter(k -> startTime == null || k.getOpenTime() >= startTime)
+                .filter(k -> endTime == null || k.getOpenTime() <= endTime)
+                .limit(limit)
+                .collect(Collectors.toList());
     }
 }

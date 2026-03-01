@@ -20,7 +20,7 @@ public interface OmsClient {
      * @return 订单ID
      */
     @PostMapping("/createLiquidation")
-    Long createOrder(@RequestBody CreateOrderRequest request);
+    Object createOrder(@RequestBody CreateOrderRequest request);
     
     /**
      * 取消订单

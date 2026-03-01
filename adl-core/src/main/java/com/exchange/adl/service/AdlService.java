@@ -12,7 +12,7 @@ public interface AdlService {
     /**
      * 处理强平完成事件，检查是否需要ADL
      */
-    void onLiquidationCompleted(Long liquidationId, Long userId, String symbol, String side, 
+    void onLiquidationCompleted(String liquidationId, Long userId, String symbol, String side,
                                  Long bankruptPrice, Long bankruptQty, Long bankruptLoss);
     
     /**
@@ -33,7 +33,7 @@ public interface AdlService {
     /**
      * 执行ADL
      */
-    void executeAdl(String symbol, String oppositeSide, Long requiredQty, Long sourceLiquidationId);
+    void executeAdl(String symbol, String oppositeSide, Long requiredQty, String sourceLiquidationId, Long sourceUserId);
     
     /**
      * 获取保险基金余额

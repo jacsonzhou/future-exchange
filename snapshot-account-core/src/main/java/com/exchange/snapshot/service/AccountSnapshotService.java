@@ -1,5 +1,7 @@
 package com.exchange.snapshot.service;
 
+import com.exchange.snapshot.dto.AdlClearingApplyResult;
+import com.exchange.snapshot.dto.AdlClearingRequest;
 import com.exchange.snapshot.dto.TradeEntryEvent;
 import com.exchange.snapshot.entity.AccountSnapshot;
 
@@ -29,6 +31,34 @@ public interface AccountSnapshotService {
      * @param event TradeEntryEvent
      */
     void onTradeEntryEvent(TradeEntryEvent event);
+
+    /**
+     * 处理持仓估值更新（来自 position-change 事件）
+     *
+     * @param userId 用户ID
+     * @param symbol 交易对
+     * @param positionSide 持仓方向（1=LONG,2=SHORT）
+     * @param positionQty 持仓数量
+     * @param unrealizedPnl 持仓未实现盈亏
+     * @param changeType 变更类型
+     */
+    void onPositionMarkUpdate(Long userId,
+                              String symbol,
+                              Integer positionSide,
+                              java.math.BigDecimal positionQty,
+                              java.math.BigDecimal unrealizedPnl,
+                              String changeType,
+                              String markPriceId);
+
+    /**
+     * 处理ADL内部记账（用于ADL执行阶段幂等确认）。
+     */
+    AdlClearingApplyResult applyAdlClearing(AdlClearingRequest request);
+
+    /**
+     * 查询ADL记账bizSeq是否已处理。
+     */
+    boolean hasProcessedAdlClearing(String bizSeq);
     
     /**
      * 查询账户快照（风控读取）

@@ -48,7 +48,7 @@ public class BinanceDataSourceConfig {
     /**
      * 订阅的交易对列表
      */
-    private List<String> symbols = new ArrayList<>();
+    private List<String> symbols = new ArrayList<>(List.of("BTCUSDT"));
 
     /**
      * 深度数据档位 (5, 10, 20)

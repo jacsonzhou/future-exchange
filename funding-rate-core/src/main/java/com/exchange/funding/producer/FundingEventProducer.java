@@ -9,8 +9,8 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.kafka.core.KafkaTemplate;
 import org.springframework.kafka.support.SendResult;
 import org.springframework.stereotype.Component;
-import org.springframework.util.concurrent.ListenableFuture;
-import org.springframework.util.concurrent.ListenableFutureCallback;
+
+import java.util.concurrent.CompletableFuture;
 
 /**
  * 资金费率事件生产者
@@ -65,20 +65,15 @@ public class FundingEventProducer {
      * 发送事件到Kafka
      */
     private void sendEvent(String topic, String key, Object event) {
-        ListenableFuture<SendResult<String, Object>> future = kafkaTemplate.send(topic, key, event);
-
-        future.addCallback(new ListenableFutureCallback<SendResult<String, Object>>() {
-            @Override
-            public void onSuccess(SendResult<String, Object> result) {
+        CompletableFuture<SendResult<String, Object>> future = kafkaTemplate.send(topic, key, event);
+        future.whenComplete((result, ex) -> {
+            if (ex == null && result != null) {
                 log.debug("Event sent successfully to topic={}, partition={}, offset={}",
                         topic, result.getRecordMetadata().partition(), result.getRecordMetadata().offset());
+                return;
             }
-
-            @Override
-            public void onFailure(Throwable ex) {
-                log.error("Failed to send event to topic={}, key={}", topic, key, ex);
-                // TODO: 添加到重试队列
-            }
+            log.error("Failed to send event to topic={}, key={}", topic, key, ex);
+            // TODO: 添加到重试队列
         });
     }
 }

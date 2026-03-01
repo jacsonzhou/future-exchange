@@ -8,6 +8,7 @@ import org.apache.ibatis.annotations.Select;
 import org.apache.ibatis.annotations.Update;
 
 import java.util.List;
+import java.math.BigDecimal;
 
 /**
  * Position Snapshot Mapper（双向持仓模式Hedge Mode）
@@ -63,6 +64,27 @@ public interface PositionSnapshotMapper extends BaseMapper<PositionSnapshot> {
      */
     @Select("SELECT * FROM position_snapshot WHERE user_id = #{userId} AND symbol = #{symbol} AND size > 0")
     List<PositionSnapshot> selectByUserAndSymbol(@Param("userId") Long userId, @Param("symbol") String symbol);
+
+    /**
+     * 查询某个交易对的全部有效持仓（按用户维度批量更新估值时使用）
+     *
+     * @param symbol 交易对
+     * @return 该交易对所有 size > 0 的持仓
+     */
+    @Select("SELECT * FROM position_snapshot WHERE symbol = #{symbol} AND size > 0")
+    List<PositionSnapshot> selectBySymbol(@Param("symbol") String symbol);
+
+    /**
+     * 查询全部有效持仓（用于索引预热/对账）
+     */
+    @Select("SELECT * FROM position_snapshot WHERE size > 0")
+    List<PositionSnapshot> selectAllActive();
+
+    /**
+     * 查询有活跃持仓的交易对列表（用于增量对账）
+     */
+    @Select("SELECT DISTINCT symbol FROM position_snapshot WHERE size > 0")
+    List<String> selectActiveSymbols();
     
     /**
      * 查询用户的所有持仓（双向持仓模式）
@@ -108,5 +130,11 @@ public interface PositionSnapshotMapper extends BaseMapper<PositionSnapshot> {
             "  COALESCE(SUM(CASE WHEN position_side = 1 THEN size ELSE -size END), 0) as net_size " +
             "FROM position_snapshot " +
             "WHERE user_id = #{userId} AND symbol = #{symbol}")
-    java.math.BigDecimal selectNetPosition(@Param("userId") Long userId, @Param("symbol") String symbol);
+    BigDecimal selectNetPosition(@Param("userId") Long userId, @Param("symbol") String symbol);
+
+    /**
+     * 汇总用户全部开仓的未实现盈亏（与账户总 UPNL 对齐）。
+     */
+    @Select("SELECT COALESCE(SUM(unrealized_pnl), 0) FROM position_snapshot WHERE user_id = #{userId} AND size > 0")
+    BigDecimal sumOpenUnrealizedPnl(@Param("userId") Long userId);
 }

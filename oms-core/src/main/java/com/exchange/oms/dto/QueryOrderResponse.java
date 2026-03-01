@@ -66,11 +66,55 @@ public class QueryOrderResponse implements Serializable {
      * 最近一次状态流转原因描述（拒单/撤单等）
      */
     private String reasonMsg;
+
+    /**
+     * 执行模式：MATCH_ENGINE / CFD_DEALER
+     */
+    private String executionMode;
+
+    /**
+     * 流动性来源：如 BINANCE_REF
+     */
+    private String liquiditySource;
+
+    /**
+     * 参考行情来源 Topic
+     */
+    private String referenceTopic;
+
+    /**
+     * 参考行情来源 offset
+     */
+    private Long referenceOffset;
+
+    /**
+     * 参考行情事件时间（毫秒）
+     */
+    private Long referenceEventTime;
+
+    /**
+     * 参考最优买价
+     */
+    private String referenceBestBid;
+
+    /**
+     * 参考最优卖价
+     */
+    private String referenceBestAsk;
+
+    /**
+     * 参考成交均价
+     */
+    private String referenceVwapPrice;
+
+    /**
+     * 滑点（bps）
+     */
+    private Integer slippageBps;
     
     /**
      * 创建时间
      */
     private Long createTime;
 }
-
 

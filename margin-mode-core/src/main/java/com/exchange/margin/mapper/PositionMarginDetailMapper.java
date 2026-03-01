@@ -24,49 +24,89 @@ public interface PositionMarginDetailMapper extends BaseMapper<PositionMarginDet
     /**
      * 根据仓位ID查询
      */
-    @Select("SELECT * FROM t_position_margin_detail WHERE position_id = #{positionId}")
+    @Select("SELECT id, position_id, user_id, symbol, side, margin_mode, leverage, " +
+            "isolated_margin, added_margin, reduced_margin, position_value, position_margin, " +
+            "unrealized_pnl, maintenance_margin AS maintMargin, maintenance_margin_rate AS maintMarginRate, " +
+            "quantity AS positionQty, entry_price, mark_price, liquidation_price, bankruptcy_price, " +
+            "margin_ratio, liquidation_distance, max_add_position_qty, last_price, created_at, updated_at, version " +
+            "FROM t_position_margin_detail WHERE position_id = #{positionId}")
     PositionMarginDetail selectByPositionId(@Param("positionId") Long positionId);
     
     /**
      * 根据用户ID查询所有仓位保证金详情
      */
-    @Select("SELECT * FROM t_position_margin_detail WHERE user_id = #{userId} ORDER BY updated_at DESC")
+    @Select("SELECT id, position_id, user_id, symbol, side, margin_mode, leverage, " +
+            "isolated_margin, added_margin, reduced_margin, position_value, position_margin, " +
+            "unrealized_pnl, maintenance_margin AS maintMargin, maintenance_margin_rate AS maintMarginRate, " +
+            "quantity AS positionQty, entry_price, mark_price, liquidation_price, bankruptcy_price, " +
+            "margin_ratio, liquidation_distance, max_add_position_qty, last_price, created_at, updated_at, version " +
+            "FROM t_position_margin_detail WHERE user_id = #{userId} ORDER BY updated_at DESC")
     List<PositionMarginDetail> selectByUserId(@Param("userId") Long userId);
     
     /**
      * 根据用户ID和保证金模式查询
      */
-    @Select("SELECT * FROM t_position_margin_detail WHERE user_id = #{userId} AND margin_mode = #{marginMode}")
+    @Select("SELECT id, position_id, user_id, symbol, side, margin_mode, leverage, " +
+            "isolated_margin, added_margin, reduced_margin, position_value, position_margin, " +
+            "unrealized_pnl, maintenance_margin AS maintMargin, maintenance_margin_rate AS maintMarginRate, " +
+            "quantity AS positionQty, entry_price, mark_price, liquidation_price, bankruptcy_price, " +
+            "margin_ratio, liquidation_distance, max_add_position_qty, last_price, created_at, updated_at, version " +
+            "FROM t_position_margin_detail WHERE user_id = #{userId} AND margin_mode = #{marginMode}")
     List<PositionMarginDetail> selectByUserIdAndMode(@Param("userId") Long userId, @Param("marginMode") String marginMode);
     
     /**
      * 根据用户ID和交易对查询
      */
-    @Select("SELECT * FROM t_position_margin_detail WHERE user_id = #{userId} AND symbol = #{symbol}")
+    @Select("SELECT id, position_id, user_id, symbol, side, margin_mode, leverage, " +
+            "isolated_margin, added_margin, reduced_margin, position_value, position_margin, " +
+            "unrealized_pnl, maintenance_margin AS maintMargin, maintenance_margin_rate AS maintMarginRate, " +
+            "quantity AS positionQty, entry_price, mark_price, liquidation_price, bankruptcy_price, " +
+            "margin_ratio, liquidation_distance, max_add_position_qty, last_price, created_at, updated_at, version " +
+            "FROM t_position_margin_detail WHERE user_id = #{userId} AND symbol = #{symbol}")
     List<PositionMarginDetail> selectByUserIdAndSymbol(@Param("userId") Long userId, @Param("symbol") String symbol);
 
     /**
      * 根据交易对查询所有活跃仓位（跨所有用户）
      */
-    @Select("SELECT * FROM t_position_margin_detail WHERE symbol = #{symbol} ORDER BY user_id, position_id")
+    @Select("SELECT id, position_id, user_id, symbol, side, margin_mode, leverage, " +
+            "isolated_margin, added_margin, reduced_margin, position_value, position_margin, " +
+            "unrealized_pnl, maintenance_margin AS maintMargin, maintenance_margin_rate AS maintMarginRate, " +
+            "quantity AS positionQty, entry_price, mark_price, liquidation_price, bankruptcy_price, " +
+            "margin_ratio, liquidation_distance, max_add_position_qty, last_price, created_at, updated_at, version " +
+            "FROM t_position_margin_detail WHERE symbol = #{symbol} ORDER BY user_id, position_id")
     List<PositionMarginDetail> selectBySymbol(@Param("symbol") String symbol);
     
     /**
      * 查询用户的全仓仓位
      */
-    @Select("SELECT * FROM t_position_margin_detail WHERE user_id = #{userId} AND margin_mode = 'CROSS'")
+    @Select("SELECT id, position_id, user_id, symbol, side, margin_mode, leverage, " +
+            "isolated_margin, added_margin, reduced_margin, position_value, position_margin, " +
+            "unrealized_pnl, maintenance_margin AS maintMargin, maintenance_margin_rate AS maintMarginRate, " +
+            "quantity AS positionQty, entry_price, mark_price, liquidation_price, bankruptcy_price, " +
+            "margin_ratio, liquidation_distance, max_add_position_qty, last_price, created_at, updated_at, version " +
+            "FROM t_position_margin_detail WHERE user_id = #{userId} AND margin_mode = 'CROSS'")
     List<PositionMarginDetail> selectCrossPositions(@Param("userId") Long userId);
     
     /**
      * 查询用户的逐仓仓位
      */
-    @Select("SELECT * FROM t_position_margin_detail WHERE user_id = #{userId} AND margin_mode = 'ISOLATED'")
+    @Select("SELECT id, position_id, user_id, symbol, side, margin_mode, leverage, " +
+            "isolated_margin, added_margin, reduced_margin, position_value, position_margin, " +
+            "unrealized_pnl, maintenance_margin AS maintMargin, maintenance_margin_rate AS maintMarginRate, " +
+            "quantity AS positionQty, entry_price, mark_price, liquidation_price, bankruptcy_price, " +
+            "margin_ratio, liquidation_distance, max_add_position_qty, last_price, created_at, updated_at, version " +
+            "FROM t_position_margin_detail WHERE user_id = #{userId} AND margin_mode = 'ISOLATED'")
     List<PositionMarginDetail> selectIsolatedPositions(@Param("userId") Long userId);
     
     /**
      * 查询高风险的逐仓仓位（保证金率低于阈值）
      */
-    @Select("SELECT * FROM t_position_margin_detail WHERE margin_mode = 'ISOLATED' AND margin_ratio < #{threshold}")
+    @Select("SELECT id, position_id, user_id, symbol, side, margin_mode, leverage, " +
+            "isolated_margin, added_margin, reduced_margin, position_value, position_margin, " +
+            "unrealized_pnl, maintenance_margin AS maintMargin, maintenance_margin_rate AS maintMarginRate, " +
+            "quantity AS positionQty, entry_price, mark_price, liquidation_price, bankruptcy_price, " +
+            "margin_ratio, liquidation_distance, max_add_position_qty, last_price, created_at, updated_at, version " +
+            "FROM t_position_margin_detail WHERE margin_mode = 'ISOLATED' AND margin_ratio < #{threshold}")
     List<PositionMarginDetail> selectHighRiskIsolatedPositions(@Param("threshold") Long threshold);
     
     /**

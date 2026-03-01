@@ -7,7 +7,9 @@ import com.exchange.liquidation.service.OrderMonitorService;
 import com.exchange.liquidation.service.impl.PartialLiquidationHandler;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.context.annotation.Lazy;
 import org.springframework.data.redis.core.RedisTemplate;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
@@ -29,12 +31,14 @@ import java.util.concurrent.TimeUnit;
 public class OrderMonitorServiceImpl implements OrderMonitorService {
 
     private final LiquidationExecutionMapper executionMapper;
-    private final LiquidationService liquidationService;
     private final PartialLiquidationHandler partialLiquidationHandler;
     private final RedisTemplate<String, String> redisTemplate;
     private final com.exchange.liquidation.client.OmsClient omsClient;
     private final com.exchange.liquidation.service.PnLCalculatorService pnLCalculatorService;
     private final com.exchange.liquidation.service.InsuranceFundService insuranceFundService;
+    @Lazy
+    @Autowired
+    private LiquidationService liquidationService;
 
     // Redis key前缀
     private static final String ORDER_TO_LIQUIDATION_PREFIX = "liquidation:monitor:order:";
@@ -72,38 +76,62 @@ public class OrderMonitorServiceImpl implements OrderMonitorService {
         // 从Redis查找liquidationId
         String orderKey = ORDER_TO_LIQUIDATION_PREFIX + orderId;
         String liquidationId = redisTemplate.opsForValue().get(orderKey);
+        LiquidationExecution execution;
 
         if (liquidationId == null) {
-            log.warn("⚠️ [OrderMonitorService] LiquidationId not found in Redis for orderId={}, " +
-                    "order may not be liquidation order", orderId);
-            return;
+            // 兜底回查：处理撮合回报早于 startMonitoring 的竞态
+            execution = executionMapper.selectLatestByOrderId(orderId);
+            if (execution == null) {
+                execution = retryFindExecution(orderId);
+            }
+            if (execution == null) {
+                log.warn("⚠️ [OrderMonitorService] LiquidationId not found in Redis and DB for orderId={}, " +
+                        "order may not be liquidation order", orderId);
+                return;
+            }
+            liquidationId = execution.getLiquidationId();
+            backfillMonitoringKeys(orderId, liquidationId, execution);
+            log.warn("⚠️ [OrderMonitorService] Redis miss recovered by DB, orderId={}, liquidationId={}",
+                    orderId, liquidationId);
+        } else {
+            execution = executionMapper.selectByLiquidationId(liquidationId);
+            if (execution == null) {
+                log.warn("⚠️ [OrderMonitorService] LiquidationExecution not found, liquidationId={}", liquidationId);
+                return;
+            }
         }
 
         log.info("📊 [OrderMonitorService] Order status changed, liquidationId={}, orderId={}, " +
-                "status={}, filledQty={}, avgPrice={}",
+                        "status={}, filledQty={}, avgPrice={}",
                 liquidationId, orderId, status, filledQty, avgPrice);
-
-        // 查询强平记录
-        LiquidationExecution execution = executionMapper.selectByLiquidationId(liquidationId);
-        if (execution == null) {
-            log.warn("⚠️ [OrderMonitorService] LiquidationExecution not found, liquidationId={}", liquidationId);
-            return;
-        }
 
         // 更新订单状态和成交信息
         execution.setStatus(status);
         if (filledQty != null) {
             execution.setExecutedQty(filledQty);
         }
-        if (avgPrice != null) {
-            execution.setExecutedPrice(avgPrice);
+        Long effectiveAvgPrice = avgPrice;
+        if (effectiveAvgPrice != null) {
+            execution.setExecutedPrice(effectiveAvgPrice);
+        } else if (execution.getExecutedPrice() == null) {
+            Long fallbackPrice = execution.getMarkPrice() != null
+                    ? execution.getMarkPrice()
+                    : execution.getTriggerPrice();
+            if (fallbackPrice != null && fallbackPrice > 0) {
+                execution.setExecutedPrice(fallbackPrice);
+                effectiveAvgPrice = fallbackPrice;
+                log.warn("⚠️ [OrderMonitorService] avgPrice missing, fallback to execution price={}, liquidationId={}",
+                        fallbackPrice, execution.getLiquidationId());
+            }
+        } else {
+            effectiveAvgPrice = execution.getExecutedPrice();
         }
         execution.setUpdatedAt(System.currentTimeMillis());
 
         // 根据状态处理
         switch (status) {
             case "PARTIALLY_FILLED":
-                handlePartiallyFilled(execution, filledQty, avgPrice);
+                handlePartiallyFilled(execution, filledQty, effectiveAvgPrice);
                 break;
 
             case "FILLED":
@@ -140,6 +168,45 @@ public class OrderMonitorServiceImpl implements OrderMonitorService {
                 executionMapper.updateById(execution);
                 break;
         }
+    }
+
+    private void backfillMonitoringKeys(Long orderId, String liquidationId, LiquidationExecution execution) {
+        try {
+            String orderKey = ORDER_TO_LIQUIDATION_PREFIX + orderId;
+            redisTemplate.opsForValue().set(orderKey, liquidationId, 1, TimeUnit.HOURS);
+
+            String timeKey = LIQUIDATION_TO_TIME_PREFIX + liquidationId;
+            String existing = redisTemplate.opsForValue().get(timeKey);
+            if (existing == null) {
+                long submitTime = execution.getSubmittedAt() != null
+                        ? execution.getSubmittedAt()
+                        : System.currentTimeMillis();
+                redisTemplate.opsForValue().set(timeKey, String.valueOf(submitTime), 1, TimeUnit.HOURS);
+            }
+        } catch (Exception e) {
+            log.warn("⚠️ [OrderMonitorService] Failed to backfill monitoring keys, liquidationId={}, orderId={}",
+                    liquidationId, orderId, e);
+        }
+    }
+
+    /**
+     * 处理事务提交竞态：
+     * order-state 先到达时，强平主事务可能尚未提交 order_id。
+     */
+    private LiquidationExecution retryFindExecution(Long orderId) {
+        for (int i = 0; i < 8; i++) {
+            try {
+                Thread.sleep(80L);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                return null;
+            }
+            LiquidationExecution candidate = executionMapper.selectLatestByOrderId(orderId);
+            if (candidate != null) {
+                return candidate;
+            }
+        }
+        return null;
     }
     
     @Override
@@ -306,38 +373,4 @@ public class OrderMonitorServiceImpl implements OrderMonitorService {
         }
     }
 
-            // 2. 创建订单
-            Long newOrderId = omsClient.createOrder(req);
-            log.info("✅ [OrderMonitorService] Remaining order created, " +
-                    "liquidationId={}, newOrderId={}, remainingQty={}",
-                    execution.getLiquidationId(), newOrderId, remainingQty);
-
-            // 3. 更新强平记录，关联新订单
-            execution.setRemainingQty(remainingQty);
-            execution.setRemainingOrderId(newOrderId);
-            execution.setUpdatedAt(System.currentTimeMillis());
-            executionMapper.updateById(execution);
-
-            // 4. 开始监控新订单（使用相同的 liquidationId）
-            startMonitoring(execution.getLiquidationId(), newOrderId);
-
-            log.info("🎯 [OrderMonitorService] Remaining liquidation order submitted and monitored, " +
-                    "liquidationId={}, remainingOrderId={}, remainingQty={}",
-                    execution.getLiquidationId(), newOrderId, remainingQty);
-
-        } catch (Exception e) {
-            log.error("❌ [OrderMonitorService] Failed to create remaining liquidation order, " +
-                    "liquidationId={}, remainingQty={}",
-                    execution.getLiquidationId(), remainingQty, e);
-
-            // 更新错误信息
-            execution.setErrorMsg("Failed to create remaining order: " + e.getMessage());
-            execution.setUpdatedAt(System.currentTimeMillis());
-            executionMapper.updateById(execution);
-
-            // 重新抛出异常，让调用方感知
-            throw new RuntimeException("Failed to create remaining liquidation order", e);
-        }
-    }
 }
-

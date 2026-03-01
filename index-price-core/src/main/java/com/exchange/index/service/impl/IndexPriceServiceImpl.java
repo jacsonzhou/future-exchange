@@ -11,8 +11,10 @@ import com.exchange.index.mapper.IndexPriceConfigMapper;
 import com.exchange.index.mapper.IndexPriceMapper;
 import com.exchange.index.producer.IndexPriceProducer;
 import com.exchange.index.service.IndexPriceService;
+import com.exchange.index.service.support.ExternalMarketStateStore;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.data.redis.core.RedisTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -20,6 +22,7 @@ import org.springframework.transaction.annotation.Transactional;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
 
@@ -43,17 +46,23 @@ public class IndexPriceServiceImpl implements IndexPriceService {
     private ExternalPriceFetcher priceFetcher;
 
     @Autowired
+    private ExternalMarketStateStore marketStateStore;
+
+    @Autowired
     private IndexPriceProducer eventProducer;
 
     @Autowired(required = false)
     private RedisTemplate<String, Object> redisTemplate;
 
+    @Value("${index-price.calculation.source:binance_kafka}")
+    private String calculationSource;
+
     private static final String REDIS_KEY_PREFIX = "index:price:";
     private static final long REDIS_CACHE_TTL_SECONDS = 60;
+    private final Map<String, String> lastPublishedIndexPriceId = new ConcurrentHashMap<>();
 
     @Override
     public IndexPriceDTO getLatestIndexPrice(String symbol) {
-        // 1. 先尝试从Redis获取
         if (redisTemplate != null) {
             Object cached = redisTemplate.opsForValue().get(REDIS_KEY_PREFIX + symbol);
             if (cached != null) {
@@ -61,20 +70,13 @@ public class IndexPriceServiceImpl implements IndexPriceService {
             }
         }
 
-        // 2. 从数据库获取
         IndexPrice indexPrice = indexPriceMapper.selectLatestBySymbol(symbol);
         if (indexPrice == null) {
             return null;
         }
 
         IndexPriceDTO dto = convertToDTO(indexPrice);
-        
-        // 3. 缓存到Redis
-        if (redisTemplate != null) {
-            redisTemplate.opsForValue().set(REDIS_KEY_PREFIX + symbol, dto, 
-                    REDIS_CACHE_TTL_SECONDS, TimeUnit.SECONDS);
-        }
-
+        cacheLatest(symbol, dto);
         return dto;
     }
 
@@ -89,16 +91,27 @@ public class IndexPriceServiceImpl implements IndexPriceService {
     @Override
     @Transactional
     public void calculateAndUpdateIndexPrice(String symbol) {
+        if (symbol == null || symbol.isBlank()) {
+            return;
+        }
+        String normalizedSymbol = symbol.trim().toUpperCase();
+
+        if (isBinanceKafkaSource()) {
+            calculateWithExternalMarketState(normalizedSymbol);
+            return;
+        }
+
+        calculateWithConfiguredComponents(normalizedSymbol);
+    }
+
+    private void calculateWithConfiguredComponents(String symbol) {
         IndexPriceConfig config = configMapper.selectBySymbol(symbol);
         if (config == null) {
             log.warn("No index price config found for symbol: {}", symbol);
             return;
         }
 
-        // 1. 获取成分交易所列表
         String[] exchanges = config.getComponents().split(",");
-
-        // 2. 从各交易所获取价格
         Map<String, Long> exchangePrices = priceFetcher.fetchPricesFromMultipleExchanges(exchanges, symbol);
 
         if (exchangePrices.isEmpty()) {
@@ -106,7 +119,6 @@ public class IndexPriceServiceImpl implements IndexPriceService {
             return;
         }
 
-        // 3. 计算加权平均价格
         long weightedSum = 0;
         int totalWeight = 0;
         int validCount = 0;
@@ -115,8 +127,7 @@ public class IndexPriceServiceImpl implements IndexPriceService {
         for (Map.Entry<String, Long> entry : exchangePrices.entrySet()) {
             String exchange = entry.getKey();
             Long price = entry.getValue();
-            
-            // 验证价格有效性
+
             if (!isPriceValid(price, exchangePrices)) {
                 log.warn("Price validation failed for {}:{}", exchange, symbol);
                 continue;
@@ -127,10 +138,8 @@ public class IndexPriceServiceImpl implements IndexPriceService {
             totalWeight += weight;
             validCount++;
 
-            // 保存成分数据
-            saveComponent(symbol, exchange, price, weight);
+            saveComponent(symbol, exchange, price, weight, System.currentTimeMillis());
 
-            // 构建DTO
             IndexPriceDTO.ComponentDTO compDTO = new IndexPriceDTO.ComponentDTO();
             compDTO.setExchange(exchange);
             compDTO.setPrice(price);
@@ -139,41 +148,98 @@ public class IndexPriceServiceImpl implements IndexPriceService {
             componentDTOs.add(compDTO);
         }
 
-        // 4. 检查有效成分数
-        if (validCount < config.getMinValidComponents()) {
-            log.error("Not enough valid components for {}. Required: {}, Got: {}", 
-                    symbol, config.getMinValidComponents(), validCount);
+        int minValidComponents = config.getMinValidComponents() == null ? 1 : config.getMinValidComponents();
+        if (validCount < minValidComponents) {
+            log.error("Not enough valid components for {}. Required: {}, Got: {}",
+                    symbol, minValidComponents, validCount);
             return;
         }
 
-        // 5. 计算最终指数价格
         long indexPrice = weightedSum / totalWeight;
+        long timestamp = System.currentTimeMillis();
 
-        // 6. 保存到数据库
         IndexPrice priceEntity = new IndexPrice();
         priceEntity.setSymbol(symbol);
         priceEntity.setPrice(indexPrice);
         priceEntity.setSource("WEIGHTED_AVERAGE");
         priceEntity.setWeight(totalWeight);
-        priceEntity.setTimestamp(System.currentTimeMillis());
+        priceEntity.setTimestamp(timestamp);
         indexPriceMapper.insert(priceEntity);
 
-        // 7. 更新Redis缓存
         IndexPriceDTO dto = new IndexPriceDTO();
         dto.setSymbol(symbol);
         dto.setPrice(indexPrice);
-        dto.setTimestamp(priceEntity.getTimestamp());
+        dto.setTimestamp(timestamp);
+        dto.setSource("weighted_average");
+        dto.setSourceEventTime(timestamp);
+        dto.setIndexPriceId(buildIndexPriceId(symbol, timestamp, timestamp));
         dto.setComponents(componentDTOs);
 
-        if (redisTemplate != null) {
-            redisTemplate.opsForValue().set(REDIS_KEY_PREFIX + symbol, dto, 
-                    REDIS_CACHE_TTL_SECONDS, TimeUnit.SECONDS);
-        }
-
-        // 8. 发布事件
+        cacheLatest(symbol, dto);
         publishIndexPriceEvent(dto);
 
         log.debug("Updated index price for {}: {}", symbol, indexPrice);
+    }
+
+    private void calculateWithExternalMarketState(String symbol) {
+        ExternalMarketStateStore.MarketSnapshot snapshot = marketStateStore.getSnapshot(symbol);
+        if (snapshot == null) {
+            log.warn("No external market snapshot available for symbol: {}", symbol);
+            return;
+        }
+
+        long indexPrice = resolveIndexPrice(snapshot);
+        if (indexPrice <= 0) {
+            log.warn("Invalid external market snapshot for symbol={}, bid={}, ask={}, trade={}",
+                    symbol, snapshot.getBestBid(), snapshot.getBestAsk(), snapshot.getLastTradePrice());
+            return;
+        }
+
+        long timestamp = snapshot.getSourceEventTime() > 0
+                ? snapshot.getSourceEventTime()
+                : System.currentTimeMillis();
+        long sourceOffset = snapshot.getSourceOffset();
+        String indexPriceId = buildIndexPriceId(symbol, timestamp, sourceOffset);
+        if (isDuplicateIndexPrice(symbol, indexPriceId)) {
+            log.debug("Skip duplicate index price event: symbol={}, indexPriceId={}", symbol, indexPriceId);
+            return;
+        }
+
+        saveComponent(symbol, "binance", indexPrice, 100, timestamp);
+
+        IndexPrice priceEntity = new IndexPrice();
+        priceEntity.setSymbol(symbol);
+        priceEntity.setPrice(indexPrice);
+        priceEntity.setSource("BINANCE_KAFKA");
+        priceEntity.setWeight(100);
+        priceEntity.setTimestamp(timestamp);
+        indexPriceMapper.insert(priceEntity);
+
+        IndexPriceDTO.ComponentDTO componentDTO = new IndexPriceDTO.ComponentDTO();
+        componentDTO.setExchange("binance");
+        componentDTO.setPrice(indexPrice);
+        componentDTO.setWeight(100);
+        componentDTO.setValid(true);
+
+        IndexPriceDTO dto = new IndexPriceDTO();
+        dto.setSymbol(symbol);
+        dto.setPrice(indexPrice);
+        dto.setTimestamp(timestamp);
+        dto.setIndexPriceId(indexPriceId);
+        dto.setSource("binance");
+        dto.setSourceEventTime(timestamp);
+        dto.setSourceTopic(snapshot.getSourceTopic());
+        dto.setSourceOffset(sourceOffset);
+        dto.setBestBid(snapshot.getBestBid());
+        dto.setBestAsk(snapshot.getBestAsk());
+        dto.setLastTradePrice(snapshot.getLastTradePrice());
+        dto.setComponents(List.of(componentDTO));
+
+        cacheLatest(symbol, dto);
+        publishIndexPriceEvent(dto);
+
+        log.debug("Updated index price from Binance Kafka snapshot: symbol={}, price={}, topic={}, offset={}",
+                symbol, indexPrice, snapshot.getSourceTopic(), snapshot.getSourceOffset());
     }
 
     @Override
@@ -188,15 +254,11 @@ public class IndexPriceServiceImpl implements IndexPriceService {
         }
     }
 
-    /**
-     * 验证价格是否有效（检查是否偏离过多）
-     */
     private boolean isPriceValid(Long price, Map<String, Long> allPrices) {
         if (price == null || price <= 0) {
             return false;
         }
 
-        // 计算中位数
         List<Long> sortedPrices = allPrices.values().stream()
                 .filter(p -> p != null && p > 0)
                 .sorted()
@@ -207,15 +269,10 @@ public class IndexPriceServiceImpl implements IndexPriceService {
         }
 
         long median = sortedPrices.get(sortedPrices.size() / 2);
-        
-        // 偏离不超过5%
         long deviation = Math.abs(price - median) * 100 / median;
         return deviation <= 5;
     }
 
-    /**
-     * 获取交易所权重
-     */
     private int getExchangeWeight(String exchange) {
         return switch (exchange.toLowerCase()) {
             case "binance" -> 40;
@@ -225,33 +282,78 @@ public class IndexPriceServiceImpl implements IndexPriceService {
         };
     }
 
-    /**
-     * 保存成分数据
-     */
-    private void saveComponent(String symbol, String exchange, Long price, int weight) {
+    private boolean isBinanceKafkaSource() {
+        return "binance_kafka".equalsIgnoreCase(calculationSource);
+    }
+
+    private String buildIndexPriceId(String symbol, long sourceEventTime, long sourceOffset) {
+        return symbol + "-" + sourceEventTime + "-" + sourceOffset;
+    }
+
+    private boolean isDuplicateIndexPrice(String symbol, String indexPriceId) {
+        String previous = lastPublishedIndexPriceId.put(symbol, indexPriceId);
+        return indexPriceId.equals(previous);
+    }
+
+    private long resolveIndexPrice(ExternalMarketStateStore.MarketSnapshot snapshot) {
+        long bestBid = snapshot.getBestBid();
+        long bestAsk = snapshot.getBestAsk();
+        if (bestBid > 0 && bestAsk > 0 && bestAsk >= bestBid) {
+            return bestBid + (bestAsk - bestBid) / 2;
+        }
+        if (snapshot.getLastTradePrice() > 0) {
+            return snapshot.getLastTradePrice();
+        }
+        if (bestBid > 0) {
+            return bestBid;
+        }
+        if (bestAsk > 0) {
+            return bestAsk;
+        }
+        return 0L;
+    }
+
+    private void saveComponent(String symbol, String exchange, Long price, int weight, long timestamp) {
         IndexPriceComponent component = new IndexPriceComponent();
         component.setSymbol(symbol);
         component.setExchange(exchange);
         component.setRawPrice(price);
         component.setWeight(weight);
         component.setValid(1);
-        component.setTimestamp(System.currentTimeMillis());
+        component.setTimestamp(timestamp);
         componentMapper.insert(component);
     }
 
-    /**
-     * 发布指数价格事件
-     */
+    private void cacheLatest(String symbol, IndexPriceDTO dto) {
+        if (redisTemplate == null) {
+            return;
+        }
+        redisTemplate.opsForValue().set(REDIS_KEY_PREFIX + symbol, dto,
+                REDIS_CACHE_TTL_SECONDS, TimeUnit.SECONDS);
+    }
+
     private void publishIndexPriceEvent(IndexPriceDTO dto) {
         IndexPriceUpdateEvent event = new IndexPriceUpdateEvent();
         event.setEventTime(System.currentTimeMillis());
-        
+
         IndexPriceUpdateEvent.IndexPriceData data = new IndexPriceUpdateEvent.IndexPriceData();
+        data.setIndexPriceId(dto.getIndexPriceId());
         data.setSymbol(dto.getSymbol());
         data.setPrice(dto.getPrice());
         data.setTimestamp(dto.getTimestamp());
-        
-        List<IndexPriceUpdateEvent.ComponentData> components = dto.getComponents().stream()
+        data.setSource(dto.getSource());
+        data.setSourceEventTime(dto.getSourceEventTime());
+        data.setSourceTopic(dto.getSourceTopic());
+        data.setSourceOffset(dto.getSourceOffset());
+        data.setBestBid(dto.getBestBid());
+        data.setBestAsk(dto.getBestAsk());
+        data.setLastTradePrice(dto.getLastTradePrice());
+
+        List<IndexPriceDTO.ComponentDTO> sourceComponents = dto.getComponents() == null
+                ? List.of()
+                : dto.getComponents();
+
+        List<IndexPriceUpdateEvent.ComponentData> components = sourceComponents.stream()
                 .map(c -> {
                     IndexPriceUpdateEvent.ComponentData comp = new IndexPriceUpdateEvent.ComponentData();
                     comp.setExchange(c.getExchange());
@@ -260,8 +362,8 @@ public class IndexPriceServiceImpl implements IndexPriceService {
                     return comp;
                 })
                 .collect(Collectors.toList());
+
         data.setComponents(components);
-        
         event.setData(data);
         eventProducer.publishIndexPriceUpdate(event);
     }

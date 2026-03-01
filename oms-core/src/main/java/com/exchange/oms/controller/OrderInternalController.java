@@ -6,6 +6,7 @@ import com.exchange.common.proto.event.OrderCommand;
 import com.exchange.common.proto.request.CreateOrderRequest;
 import com.exchange.common.proto.response.CreateOrderResponse;
 import com.exchange.oms.service.OrderService;
+import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.web.bind.annotation.*;
@@ -51,8 +52,12 @@ public class OrderInternalController {
             orderRequest.setOrderType(OrderType.valueOf(request.getOrderType()));
             orderRequest.setQuantity(request.getQuantity());
             orderRequest.setPrice(request.getPrice());
-            orderRequest.setReduceOnly(true);
-            orderRequest.setOrderSource("LIQUIDATION");
+            orderRequest.setReduceOnly(request.getReduceOnly() == null || request.getReduceOnly());
+            orderRequest.setOrderSource(
+                request.getOrderSource() == null || request.getOrderSource().isBlank()
+                    ? "LIQUIDATION"
+                    : request.getOrderSource()
+            );
             orderRequest.setPositionId(request.getPositionId());
             
             // 调用服务创建订单 (特殊处理)
@@ -99,6 +104,7 @@ public class OrderInternalController {
     // ==================== DTO ====================
     
     @lombok.Data
+    @JsonIgnoreProperties(ignoreUnknown = true)
     public static class LiquidationOrderRequest {
         private Long userId;
         private String symbol;
@@ -106,6 +112,8 @@ public class OrderInternalController {
         private String orderType;
         private Long quantity;
         private Long price;
+        private Boolean reduceOnly;
+        private String orderSource;
         private Long positionId;
         private String liquidationId;
     }

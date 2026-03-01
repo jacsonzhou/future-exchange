@@ -20,10 +20,11 @@ import java.util.stream.Collectors;
 
 /**
  * 标记价格服务实现
- * 
- * 标记价格计算逻辑：
- * 1. 基于指数价格 + 溢价指数
- * 2. 使用EMA平滑处理，防止价格剧烈波动
+ *
+ * B3 约束：
+ * 1) 仅基于 index 事件计算；
+ * 2) 不允许随机溢价/假价回退；
+ * 3) markPriceId 与 indexPriceId 建立一一关联。
  */
 @Slf4j
 @Service
@@ -38,20 +39,16 @@ public class MarkPriceServiceImpl implements MarkPriceService {
     @Autowired(required = false)
     private RedisTemplate<String, Object> redisTemplate;
 
-    // EMA平滑系数 (α = 2/(N+1), N=60)
-    private static final double EMA_ALPHA = 0.0328;
-    
-    // Redis缓存键前缀
     private static final String REDIS_KEY_PREFIX = "mark:price:";
-    private static final String EMA_KEY_PREFIX = "mark:ema:";
     private static final long REDIS_CACHE_TTL_SECONDS = 30;
 
-    // 内存中的EMA缓存
-    private final Map<String, Double> emaCache = new ConcurrentHashMap<>();
+    // 最新指数输入缓存（由 index-price-update 消费驱动）
+    private final Map<String, IndexReference> latestIndexRefBySymbol = new ConcurrentHashMap<>();
+    // 去重：同一 indexPriceId 仅处理一次
+    private final Map<String, String> lastProcessedIndexIdBySymbol = new ConcurrentHashMap<>();
 
     @Override
     public MarkPriceDTO getLatestMarkPrice(String symbol) {
-        // 1. 先尝试从Redis获取
         if (redisTemplate != null) {
             Object cached = redisTemplate.opsForValue().get(REDIS_KEY_PREFIX + symbol);
             if (cached != null) {
@@ -59,20 +56,13 @@ public class MarkPriceServiceImpl implements MarkPriceService {
             }
         }
 
-        // 2. 从数据库获取
         MarkPrice markPrice = markPriceMapper.selectLatestBySymbol(symbol);
         if (markPrice == null) {
             return null;
         }
 
         MarkPriceDTO dto = convertToDTO(markPrice);
-        
-        // 3. 缓存到Redis
-        if (redisTemplate != null) {
-            redisTemplate.opsForValue().set(REDIS_KEY_PREFIX + symbol, dto, 
-                    REDIS_CACHE_TTL_SECONDS, TimeUnit.SECONDS);
-        }
-
+        cacheLatest(symbol, dto);
         return dto;
     }
 
@@ -87,50 +77,24 @@ public class MarkPriceServiceImpl implements MarkPriceService {
     @Override
     @Transactional
     public void calculateAndUpdateMarkPrice(String symbol) {
-        // 1. 获取当前指数价格
-        Long indexPrice = getCurrentIndexPrice(symbol);
-        if (indexPrice == null) {
-            log.warn("Index price not available for symbol: {}", symbol);
+        if (symbol == null || symbol.isBlank()) {
             return;
         }
-
-        // 2. 计算理论标记价格（基于指数价格 + 溢价）
-        Long fairPrice = calculateFairPrice(symbol, indexPrice);
-        
-        // 3. EMA平滑处理
-        Long smoothedPrice = applyEMASmoothing(symbol, fairPrice);
-
-        // 4. 保存到数据库
-        MarkPrice markPrice = new MarkPrice();
-        markPrice.setSymbol(symbol);
-        markPrice.setMarkPrice(smoothedPrice);
-        markPrice.setIndexPrice(indexPrice);
-        markPrice.setFundingRate(getCurrentFundingRate(symbol));
-        markPrice.setNextFundingTime(getNextFundingTime(symbol));
-        markPrice.setTimestamp(System.currentTimeMillis());
-        markPriceMapper.insert(markPrice);
-
-        // 5. 更新Redis缓存
-        MarkPriceDTO dto = convertToDTO(markPrice);
-        if (redisTemplate != null) {
-            redisTemplate.opsForValue().set(REDIS_KEY_PREFIX + symbol, dto, 
-                    REDIS_CACHE_TTL_SECONDS, TimeUnit.SECONDS);
+        String normalizedSymbol = symbol.trim().toUpperCase();
+        IndexReference ref = latestIndexRefBySymbol.get(normalizedSymbol);
+        if (ref == null) {
+            log.warn("Index reference not available for symbol: {}", normalizedSymbol);
+            return;
         }
-
-        // 6. 发布事件
-        publishMarkPriceEvent(dto);
-
-        log.debug("Updated mark price for {}: markPrice={}, indexPrice={}", 
-                symbol, smoothedPrice, indexPrice);
+        upsertMarkPrice(normalizedSymbol, ref);
     }
 
     @Override
     public void batchCalculateMarkPrices() {
-        // 获取所有支持的交易对
-        String[] symbols = {"BTCUSDT", "ETHUSDT", "SOLUSDT"};
-        for (String symbol : symbols) {
+        for (Map.Entry<String, IndexReference> entry : latestIndexRefBySymbol.entrySet()) {
+            String symbol = entry.getKey();
             try {
-                calculateAndUpdateMarkPrice(symbol);
+                upsertMarkPrice(symbol, entry.getValue());
             } catch (Exception e) {
                 log.error("Failed to calculate mark price for {}", symbol, e);
             }
@@ -138,89 +102,118 @@ public class MarkPriceServiceImpl implements MarkPriceService {
     }
 
     @Override
-    public void onIndexPriceUpdate(String symbol, Long indexPrice) {
-        // 指数价格更新时，触发标记价格重新计算
-        calculateAndUpdateMarkPrice(symbol);
-    }
-
-    /**
-     * 获取当前指数价格
-     */
-    private Long getCurrentIndexPrice(String symbol) {
-        // 优先从Redis获取
-        if (redisTemplate != null) {
-            Object cached = redisTemplate.opsForValue().get("index:price:" + symbol);
-            if (cached != null) {
-                return ((MarkPriceDTO) cached).getMarkPrice();
-            }
-        }
-        
-        // 返回模拟数据
-        return "BTCUSDT".equals(symbol) ? 50000_00000000L : 
-               ("ETHUSDT".equals(symbol) ? 3000_00000000L : 100_00000000L);
-    }
-
-    /**
-     * 计算公允价格（基于OrderBook买一卖一）
-     * 实际生产环境需要获取OrderBook数据
-     */
-    private Long calculateFairPrice(String symbol, Long indexPrice) {
-        // 模拟基于OrderBook的公允价格计算
-        // 实际应该获取买一卖一的中间价
-        double premium = (Math.random() - 0.5) * 0.001; // ±0.05%的溢价
-        return (long) (indexPrice * (1 + premium));
-    }
-
-    /**
-     * EMA平滑处理
-     */
-    private Long applyEMASmoothing(String symbol, Long newPrice) {
-        Double prevEMA = emaCache.get(symbol);
-        
-        if (prevEMA == null) {
-            // 尝试从Redis获取
-            if (redisTemplate != null) {
-                Object cached = redisTemplate.opsForValue().get(EMA_KEY_PREFIX + symbol);
-                if (cached != null) {
-                    prevEMA = ((Number) cached).doubleValue();
-                }
-            }
+    @Transactional
+    public void onIndexPriceUpdate(String symbol, Long indexPrice, String indexPriceId,
+                                   Long sourceEventTime, String sourceTopic, Long sourceOffset) {
+        if (symbol == null || symbol.isBlank() || indexPrice == null || indexPrice <= 0) {
+            log.warn("Ignore invalid index update: symbol={}, indexPrice={}", symbol, indexPrice);
+            return;
         }
 
-        double currentEMA;
-        if (prevEMA == null) {
-            currentEMA = newPrice;
-        } else {
-            currentEMA = EMA_ALPHA * newPrice + (1 - EMA_ALPHA) * prevEMA;
-        }
+        String normalizedSymbol = symbol.trim().toUpperCase();
+        String normalizedIndexId = (indexPriceId == null || indexPriceId.isBlank())
+                ? normalizedSymbol + "-" + (sourceEventTime == null ? System.currentTimeMillis() : sourceEventTime)
+                : indexPriceId.trim();
 
-        // 更新缓存
-        emaCache.put(symbol, currentEMA);
-        if (redisTemplate != null) {
-            redisTemplate.opsForValue().set(EMA_KEY_PREFIX + symbol, currentEMA, 60, TimeUnit.SECONDS);
-        }
-
-        return (long) currentEMA;
+        IndexReference ref = new IndexReference(
+                indexPrice,
+                normalizedIndexId,
+                sourceEventTime != null ? sourceEventTime : System.currentTimeMillis(),
+                sourceTopic,
+                sourceOffset != null ? sourceOffset : -1L
+        );
+        latestIndexRefBySymbol.put(normalizedSymbol, ref);
+        upsertMarkPrice(normalizedSymbol, ref);
     }
 
-    /**
-     * 获取当前资金费率
-     */
+    private void upsertMarkPrice(String symbol, IndexReference ref) {
+        if (ref == null || ref.indexPrice() == null || ref.indexPrice() <= 0) {
+            return;
+        }
+
+        if (isDuplicateIndexId(symbol, ref.indexPriceId())) {
+            log.debug("Skip duplicate mark price update: symbol={}, indexPriceId={}", symbol, ref.indexPriceId());
+            return;
+        }
+
+        long markPrice = calculateDeterministicMarkPrice(ref.indexPrice());
+        long now = System.currentTimeMillis();
+        String markPriceId = buildMarkPriceId(symbol, ref);
+
+        MarkPrice entity = new MarkPrice();
+        entity.setSymbol(symbol);
+        entity.setMarkPrice(markPrice);
+        entity.setIndexPrice(ref.indexPrice());
+        entity.setFundingRate(getCurrentFundingRate(symbol));
+        entity.setNextFundingTime(getNextFundingTime(symbol));
+        entity.setTimestamp(now);
+        markPriceMapper.insert(entity);
+
+        MarkPriceDTO dto = new MarkPriceDTO();
+        dto.setMarkPriceId(markPriceId);
+        dto.setIndexPriceId(ref.indexPriceId());
+        dto.setSymbol(symbol);
+        dto.setMarkPrice(markPrice);
+        dto.setIndexPrice(ref.indexPrice());
+        dto.setFundingRate(entity.getFundingRate());
+        dto.setNextFundingTime(entity.getNextFundingTime());
+        dto.setSource("index_price_event");
+        dto.setSourceEventTime(ref.sourceEventTime());
+        dto.setSourceTopic(ref.sourceTopic());
+        dto.setSourceOffset(ref.sourceOffset());
+        dto.setTimestamp(now);
+
+        cacheLatest(symbol, dto);
+        publishMarkPriceEvent(dto);
+        markIndexIdProcessed(symbol, ref.indexPriceId());
+
+        log.debug("Updated mark price: symbol={}, markPrice={}, indexPrice={}, indexPriceId={}",
+                symbol, markPrice, ref.indexPrice(), ref.indexPriceId());
+    }
+
+    private long calculateDeterministicMarkPrice(Long indexPrice) {
+        // B3: 去随机化，直接使用 index price 作为 mark price。
+        return indexPrice;
+    }
+
+    private boolean isDuplicateIndexId(String symbol, String indexPriceId) {
+        if (indexPriceId == null || indexPriceId.isBlank()) {
+            return false;
+        }
+        String previous = lastProcessedIndexIdBySymbol.get(symbol);
+        return indexPriceId.equals(previous);
+    }
+
+    private void markIndexIdProcessed(String symbol, String indexPriceId) {
+        if (indexPriceId == null || indexPriceId.isBlank()) {
+            return;
+        }
+        lastProcessedIndexIdBySymbol.put(symbol, indexPriceId);
+    }
+
+    private String buildMarkPriceId(String symbol, IndexReference ref) {
+        return symbol + "-" + ref.sourceEventTime() + "-" + ref.sourceOffset();
+    }
+
+    private void cacheLatest(String symbol, MarkPriceDTO dto) {
+        if (redisTemplate == null) {
+            return;
+        }
+        redisTemplate.opsForValue().set(REDIS_KEY_PREFIX + symbol, dto,
+                REDIS_CACHE_TTL_SECONDS, TimeUnit.SECONDS);
+    }
+
     private Long getCurrentFundingRate(String symbol) {
-        // 从Redis或配置获取
-        return 10000L; // 0.01%
+        return 10000L;
     }
 
-    /**
-     * 获取下次结算时间
-     */
     private Long getNextFundingTime(String symbol) {
         long now = System.currentTimeMillis();
         long dayStart = (now / (24 * 60 * 60 * 1000)) * (24 * 60 * 60 * 1000);
         long[] fundingTimes = {
-            dayStart,
-            dayStart + 8 * 60 * 60 * 1000,
-            dayStart + 16 * 60 * 60 * 1000
+                dayStart,
+                dayStart + 8 * 60 * 60 * 1000,
+                dayStart + 16 * 60 * 60 * 1000
         };
 
         for (long fundingTime : fundingTimes) {
@@ -231,21 +224,24 @@ public class MarkPriceServiceImpl implements MarkPriceService {
         return dayStart + 24 * 60 * 60 * 1000;
     }
 
-    /**
-     * 发布标记价格事件
-     */
     private void publishMarkPriceEvent(MarkPriceDTO dto) {
         MarkPriceUpdateEvent event = new MarkPriceUpdateEvent();
         event.setEventTime(System.currentTimeMillis());
-        
+
         MarkPriceUpdateEvent.MarkPriceData data = new MarkPriceUpdateEvent.MarkPriceData();
+        data.setMarkPriceId(dto.getMarkPriceId());
+        data.setIndexPriceId(dto.getIndexPriceId());
         data.setSymbol(dto.getSymbol());
         data.setMarkPrice(dto.getMarkPrice());
         data.setIndexPrice(dto.getIndexPrice());
         data.setFundingRate(dto.getFundingRate());
         data.setNextFundingTime(dto.getNextFundingTime());
+        data.setSource(dto.getSource());
+        data.setSourceEventTime(dto.getSourceEventTime());
+        data.setSourceTopic(dto.getSourceTopic());
+        data.setSourceOffset(dto.getSourceOffset());
         data.setTimestamp(dto.getTimestamp());
-        
+
         event.setData(data);
         eventProducer.publishMarkPriceUpdate(event);
     }
@@ -259,5 +255,9 @@ public class MarkPriceServiceImpl implements MarkPriceService {
         dto.setNextFundingTime(entity.getNextFundingTime());
         dto.setTimestamp(entity.getTimestamp());
         return dto;
+    }
+
+    private record IndexReference(Long indexPrice, String indexPriceId, Long sourceEventTime,
+                                  String sourceTopic, Long sourceOffset) {
     }
 }

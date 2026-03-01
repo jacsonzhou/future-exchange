@@ -106,5 +106,34 @@ public class TradeEntryEvent {
      * Taker手续费
      */
     private BigDecimal takerFee;
-}
 
+    /**
+     * 执行模式：MATCH_ENGINE / CFD_DEALER
+     */
+    private String executionMode;
+
+    /**
+     * 流动性来源：如 BINANCE_REF
+     */
+    private String liquiditySource;
+
+    /**
+     * CFD 平台对手方账户ID
+     */
+    private Long dealerAccountId;
+
+    /**
+     * 参考行情来源 Topic
+     */
+    private String referenceTopic;
+
+    /**
+     * 参考行情来源 offset
+     */
+    private Long referenceOffset;
+
+    /**
+     * 参考行情事件时间（毫秒）
+     */
+    private Long referenceEventTime;
+}

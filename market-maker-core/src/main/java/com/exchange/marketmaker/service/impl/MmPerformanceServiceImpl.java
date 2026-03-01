@@ -100,7 +100,7 @@ public class MmPerformanceServiceImpl implements com.exchange.marketmaker.servic
 
         // 评分结果
         performance.setScore(score);
-        performance.setIsQualified(isQualified);
+        performance.setIsQualified((int) isQualified);
 
         // 保存到数据库
         mmPerformanceMapper.insert(performance);

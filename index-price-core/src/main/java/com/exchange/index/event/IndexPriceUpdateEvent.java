@@ -27,9 +27,17 @@ public class IndexPriceUpdateEvent {
 
     @Data
     public static class IndexPriceData {
+        private String indexPriceId;
         private String symbol;
         private Long price;
         private Long timestamp;
+        private String source;
+        private Long sourceEventTime;
+        private String sourceTopic;
+        private Long sourceOffset;
+        private Long bestBid;
+        private Long bestAsk;
+        private Long lastTradePrice;
         private List<ComponentData> components;
     }
 

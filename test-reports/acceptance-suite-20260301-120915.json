@@ -1,0 +1,168 @@
+{
+  "generatedAt": 1772338155261,
+  "durationSec": 55.1,
+  "passed": 10,
+  "failed": 2,
+  "steps": [
+    {
+      "name": "runtime_schema_fix",
+      "ok": true,
+      "message": "Liquidation runtime schema aligned",
+      "details": {
+        "mysqlContainer": "web3-mysql",
+        "completedAtBefore": true,
+        "validatedAtBefore": true,
+        "completedAtAfter": true,
+        "validatedAtAfter": true
+      }
+    },
+    {
+      "name": "service_check",
+      "ok": true,
+      "message": "Required services are listening",
+      "details": {
+        "apiGateway": "http://localhost:8082",
+        "omsBase": "http://localhost:8081",
+        "matchBase": "http://localhost:8083",
+        "positionInternalBase": "http://localhost:8086",
+        "liquidationBase": "http://localhost:8102"
+      }
+    },
+    {
+      "name": "login",
+      "ok": true,
+      "message": "Login success",
+      "details": {
+        "userId": 38,
+        "tokenLen": 176
+      }
+    },
+    {
+      "name": "maker_login",
+      "ok": true,
+      "message": "Maker account login success",
+      "details": {
+        "makerUsername": "zhoufan",
+        "makerUserId": 16,
+        "tokenLen": 175
+      }
+    },
+    {
+      "name": "test_state_reset",
+      "ok": true,
+      "message": "Test account state reset to clean baseline",
+      "details": {
+        "userId": 38,
+        "symbol": "BTCUSDT",
+        "activeOrderCountBefore": 0,
+        "canceledOrders": [],
+        "activeOrderCountAfter": 0,
+        "positionRowsAfter": 0,
+        "liquidationRowsAfter": 0,
+        "liquidationEventRowsAfter": 0
+      }
+    },
+    {
+      "name": "maker_state_reset",
+      "ok": true,
+      "message": "Maker account state reset to clean baseline",
+      "details": {
+        "userId": 16,
+        "symbol": "BTCUSDT",
+        "activeOrderCountBefore": 0,
+        "canceledOrders": [],
+        "activeOrderCountAfter": 0,
+        "positionRowsAfter": 0,
+        "liquidationRowsAfter": 0,
+        "liquidationEventRowsAfter": 0
+      }
+    },
+    {
+      "name": "context_snapshot",
+      "ok": true,
+      "message": "Fetched positions and orderbook depth",
+      "details": {
+        "bestBid": "66603.98448000",
+        "bestAsk": "67276.75200000",
+        "activePosition": null,
+        "positionCount": 0
+      }
+    },
+    {
+      "name": "cancel_flow",
+      "ok": true,
+      "message": "Passive order canceled successfully",
+      "details": {
+        "orderId": "286349105549021184",
+        "side": "SELL",
+        "price": "74004.42720000",
+        "cancelResponse": {
+          "orderId": "286349105549021184",
+          "status": "CANCELED",
+          "success": true,
+          "errorCode": null,
+          "errorMessage": null
+        },
+        "finalStatus": "CANCELED"
+      }
+    },
+    {
+      "name": "fill_flow",
+      "ok": true,
+      "message": "Aggressive order matched with seeded counterparty",
+      "details": {
+        "orderId": "286349109185482752",
+        "side": "BUY",
+        "price": "80732.10240000",
+        "qtyInt": 100000000,
+        "finalStatus": "FILLED",
+        "seedOrderId": "286349108933824512",
+        "seedOrderSide": "SELL",
+        "seedOrderStatus": "CANCELED",
+        "preSize": "0",
+        "seedFilledQuantity": "0.98",
+        "postFillPosition": {
+          "symbol": "BTCUSDT",
+          "side": "LONG",
+          "positionSide": 1,
+          "size": "1.0000000000000000",
+          "entryPrice": "80462.9953920000000000",
+          "unrealizedPnl": "269.107008",
+          "realizedPnl": "0.0",
+          "marginRatio": "20.60000000",
+          "liquidationPrice": "72780.5988470400000000"
+        }
+      }
+    },
+    {
+      "name": "manual_close_flow",
+      "ok": false,
+      "message": "Manual close flow failed",
+      "details": {
+        "error": "Depth empty for BTCUSDT: {'symbol': 'BTCUSDT', 'asks': [], 'bids': [], 'timestamp': 1772338153157}"
+      }
+    },
+    {
+      "name": "liquidation_price_formula",
+      "ok": true,
+      "message": "Liquidation price formula matched",
+      "details": {
+        "side": "LONG",
+        "entryPrice": "80462.9953920000000000",
+        "leverage": "10",
+        "actualLiquidationPrice": "72780.5988470400000000",
+        "expectedLiquidationPrice": "72780.59884704",
+        "diff": "0E-16",
+        "tolerance": "72.78059884704"
+      }
+    },
+    {
+      "name": "liquidation_trigger_execution",
+      "ok": false,
+      "message": "Liquidation trigger stage failed",
+      "details": {
+        "error": "Depth empty for BTCUSDT: {'symbol': 'BTCUSDT', 'asks': [], 'bids': [], 'timestamp': 1772338155259}"
+      }
+    }
+  ]
+}

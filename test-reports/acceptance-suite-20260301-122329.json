@@ -1,0 +1,101 @@
+{
+  "generatedAt": 1772339009205,
+  "durationSec": 43.94,
+  "passed": 6,
+  "failed": 1,
+  "steps": [
+    {
+      "name": "runtime_schema_fix",
+      "ok": true,
+      "message": "Liquidation runtime schema aligned",
+      "details": {
+        "mysqlContainer": "web3-mysql",
+        "completedAtBefore": true,
+        "validatedAtBefore": true,
+        "completedAtAfter": true,
+        "validatedAtAfter": true
+      }
+    },
+    {
+      "name": "service_check",
+      "ok": true,
+      "message": "Required services are listening",
+      "details": {
+        "apiGateway": "http://localhost:8082",
+        "omsBase": "http://localhost:8081",
+        "matchBase": "http://localhost:8083",
+        "positionInternalBase": "http://localhost:8086",
+        "liquidationBase": "http://localhost:8102"
+      }
+    },
+    {
+      "name": "login",
+      "ok": true,
+      "message": "Login success",
+      "details": {
+        "userId": 38,
+        "tokenLen": 176
+      }
+    },
+    {
+      "name": "maker_login",
+      "ok": true,
+      "message": "Maker account login success",
+      "details": {
+        "makerUsername": "zhoufan",
+        "makerUserId": 16,
+        "tokenLen": 175
+      }
+    },
+    {
+      "name": "test_state_reset",
+      "ok": true,
+      "message": "Test account state reset to clean baseline",
+      "details": {
+        "userId": 38,
+        "symbol": "BTCUSDT",
+        "activeOrderCountBefore": 1,
+        "canceledOrders": [
+          {
+            "orderId": "286349105549021184",
+            "finalStatus": "CANCELED",
+            "cancelResponse": {
+              "orderId": "286349105549021184",
+              "status": "CANCELED",
+              "success": true,
+              "errorCode": null,
+              "errorMessage": null
+            }
+          }
+        ],
+        "activeOrderCountAfter": 0,
+        "positionRowsAfter": 0,
+        "liquidationRowsAfter": 0,
+        "liquidationEventRowsAfter": 0
+      }
+    },
+    {
+      "name": "maker_state_reset",
+      "ok": true,
+      "message": "Maker account state reset to clean baseline",
+      "details": {
+        "userId": 16,
+        "symbol": "BTCUSDT",
+        "activeOrderCountBefore": 0,
+        "canceledOrders": [],
+        "activeOrderCountAfter": 0,
+        "positionRowsAfter": 0,
+        "liquidationRowsAfter": 0,
+        "liquidationEventRowsAfter": 0
+      }
+    },
+    {
+      "name": "context_snapshot",
+      "ok": false,
+      "message": "Failed to fetch context",
+      "details": {
+        "error": "Depth empty for BTCUSDT: {'symbol': 'BTCUSDT', 'asks': [], 'bids': [], 'timestamp': 1772339009189}"
+      }
+    }
+  ]
+}

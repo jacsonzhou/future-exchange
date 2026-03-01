@@ -14,6 +14,7 @@ import com.exchange.adl.service.AdlService;
 import com.exchange.adl.service.InsuranceFundService;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.context.annotation.Primary;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -38,6 +39,7 @@ import java.util.UUID;
  */
 @Slf4j
 @Service
+@Primary
 public class AdlServiceImplIntegrated implements AdlService {
 
     @Autowired
@@ -74,14 +76,14 @@ public class AdlServiceImplIntegrated implements AdlService {
 
     @Override
     @Transactional
-    public void onLiquidationCompleted(Long liquidationId, Long userId, String symbol, String side,
+    public void onLiquidationCompleted(String liquidationId, Long userId, String symbol, String side,
                                         Long bankruptPrice, Long bankruptQty, Long bankruptLoss) {
         log.info("Processing liquidation event: liquidationId={}, symbol={}, userId={}, loss={}",
                 liquidationId, symbol, userId, bankruptLoss);
 
         // 1. 创建穿仓记录
         BankruptcyRecord record = createBankruptcyRecord(
-                String.valueOf(liquidationId), userId, symbol, side,
+                liquidationId, userId, symbol, side,
                 new BigDecimal(bankruptPrice), new BigDecimal(bankruptQty), new BigDecimal(bankruptLoss)
         );
 
@@ -126,7 +128,7 @@ public class AdlServiceImplIntegrated implements AdlService {
 
     @Override
     @Transactional
-    public void executeAdl(String symbol, String oppositeSide, Long requiredQty, Long sourceLiquidationId) {
+    public void executeAdl(String symbol, String oppositeSide, Long requiredQty, String sourceLiquidationId, Long sourceUserId) {
         log.info("Executing ADL: symbol={}, oppositeSide={}, requiredQty={}, sourceLiquidationId={}",
                 symbol, oppositeSide, requiredQty, sourceLiquidationId);
 
@@ -154,7 +156,7 @@ public class AdlServiceImplIntegrated implements AdlService {
 
                 // 执行单个ADL（包含Clearing集成）
                 AdlExecutedEvent.AdlExecutionDetail detail = executeSingleAdlWithClearing(
-                        candidate, remainingQty, symbol, String.valueOf(sourceLiquidationId)
+                        candidate, remainingQty, symbol, sourceLiquidationId, sourceUserId
                 );
 
                 if (detail != null) {
@@ -169,7 +171,7 @@ public class AdlServiceImplIntegrated implements AdlService {
         }
 
         // 发布ADL执行完成事件
-        publishAdlExecutedEvent(symbol, String.valueOf(sourceLiquidationId), executionDetails, affectedUsers);
+        publishAdlExecutedEvent(symbol, sourceLiquidationId, executionDetails, affectedUsers);
 
         log.info("ADL execution completed: symbol={}, batches={}, affectedUsers={}, remainingQty={}",
                 symbol, batchCount, affectedUsers, remainingQty);
@@ -286,7 +288,7 @@ public class AdlServiceImplIntegrated implements AdlService {
         adlEventProducer.publishAdlTrigger(event);
 
         executeAdl(record.getSymbol(), event.getOppositeSide(), remainingLoss.longValue(),
-                Long.parseLong(record.getLiquidationId()));
+                record.getLiquidationId(), record.getUserId());
     }
 
     /**
@@ -300,7 +302,11 @@ public class AdlServiceImplIntegrated implements AdlService {
      * 执行单个ADL（包含Clearing集成）
      */
     private AdlExecutedEvent.AdlExecutionDetail executeSingleAdlWithClearing(
-            AdlRankingQueue candidate, BigDecimal requiredQty, String symbol, String sourceLiquidationId) {
+            AdlRankingQueue candidate,
+            BigDecimal requiredQty,
+            String symbol,
+            String sourceLiquidationId,
+            Long sourceUserId) {
 
         try {
             // 1. 二次校验：确保候选人持仓仍然有效
@@ -325,7 +331,7 @@ public class AdlServiceImplIntegrated implements AdlService {
                     adlExecutionId,
                     candidate.getUserId(),
                     candidate.getPositionId(),
-                    Long.parseLong(sourceLiquidationId), // sourceUserId（简化处理）
+                    sourceUserId != null ? sourceUserId : 0L,
                     symbol,
                     candidate.getSide(),
                     adlPrice,

@@ -30,5 +30,21 @@ public interface AccountSnapshotMapper extends BaseMapper<AccountSnapshot> {
             "updated_at = #{updatedAt} " +
             "WHERE user_id = #{userId} AND version = #{version}")
     int updateWithOptimisticLock(AccountSnapshot snapshot);
-}
 
+    /**
+     * 仅更新账户估值字段（未实现盈亏/权益）并使用乐观锁
+     */
+    @Update("UPDATE account_snapshot SET " +
+            "unrealized_pnl = #{unrealizedPnl}, " +
+            "equity = #{equity}, " +
+            "version = version + 1, " +
+            "updated_at = #{updatedAt} " +
+            "WHERE user_id = #{userId} AND version = #{version}")
+    int updateUnrealizedPnlWithOptimisticLock(
+        @Param("userId") Long userId,
+        @Param("unrealizedPnl") java.math.BigDecimal unrealizedPnl,
+        @Param("equity") java.math.BigDecimal equity,
+        @Param("updatedAt") Long updatedAt,
+        @Param("version") Integer version
+    );
+}

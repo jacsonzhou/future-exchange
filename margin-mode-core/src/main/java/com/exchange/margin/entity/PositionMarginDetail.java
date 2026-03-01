@@ -1,12 +1,11 @@
 package com.exchange.margin.entity;
 
 import com.baomidou.mybatisplus.annotation.IdType;
+import com.baomidou.mybatisplus.annotation.TableField;
 import com.baomidou.mybatisplus.annotation.TableId;
 import com.baomidou.mybatisplus.annotation.TableName;
 import com.baomidou.mybatisplus.annotation.Version;
 import lombok.Data;
-
-import java.time.LocalDateTime;
 
 /**
  * 仓位保证金详情实体（生产级）
@@ -84,11 +83,13 @@ public class PositionMarginDetail {
     /**
      * 维持保证金（强平阈值）
      */
+    @TableField("maintenance_margin")
     private Long maintMargin;
 
     /**
      * 维持保证金率（万分比，例如500=5%）
      */
+    @TableField("maintenance_margin_rate")
     private Long maintMarginRate;
 
     // ==================== 仓位信息 ====================
@@ -101,6 +102,7 @@ public class PositionMarginDetail {
     /**
      * 持仓数量
      */
+    @TableField("quantity")
     private Long positionQty;
 
     /**
@@ -158,12 +160,12 @@ public class PositionMarginDetail {
     /**
      * 创建时间
      */
-    private LocalDateTime createdAt;
+    private Long createdAt;
 
     /**
      * 更新时间
      */
-    private LocalDateTime updatedAt;
+    private Long updatedAt;
 
     /**
      * 版本号（乐观锁）
@@ -199,6 +201,28 @@ public class PositionMarginDetail {
      */
     public boolean isShort() {
         return side != null && side == 2;
+    }
+
+    /**
+     * 向后兼容旧字段名（positionSide）。
+     */
+    public Integer getPositionSide() {
+        return side;
+    }
+
+    public void setPositionSide(Integer positionSide) {
+        this.side = positionSide;
+    }
+
+    /**
+     * 向后兼容旧字段名（maintenanceMarginRate）。
+     */
+    public Long getMaintenanceMarginRate() {
+        return maintMarginRate;
+    }
+
+    public void setMaintenanceMarginRate(Long maintenanceMarginRate) {
+        this.maintMarginRate = maintenanceMarginRate;
     }
 
     /**

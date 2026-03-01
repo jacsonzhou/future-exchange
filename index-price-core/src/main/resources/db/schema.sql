@@ -28,6 +28,7 @@ CREATE TABLE IF NOT EXISTS t_index_price (
     raw_price BIGINT COMMENT '原始价格',
     timestamp BIGINT NOT NULL COMMENT '数据时间戳',
     created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     KEY idx_symbol_time (symbol, timestamp),
     KEY idx_timestamp (timestamp)
 ) ENGINE=InnoDB COMMENT='指数价格历史表';

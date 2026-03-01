@@ -1,0 +1,50 @@
+server:
+  port: 8106
+
+spring:
+  application:
+    name: cfd-dealer-core
+
+  kafka:
+    bootstrap-servers: localhost:9092,localhost:9093
+    consumer:
+      group-id: cfd-dealer-command
+      auto-offset-reset: latest
+      enable-auto-commit: true
+      key-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+      value-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+    producer:
+      key-serializer: org.apache.kafka.common.serialization.StringSerializer
+      value-serializer: org.apache.kafka.common.serialization.StringSerializer
+      acks: 1
+      retries: 3
+
+  redis:
+    host: localhost
+    port: 6379
+    password: ${REDIS_PASSWORD:redis}
+    database: 0
+    timeout: 5000ms
+
+  datasource:
+    driver-class-name: com.mysql.cj.jdbc.Driver
+    url: jdbc:mysql://localhost:3306/exchange_oms?useUnicode=true&characterEncoding=utf8&serverTimezone=Asia/Shanghai&useSSL=false
+    username: ${DB_USERNAME:root}
+    password: ${DB_PASSWORD:root123456}
+
+cfd:
+  dealer:
+    reference-redis-prefix: "cfd:reference:book:"
+    reference-max-stale-ms: 0
+    dealer-account-id: 0
+    liquidity-source: BINANCE_REF
+    command-topic-pattern: cfd-order-command-.*
+    order-state-topic-prefix: order-state-
+    trade-topic-prefix: trade-event-
+    symbols: [BTCUSDT]
+    trigger-batch-size: 200
+    limit-trigger-interval-ms: 100
+
+mybatis-plus:
+  configuration:
+    map-underscore-to-camel-case: true

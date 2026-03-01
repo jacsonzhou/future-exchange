@@ -5,6 +5,7 @@ import com.exchange.market.engine.OrderBook;
 import com.exchange.market.engine.TradeEngine;
 import com.exchange.market.entity.Kline;
 import com.exchange.market.entity.Ticker24h;
+import com.exchange.market.model.Trade;
 import com.exchange.market.service.MarketDataEngineService;
 import com.exchange.market.service.MarketDataService;
 import com.exchange.market.cache.MarketDataCache;
@@ -13,6 +14,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 import java.util.stream.Collectors;
 
@@ -128,6 +130,23 @@ public class MarketDataServiceImpl implements MarketDataService {
             return new long[]{0, 0, Long.MAX_VALUE, 0};
         }
         return orderBook.getBBO();
+    }
+
+    /**
+     * 获取最近成交（按时间倒序）
+     */
+    public List<Trade> getRecentTrades(String symbol, int limit) {
+        int safeLimit = Math.min(Math.max(limit, 1), 1000);
+        TradeEngine tradeEngine = engineService.getTradeEngine(symbol);
+        if (tradeEngine == null) {
+            return List.of();
+        }
+        List<Trade> trades = tradeEngine.getRecentTrades(safeLimit);
+        if (trades == null || trades.isEmpty()) {
+            return List.of();
+        }
+        Collections.reverse(trades);
+        return trades;
     }
 
     /**

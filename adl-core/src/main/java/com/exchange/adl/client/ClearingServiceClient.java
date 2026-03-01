@@ -3,6 +3,7 @@ package com.exchange.adl.client;
 import com.exchange.adl.client.dto.ClearingRequest;
 import com.exchange.adl.client.dto.ClearingResponse;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import jakarta.annotation.PostConstruct;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
@@ -33,8 +34,15 @@ public class ClearingServiceClient {
     @Autowired
     private ObjectMapper objectMapper;
 
-    @Value("${service.clearing.url:http://localhost:8085}")
+    @Value("${service.clearing.url:}")
     private String clearingServiceUrl;
+
+    @PostConstruct
+    public void validateConfig() {
+        if (clearingServiceUrl == null || clearingServiceUrl.isBlank()) {
+            throw new IllegalStateException("Missing required config: service.clearing.url");
+        }
+    }
 
     /**
      * 提交ADL记账请求

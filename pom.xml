@@ -36,6 +36,7 @@
         <module>private-push-core</module>
         <module>liquidation-core</module>
         <module>binance-data-source</module>
+        <module>cfd-dealer-core</module>
         <module>user-core</module>
     </modules>
 
@@ -191,6 +192,13 @@
                 <configuration>
                     <source>${java.version}</source>
                     <target>${java.version}</target>
+                    <annotationProcessorPaths>
+                        <path>
+                            <groupId>org.projectlombok</groupId>
+                            <artifactId>lombok</artifactId>
+                            <version>${lombok.version}</version>
+                        </path>
+                    </annotationProcessorPaths>
                     <compilerArgs>
                         <arg>-parameters</arg>
                     </compilerArgs>
@@ -199,5 +207,3 @@
         </plugins>
     </build>
 </project>
-
-

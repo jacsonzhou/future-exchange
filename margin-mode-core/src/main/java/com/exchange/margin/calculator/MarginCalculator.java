@@ -145,6 +145,19 @@ public class MarginCalculator {
     }
 
     /**
+     * 计算保证金率（兼容旧签名：保证金 + 未实现盈亏）。
+     *
+     * @param margin 保证金（全仓或逐仓）
+     * @param unrealizedPnl 未实现盈亏
+     * @param positionValue 仓位价值
+     * @return 保证金率（万分比）
+     */
+    public long calculateMarginRatio(Long margin, Long unrealizedPnl, Long positionValue) {
+        long safeMargin = (margin != null ? margin : 0L) + (unrealizedPnl != null ? unrealizedPnl : 0L);
+        return calculateMarginRatio(safeMargin, positionValue);
+    }
+
+    /**
      * 计算强平价格（逐仓模式）
      *
      * 公式：
@@ -284,6 +297,14 @@ public class MarginCalculator {
         }
 
         return 0L;
+    }
+
+    /**
+     * 兼容旧签名：按杠杆快速估算强平价。
+     */
+    public long calculateLiquidationPrice(Integer side, Long entryPrice,
+                                          Integer leverage, Long maintMarginRate) {
+        return calculateLiquidationPriceByLeverage(entryPrice, side, leverage, maintMarginRate);
     }
 
     /**

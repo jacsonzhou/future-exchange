@@ -5,7 +5,7 @@
 ## 系统架构
 
 ```
-exchange-core/
+exchage-core/
 ├── common-core/            # 基础模型、枚举、工具类
 ├── common-proto/           # DTO、请求响应模型
 ├── api-gateway/            # API网关（认证、限流、路由）
@@ -14,7 +14,7 @@ exchange-core/
 ├── match-engine-core/      # 撮合引擎（Disruptor + 内存OrderBook）
 ├── ledger-core/            # 账本服务（双录分录）
 ├── snapshot-core/          # 快照服务（账户/持仓状态）
-└── replay-core/            # 重放服务（灾备恢复）
+└── replay-core/            # 重放服务（灾备恢复）n
 ```
 
 ## 核心特性
@@ -139,6 +139,29 @@ java -jar target/snapshot-core-1.0.0-SNAPSHOT.jar
 cd replay-core
 java -jar target/replay-core-1.0.0-SNAPSHOT.jar
 ```
+
+### 4.1 统一启停（推荐）
+
+```bash
+# 一键重启交易所需服务（推荐，含 binance-data-source）
+./start_required_services.sh
+
+# 一键重启全部服务（含 binance-data-source）
+./start_all_services.sh
+
+# 查看全部状态
+./scripts/servicectl.sh status all
+
+# 重启全部服务
+./scripts/servicectl.sh restart all
+
+# 只重启改动服务
+./scripts/servicectl.sh restart oms-core api-gateway market-price-core
+```
+
+说明：
+- 服务端口与 `spring.application.name` 以 **Nacos 配置** 为准（脚本优先读 Nacos，失败回退本地 `nacos-configs`）。
+- 详细说明见 [`docs/SERVICECTL.md`](docs/SERVICECTL.md)。
 
 ### 5. 测试下单
 
@@ -294,7 +317,4 @@ MIT License
 **⚠️ 重要提示**
 
 本项目仅供学习和研究使用，不建议直接用于生产环境。真实交易所系统需要考虑更多安全、合规、监管等因素。
-
-
-
 

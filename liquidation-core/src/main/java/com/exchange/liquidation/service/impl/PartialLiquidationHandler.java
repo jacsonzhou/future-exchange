@@ -7,6 +7,7 @@ import com.exchange.liquidation.service.InsuranceFundService;
 import com.exchange.liquidation.service.PnLCalculatorService;
 import com.exchange.liquidation.client.OmsClient;
 import com.exchange.liquidation.client.PositionClient;
+import com.exchange.liquidation.util.OmsResponseUtil;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
@@ -48,9 +49,15 @@ public class PartialLiquidationHandler {
         log.info("🔄 [PartialLiquidationHandler] Handling partial fill, " +
                 "liquidationId={}, filledQty={}, avgPrice={}, totalQty={}",
                 execution.getLiquidationId(), filledQty, avgPrice, execution.getQuantity());
-        
+
+        Long effectiveAvgPrice = resolveExecutedPrice(execution, avgPrice);
+        if (effectiveAvgPrice == null || effectiveAvgPrice <= 0) {
+            throw new IllegalStateException(
+                    "Partial fill missing valid execution price, liquidationId=" + execution.getLiquidationId());
+        }
+
         // 1. 计算已成交部分的盈亏
-        Long partialPnl = calculatePartialPnL(execution, filledQty, avgPrice);
+        Long partialPnl = calculatePartialPnL(execution, filledQty, effectiveAvgPrice);
         
         // 2. 累加部分成交盈亏
         Long currentPartialPnl = execution.getPartialPnl() != null ? execution.getPartialPnl() : 0L;
@@ -102,13 +109,39 @@ public class PartialLiquidationHandler {
             executionMapper.updateById(execution);
         }
     }
+
+    private Long resolveExecutedPrice(LiquidationExecution execution, Long avgPrice) {
+        if (avgPrice != null && avgPrice > 0) {
+            return avgPrice;
+        }
+
+        Long fallback = execution.getExecutedPrice();
+        String source = "executedPrice";
+        if (fallback == null || fallback <= 0) {
+            fallback = execution.getMarkPrice();
+            source = "markPrice";
+        }
+        if (fallback == null || fallback <= 0) {
+            fallback = execution.getTriggerPrice();
+            source = "triggerPrice";
+        }
+
+        if (fallback != null && fallback > 0) {
+            log.warn("⚠️ [PartialLiquidationHandler] avgPrice missing, fallback to {}={}, liquidationId={}",
+                    source, fallback, execution.getLiquidationId());
+        } else {
+            log.error("❌ [PartialLiquidationHandler] avgPrice and fallback price missing, liquidationId={}",
+                    execution.getLiquidationId());
+        }
+        return fallback;
+    }
     
     /**
      * 计算部分成交盈亏
      * 
      * @param execution 强平执行记录
      * @param filledQty 已成交数量
-     * @param avgPrice 平均成交价格
+     * @param avgPrice 平均成交价格（已做兜底）
      * @return 部分成交盈亏（8位小数）
      */
     private Long calculatePartialPnL(LiquidationExecution execution, Long filledQty, Long avgPrice) {
@@ -245,13 +278,22 @@ public class PartialLiquidationHandler {
             req.setSide(execution.getSide());
             req.setOrderType(orderType);
             req.setQuantity(remainingQty);
-            req.setPrice(limitPrice != null ? limitPrice.toString() : null);
+            req.setPrice(limitPrice);
             req.setReduceOnly(true);
             req.setOrderSource("LIQUIDATION");
-            req.setParentLiquidationId(execution.getLiquidationId()); // 关联父强平
+            req.setPositionId(execution.getPositionId());
+            req.setLiquidationId(execution.getLiquidationId());
             
             // 4. 创建订单
-            Long newOrderId = omsClient.createOrder(req);
+            Object raw = omsClient.createOrder(req);
+            Long newOrderId = OmsResponseUtil.extractOrderId(raw);
+            if (newOrderId == null) {
+                throw new IllegalStateException(
+                    "OMS create remaining liquidation order failed, liquidationId="
+                        + execution.getLiquidationId() + ", "
+                        + OmsResponseUtil.extractErrorMessage(raw)
+                );
+            }
             
             // 5. 更新原始强平记录，关联新订单
             execution.setRemainingOrderId(newOrderId);
@@ -345,4 +387,3 @@ public class PartialLiquidationHandler {
         return parentLiquidationId + "_R" + System.currentTimeMillis();
     }
 }
-

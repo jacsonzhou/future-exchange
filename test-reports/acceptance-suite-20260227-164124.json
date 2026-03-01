@@ -1,0 +1,198 @@
+{
+  "generatedAt": 1772181684827,
+  "durationSec": 28.98,
+  "passed": 11,
+  "failed": 1,
+  "steps": [
+    {
+      "name": "runtime_schema_fix",
+      "ok": true,
+      "message": "Liquidation runtime schema aligned",
+      "details": {
+        "mysqlContainer": "web3-mysql",
+        "completedAtBefore": true,
+        "validatedAtBefore": true,
+        "completedAtAfter": true,
+        "validatedAtAfter": true
+      }
+    },
+    {
+      "name": "service_check",
+      "ok": true,
+      "message": "Required services are listening",
+      "details": {
+        "apiGateway": "http://127.0.0.1:8082",
+        "omsBase": "http://127.0.0.1:8081",
+        "matchBase": "http://127.0.0.1:8083",
+        "positionInternalBase": "http://127.0.0.1:8086",
+        "liquidationBase": "http://localhost:8102"
+      }
+    },
+    {
+      "name": "login",
+      "ok": true,
+      "message": "Login success",
+      "details": {
+        "userId": 38,
+        "tokenLen": 176
+      }
+    },
+    {
+      "name": "maker_login",
+      "ok": true,
+      "message": "Maker account login success",
+      "details": {
+        "makerUsername": "zhoufan",
+        "makerUserId": 16,
+        "tokenLen": 175
+      }
+    },
+    {
+      "name": "test_state_reset",
+      "ok": true,
+      "message": "Test account state reset to clean baseline",
+      "details": {
+        "userId": 38,
+        "symbol": "BTCUSDT",
+        "activeOrderCountBefore": 2,
+        "canceledOrders": [
+          {
+            "orderId": "285679198448652288",
+            "finalStatus": "CANCELED",
+            "cancelResponse": {
+              "orderId": "285679198448652288",
+              "status": "CANCELED",
+              "success": true,
+              "errorCode": null,
+              "errorMessage": null
+            }
+          },
+          {
+            "orderId": "285678965694140416",
+            "finalStatus": "CANCELED",
+            "cancelResponse": {
+              "orderId": "285678965694140416",
+              "status": "CANCELED",
+              "success": true,
+              "errorCode": null,
+              "errorMessage": null
+            }
+          }
+        ],
+        "activeOrderCountAfter": 0,
+        "positionRowsAfter": 0,
+        "liquidationRowsAfter": 0,
+        "liquidationEventRowsAfter": 0
+      }
+    },
+    {
+      "name": "maker_state_reset",
+      "ok": true,
+      "message": "Maker account state reset to clean baseline",
+      "details": {
+        "userId": 16,
+        "symbol": "BTCUSDT",
+        "activeOrderCountBefore": 0,
+        "canceledOrders": [],
+        "activeOrderCountAfter": 0,
+        "positionRowsAfter": 0,
+        "liquidationRowsAfter": 0,
+        "liquidationEventRowsAfter": 0
+      }
+    },
+    {
+      "name": "context_snapshot",
+      "ok": true,
+      "message": "Fetched positions and orderbook depth",
+      "details": {
+        "bestBid": "680000.00000000",
+        "bestAsk": "686800.00000000",
+        "activePosition": null,
+        "positionCount": 0
+      }
+    },
+    {
+      "name": "cancel_flow",
+      "ok": true,
+      "message": "Passive order canceled successfully",
+      "details": {
+        "orderId": "285692743634653184",
+        "side": "SELL",
+        "price": "755480.00000000",
+        "cancelResponse": {
+          "orderId": "285692743634653184",
+          "status": "CANCELED",
+          "success": true,
+          "errorCode": null,
+          "errorMessage": null
+        },
+        "finalStatus": "CANCELED"
+      }
+    },
+    {
+      "name": "fill_flow",
+      "ok": true,
+      "message": "Aggressive order matched with seeded counterparty",
+      "details": {
+        "orderId": "285692744402210816",
+        "side": "BUY",
+        "price": "824160.00000000",
+        "qtyInt": 100000000,
+        "finalStatus": "FILLED",
+        "seedOrderId": "285692744263798784",
+        "seedOrderSide": "SELL",
+        "seedOrderStatus": "FILLED",
+        "preSize": "0",
+        "seedFilledQuantity": "1",
+        "postFillPosition": {
+          "symbol": "BTCUSDT",
+          "side": "LONG",
+          "positionSide": 1,
+          "size": "1.0000000000000000",
+          "entryPrice": "824160.0000000000000000",
+          "unrealizedPnl": "0.0",
+          "realizedPnl": "0.0",
+          "marginRatio": "0.00000000",
+          "liquidationPrice": "0"
+        }
+      }
+    },
+    {
+      "name": "manual_close_flow",
+      "ok": true,
+      "message": "Manual close order filled and position reduced",
+      "details": {
+        "orderId": "285692814979764224",
+        "closeSide": "SELL",
+        "closePrice": "544000.00000000",
+        "sizeAfterFill": "1.0000000000000000",
+        "sizeAfterClose": "0.5000000000000000",
+        "submitMode": "reduceOnly=false_fallback",
+        "orderStatusObserved": "FILLED",
+        "seedOrderId": "285692800438112256",
+        "seedOrderSide": "BUY",
+        "seedOrderStatus": "CANCELED",
+        "seedFilledQuantity": "0"
+      }
+    },
+    {
+      "name": "liquidation_price_formula",
+      "ok": false,
+      "message": "Liquidation price formula check failed",
+      "details": {
+        "error": "Liquidation price mismatch, actual=0, expected=745471.35678392, diff=745471.35678392, tolerance=745.47135678392"
+      }
+    },
+    {
+      "name": "pnl_push",
+      "ok": true,
+      "message": "PNL changed after mark injection (attempt 1/2)",
+      "details": {
+        "attempt": 1,
+        "baselineUp": "0.0",
+        "currentUp": "8241.60000000000000000000000000000000",
+        "markPrice": "840643.20000000"
+      }
+    }
+  ]
+}

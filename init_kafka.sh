@@ -60,6 +60,15 @@ kafka-topics --create \
     --config retention.ms=86400000 \
     --if-not-exists
 
+echo "创建 cfd-order-command-BTCUSDT (CFD Dealer 指令通道)..."
+kafka-topics --create \
+    --bootstrap-server localhost:9092 \
+    --topic cfd-order-command-BTCUSDT \
+    --partitions 1 \
+    --replication-factor 1 \
+    --config retention.ms=86400000 \
+    --if-not-exists
+
 echo ""
 
 # 通道2：Match Engine → OMS（独立回传通道）
@@ -97,6 +106,15 @@ echo "创建 trade-event (全局成交事件)..."
 kafka-topics --create \
     --bootstrap-server localhost:9092 \
     --topic trade-event \
+    --partitions 3 \
+    --replication-factor 1 \
+    --config retention.ms=604800000 \
+    --if-not-exists
+
+echo "创建 trade-event-BTCUSDT (按symbol成交事件)..."
+kafka-topics --create \
+    --bootstrap-server localhost:9092 \
+    --topic trade-event-BTCUSDT \
     --partitions 3 \
     --replication-factor 1 \
     --config retention.ms=604800000 \
@@ -172,6 +190,68 @@ kafka-topics --create \
 
 echo ""
 
+# 风险/强平/ADL Topics
+echo "=================================================="
+echo "创建 风险/强平/ADL Topics..."
+echo "=================================================="
+echo ""
+
+echo "创建 liquidation-trigger-topic (保证金服务 -> 强平服务)..."
+kafka-topics --create \
+    --bootstrap-server localhost:9092 \
+    --topic liquidation-trigger-topic \
+    --partitions 3 \
+    --replication-factor 1 \
+    --config retention.ms=604800000 \
+    --if-not-exists
+
+echo "创建 liquidation-completed-topic (强平服务 -> ADL)..."
+kafka-topics --create \
+    --bootstrap-server localhost:9092 \
+    --topic liquidation-completed-topic \
+    --partitions 3 \
+    --replication-factor 1 \
+    --config retention.ms=604800000 \
+    --if-not-exists
+
+echo "创建 adl-trigger-topic (ADL触发事件)..."
+kafka-topics --create \
+    --bootstrap-server localhost:9092 \
+    --topic adl-trigger-topic \
+    --partitions 3 \
+    --replication-factor 1 \
+    --config retention.ms=604800000 \
+    --if-not-exists
+
+echo "创建 adl-executed-topic (ADL执行结果)..."
+kafka-topics --create \
+    --bootstrap-server localhost:9092 \
+    --topic adl-executed-topic \
+    --partitions 3 \
+    --replication-factor 1 \
+    --config retention.ms=604800000 \
+    --if-not-exists
+
+echo "创建 index-price-update (指数价格更新)..."
+kafka-topics --create \
+    --bootstrap-server localhost:9092 \
+    --topic index-price-update \
+    --partitions 3 \
+    --replication-factor 1 \
+    --config retention.ms=604800000 \
+    --if-not-exists
+
+echo "创建 mark-price-update (标记价格更新)..."
+kafka-topics --create \
+    --bootstrap-server localhost:9092 \
+    --topic mark-price-update \
+    --partitions 3 \
+    --replication-factor 1 \
+    --config retention.ms=604800000 \
+    --if-not-exists
+
+echo ""
+
 # 行情数据 Topics (Market Data Engine → Public Push)
 echo "=================================================="
 echo "创建 行情数据 Topics (Market Data)..."
@@ -238,10 +318,45 @@ kafka-topics --create \
 
 echo ""
 
+# DLQ Topics（消费者异常兜底）
+echo "=================================================="
+echo "创建 DLQ Topics..."
+echo "=================================================="
+echo ""
+
+echo "创建 mark-price-update-dlq..."
+kafka-topics --create \
+    --bootstrap-server localhost:9092 \
+    --topic mark-price-update-dlq \
+    --partitions 3 \
+    --replication-factor 1 \
+    --config retention.ms=604800000 \
+    --if-not-exists
+
+echo "创建 index-price-update-dlq..."
+kafka-topics --create \
+    --bootstrap-server localhost:9092 \
+    --topic index-price-update-dlq \
+    --partitions 3 \
+    --replication-factor 1 \
+    --config retention.ms=604800000 \
+    --if-not-exists
+
+echo "创建 private-position-change-dlq..."
+kafka-topics --create \
+    --bootstrap-server localhost:9092 \
+    --topic private-position-change-dlq \
+    --partitions 12 \
+    --replication-factor 1 \
+    --config retention.ms=604800000 \
+    --if-not-exists
+
+echo ""
+
 # 3. 列出所有Topic
 echo ""
 echo "Step 3: 列出所有Topics..."
-kafka-topics --list --bootstrap-server localhost:9092 | grep -E "(order-event|order-state|trade-event|trade-entry|account-entry)"
+kafka-topics --list --bootstrap-server localhost:9092 | grep -E "(order-event|cfd-order-command|order-state|trade-event|trade-entry|account-entry)"
 
 echo ""
 
@@ -289,6 +404,7 @@ echo "  通道1 (OMS → Match Engine)："
 echo "    - order-event-BTCUSDT (单分区)"
 echo "    - order-event-ETHUSDT (单分区)"
 echo "    - order-event-XRPUSDT (单分区)"
+echo "    - cfd-order-command-BTCUSDT (CFD Dealer 指令)"
 echo ""
 echo "  通道2 (Match Engine → OMS)："
 echo "    - order-state-BTCUSDT (单分区)"
@@ -320,5 +436,3 @@ echo "  2. 启动Match Engine: cd match-engine-core && mvn spring-boot:run"
 echo "  3. 启动Private Push: cd private-push-core && mvn spring-boot:run"
 echo "  4. 测试下单流程"
 echo ""
-
-

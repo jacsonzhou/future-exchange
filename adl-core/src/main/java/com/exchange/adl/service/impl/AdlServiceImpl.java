@@ -20,7 +20,7 @@ public class AdlServiceImpl implements AdlService {
     private AdlRankingMapper adlRankingMapper;
     
     @Override
-    public void onLiquidationCompleted(Long liquidationId, Long userId, String symbol, String side,
+    public void onLiquidationCompleted(String liquidationId, Long userId, String symbol, String side,
                                         Long bankruptPrice, Long bankruptQty, Long bankruptLoss) {
         log.info("Processing liquidation event: liquidationId={}, symbol={}, loss={}", 
                 liquidationId, symbol, bankruptLoss);
@@ -34,7 +34,7 @@ public class AdlServiceImpl implements AdlService {
             // 触发ADL
             Long remainingLoss = bankruptLoss - insuranceFund;
             log.info("Triggering ADL for remaining loss: {}", remainingLoss);
-            executeAdl(symbol, "LONG".equals(side) ? "SHORT" : "LONG", remainingLoss, liquidationId);
+            executeAdl(symbol, "LONG".equals(side) ? "SHORT" : "LONG", remainingLoss, liquidationId, userId);
         }
     }
     
@@ -55,7 +55,7 @@ public class AdlServiceImpl implements AdlService {
     }
     
     @Override
-    public void executeAdl(String symbol, String oppositeSide, Long requiredQty, Long sourceLiquidationId) {
+    public void executeAdl(String symbol, String oppositeSide, Long requiredQty, String sourceLiquidationId, Long sourceUserId) {
         // 获取ADL候选人
         List<AdlRanking> candidates = adlRankingMapper.selectBySymbolAndSide(symbol, oppositeSide, 10);
         

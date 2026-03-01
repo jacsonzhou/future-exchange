@@ -4,6 +4,7 @@ import com.exchange.common.core.ApiResponse;
 import com.exchange.market.engine.OrderBook;
 import com.exchange.market.entity.Kline;
 import com.exchange.market.entity.Ticker24h;
+import com.exchange.market.model.Trade;
 import com.exchange.market.service.MarketDataService;
 import com.exchange.market.service.impl.MarketDataServiceImpl;
 import lombok.RequiredArgsConstructor;
@@ -61,6 +62,29 @@ public class MarketDataController {
             
         } catch (Exception e) {
             log.error("[API] Failed to get depth for {}: {}", symbol, e.getMessage());
+            return ApiResponse.error(500, "Internal error: " + e.getMessage());
+        }
+    }
+
+    /**
+     * 获取最近成交
+     *
+     * @param symbol 交易对 (e.g. BTCUSDT)
+     * @param limit 返回条数 (默认500, 最大1000)
+     */
+    @GetMapping("/trades")
+    public ApiResponse<List<TradeResponse>> getTrades(
+            @RequestParam String symbol,
+            @RequestParam(defaultValue = "500") int limit) {
+        try {
+            int safeLimit = Math.min(Math.max(limit, 1), 1000);
+            List<Trade> trades = marketDataServiceImpl.getRecentTrades(symbol, safeLimit);
+            List<TradeResponse> result = trades.stream()
+                    .map(this::convertTradeToResponse)
+                    .toList();
+            return ApiResponse.success(result);
+        } catch (Exception e) {
+            log.error("[API] Failed to get trades for {}: {}", symbol, e.getMessage(), e);
             return ApiResponse.error(500, "Internal error: " + e.getMessage());
         }
     }
@@ -186,6 +210,24 @@ public class MarketDataController {
         };
     }
 
+    private TradeResponse convertTradeToResponse(Trade trade) {
+        TradeResponse response = new TradeResponse();
+        response.setId(trade.getTradeId());
+        response.setPrice(formatScaled(trade.getPrice()));
+        response.setQty(formatScaled(trade.getQuantity()));
+        response.setQuoteQty(formatScaled(scaleMul(trade.getPrice(), trade.getQuantity())));
+        response.setTime(trade.getTimestamp());
+        response.setBuyerMaker(trade.isBuyerMaker());
+        return response;
+    }
+
+    private long scaleMul(long price, long quantity) {
+        return BigDecimal.valueOf(price)
+                .multiply(BigDecimal.valueOf(quantity))
+                .divide(SCALE_BD, 0, RoundingMode.DOWN)
+                .longValue();
+    }
+
     private String formatScaled(long value) {
         return BigDecimal.valueOf(value)
                 .divide(SCALE_BD, 8, RoundingMode.HALF_UP)
@@ -210,5 +252,15 @@ public class MarketDataController {
         private String bidQty;
         private String askPrice;
         private String askQty;
+    }
+
+    @lombok.Data
+    public static class TradeResponse {
+        private long id;
+        private String price;
+        private String qty;
+        private String quoteQty;
+        private long time;
+        private boolean buyerMaker;
     }
 }

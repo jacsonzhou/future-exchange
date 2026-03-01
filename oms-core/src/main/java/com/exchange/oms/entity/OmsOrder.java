@@ -82,6 +82,51 @@ public class OmsOrder {
      * 杠杆倍数
      */
     private Integer leverage;
+
+    /**
+     * 执行模式：MATCH_ENGINE / CFD_DEALER
+     */
+    private String executionMode;
+
+    /**
+     * 流动性来源：如 BINANCE_REF
+     */
+    private String liquiditySource;
+
+    /**
+     * 参考行情来源 Topic
+     */
+    private String referenceTopic;
+
+    /**
+     * 参考行情来源 offset
+     */
+    private Long referenceOffset;
+
+    /**
+     * 参考行情事件时间（毫秒）
+     */
+    private Long referenceEventTime;
+
+    /**
+     * 参考最优买价（内部 1e8 缩放）
+     */
+    private BigDecimal referenceBestBid;
+
+    /**
+     * 参考最优卖价（内部 1e8 缩放）
+     */
+    private BigDecimal referenceBestAsk;
+
+    /**
+     * 参考成交均价（内部 1e8 缩放）
+     */
+    private BigDecimal referenceVwapPrice;
+
+    /**
+     * 滑点（bps）
+     */
+    private Integer slippageBps;
     
     /**
      * 风控检查状态 0=未检查 1=通过 2=拒绝
@@ -147,5 +192,4 @@ public class OmsOrder {
         return status == 4 || status == 5 || status == 6;
     }
 }
-
 

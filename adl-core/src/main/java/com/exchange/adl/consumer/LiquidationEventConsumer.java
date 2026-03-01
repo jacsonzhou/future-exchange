@@ -35,25 +35,34 @@ public class LiquidationEventConsumer {
             // 解析事件
             LiquidationCompletedEvent event = objectMapper.readValue(message, LiquidationCompletedEvent.class);
 
-            // 检查是否穿仓
-            if (event.getIsBankrupt() != null && event.getIsBankrupt()) {
-                log.warn("Bankruptcy detected: liquidationId={}, userId={}, loss={}",
-                        event.getLiquidationId(), event.getUserId(), event.getBankruptLoss());
+            boolean bankrupt = Boolean.TRUE.equals(event.getIsBankrupt());
+            boolean adlRequired = Boolean.TRUE.equals(event.getAdlRequired());
+            Long bankruptLoss = event.getBankruptLoss();
 
-                // 处理穿仓事件，检查是否需要ADL
-                adlService.onLiquidationCompleted(
-                        event.getLiquidationId(),
-                        event.getUserId(),
-                        event.getSymbol(),
-                        event.getSide(),
-                        event.getBankruptPrice(),
-                        event.getRemainingQty(),
-                        event.getBankruptLoss()
-                );
-            } else {
-                log.debug("Liquidation completed without bankruptcy: liquidationId={}",
-                        event.getLiquidationId());
+            // 必须同时满足：发生穿仓 + 需要ADL + 有损失
+            if (!bankrupt || !adlRequired || bankruptLoss == null || bankruptLoss <= 0) {
+                log.debug("Skip ADL trigger for liquidation event: liquidationId={}, bankrupt={}, adlRequired={}, bankruptLoss={}",
+                        event.getLiquidationId(), bankrupt, adlRequired, bankruptLoss);
+                return;
             }
+
+            Long bankruptQty = event.getBankruptQty();
+            if (bankruptQty == null || bankruptQty <= 0) {
+                bankruptQty = event.getExecutedQty();
+            }
+
+            log.warn("Bankruptcy detected and ADL required: liquidationId={}, userId={}, loss={}, qty={}",
+                    event.getLiquidationId(), event.getUserId(), bankruptLoss, bankruptQty);
+
+            adlService.onLiquidationCompleted(
+                    event.getLiquidationId(),
+                    event.getUserId(),
+                    event.getSymbol(),
+                    event.getSide(),
+                    event.getBankruptPrice(),
+                    bankruptQty,
+                    bankruptLoss
+            );
 
         } catch (Exception e) {
             log.error("Failed to process liquidation completed event", e);

@@ -49,6 +49,23 @@ public class OmsController {
         
         return omsService.submitOrder(request);
     }
+
+    /**
+     * 按 clientOrderId 确认提交结果（网关降级幂等确认）
+     *
+     * GET /api/v1/oms/order/confirm-submit?clientOrderId=xxx
+     *
+     * Headers:
+     * - X-User-Id
+     */
+    @GetMapping("/confirm-submit")
+    public SubmitOrderResponse confirmSubmitByClientOrderId(
+            @RequestHeader(value = "X-User-Id") Long userId,
+            @RequestParam("clientOrderId") String clientOrderId) {
+
+        log.info("[OMS-API] Confirm submit, userId={}, clientOrderId={}", userId, clientOrderId);
+        return omsService.confirmSubmitByClientOrderId(userId, clientOrderId);
+    }
     
     /**
      * 撤单
@@ -134,5 +151,4 @@ public class OmsController {
         return omsService.queryOrderList(request);
     }
 }
-
 

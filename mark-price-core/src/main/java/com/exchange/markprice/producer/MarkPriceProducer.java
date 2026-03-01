@@ -1,6 +1,7 @@
 package com.exchange.markprice.producer;
 
 import com.exchange.markprice.event.MarkPriceUpdateEvent;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
@@ -15,7 +16,10 @@ import org.springframework.stereotype.Component;
 public class MarkPriceProducer {
 
     @Autowired
-    private KafkaTemplate<String, Object> kafkaTemplate;
+    private KafkaTemplate<String, String> kafkaTemplate;
+
+    @Autowired
+    private ObjectMapper objectMapper;
 
     @Value("${mark-price.kafka.topic:mark-price-update}")
     private String topicName;
@@ -25,7 +29,8 @@ public class MarkPriceProducer {
      */
     public void publishMarkPriceUpdate(MarkPriceUpdateEvent event) {
         try {
-            kafkaTemplate.send(topicName, event.getData().getSymbol(), event);
+            String payload = objectMapper.writeValueAsString(event);
+            kafkaTemplate.send(topicName, event.getData().getSymbol(), payload);
             log.debug("Published mark price update: symbol={}, markPrice={}",
                     event.getData().getSymbol(), event.getData().getMarkPrice());
         } catch (Exception e) {

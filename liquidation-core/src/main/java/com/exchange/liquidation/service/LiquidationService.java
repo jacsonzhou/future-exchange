@@ -22,6 +22,13 @@ public interface LiquidationService {
      * @param event 强平触发事件
      */
     void processLiquidation(LiquidationTriggerEvent event);
+
+    /**
+     * 处理强平订单完全成交后的后续流程
+     *
+     * @param liquidationId 强平ID
+     */
+    void processFilledLiquidation(String liquidationId);
     
     /**
      * 手动触发强平

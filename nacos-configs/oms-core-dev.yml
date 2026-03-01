@@ -89,3 +89,16 @@ exchange:
     kafka:
       # 订单状态推送 Topic（OMS → Private Push）
       private-order-state-topic: private-order-state
+
+# ============================================================
+# CFD 路由配置（C3）
+# ============================================================
+oms:
+  execution:
+    # 按任务单默认走 CFD，后续可按 symbol 细粒度调整
+    default-mode: CFD_DEALER
+    symbol-mode:
+      BTCUSDT: CFD_DEALER
+  kafka:
+    cfd-order-command:
+      topic-prefix: cfd-order-command-

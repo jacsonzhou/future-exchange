@@ -23,6 +23,15 @@ public interface OmsService {
      * @return 提交订单响应
      */
     SubmitOrderResponse submitOrder(SubmitOrderRequest request);
+
+    /**
+     * 按 clientOrderId 确认提交结果（用于网关降级场景幂等确认）
+     *
+     * @param userId 用户ID
+     * @param clientOrderId 客户端订单ID
+     * @return 提交订单响应（存在则 success=true）
+     */
+    SubmitOrderResponse confirmSubmitByClientOrderId(Long userId, String clientOrderId);
     
     /**
      * 撤单
@@ -63,6 +72,5 @@ public interface OmsService {
      */
     void handleTradeReport(Long orderId, String filledQuantity);
 }
-
 
 

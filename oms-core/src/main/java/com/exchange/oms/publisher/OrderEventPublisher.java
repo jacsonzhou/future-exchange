@@ -4,6 +4,7 @@ import com.exchange.oms.dto.OrderEventCommand;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.kafka.core.KafkaTemplate;
 import org.springframework.kafka.support.SendResult;
 import org.springframework.stereotype.Component;
@@ -31,6 +32,15 @@ public class OrderEventPublisher {
     
     @Autowired
     private ObjectMapper objectMapper;
+
+    @Value("${oms.kafka.order-event.topic-prefix:order-event-}")
+    private String orderEventTopicPrefix;
+
+    @Value("${oms.kafka.order-event.legacy.enabled:false}")
+    private boolean legacyTopicEnabled;
+
+    @Value("${oms.kafka.order-event.legacy.topic:order-events}")
+    private String legacyOrderEventTopic;
     
     /**
      * 发布订单事件到Kafka（OMS → Match Engine）
@@ -42,9 +52,7 @@ public class OrderEventPublisher {
             command.getOrderId(), command.getEventType(), command.getSymbol());
         
         try {
-            // Topic使用统一的 order-events
-            // 使用 symbol 作为 key 的一部分来保证同一交易对的顺序
-            String topic = "order-events";
+            String topic = orderEventTopicPrefix + command.getSymbol();
             
             // Key = symbol:orderId（保证同一交易对同一订单的事件顺序）
             String key = command.getSymbol() + ":" + command.getOrderId().toString();
@@ -69,6 +77,23 @@ public class OrderEventPublisher {
                     // 生产环境：应该重试或记录到死信队列
                 }
             });
+
+            // 灰度兼容：可选同时投递 legacy 统一 topic
+            if (legacyTopicEnabled) {
+                kafkaTemplate.send(legacyOrderEventTopic, key, value)
+                    .whenComplete((legacyResult, legacyEx) -> {
+                        if (legacyEx == null) {
+                            log.info("[OrderEventPublisher] ✅ Legacy topic send success, topic={}, partition={}, offset={}, orderId={}",
+                                legacyOrderEventTopic,
+                                legacyResult.getRecordMetadata().partition(),
+                                legacyResult.getRecordMetadata().offset(),
+                                command.getOrderId());
+                        } else {
+                            log.error("[OrderEventPublisher] ❌ Legacy topic send failed, topic={}, orderId={}",
+                                legacyOrderEventTopic, command.getOrderId(), legacyEx);
+                        }
+                    });
+            }
             
         } catch (Exception e) {
             log.error("[OrderEventPublisher] ❌ Failed to publish order event, orderId={}",
@@ -77,4 +102,3 @@ public class OrderEventPublisher {
         }
     }
 }
-

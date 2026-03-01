@@ -7,7 +7,7 @@ import java.io.Serializable;
 /**
  * 标记价格变动事件
  *
- * 从 MarkPrice Service 的 mark-price-topic 消费
+ * 从 MarkPrice Service 的 mark-price-update（兼容旧mark-price-topic）消费
  */
 @Data
 public class MarkPriceEvent implements Serializable {
@@ -53,4 +53,24 @@ public class MarkPriceEvent implements Serializable {
      * 事件序列号（用于幂等性检查）
      */
     private Long sequence;
+
+    /**
+     * 标记价事件ID（新链路）
+     */
+    private String markPriceId;
+
+    /**
+     * 对应指数价事件ID（新链路）
+     */
+    private String indexPriceId;
+
+    /**
+     * 源Topic（追踪）
+     */
+    private String sourceTopic;
+
+    /**
+     * 源offset（追踪）
+     */
+    private Long sourceOffset;
 }

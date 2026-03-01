@@ -5,11 +5,12 @@ import org.springframework.boot.autoconfigure.SpringBootApplication;
 import org.springframework.context.ConfigurableApplicationContext;
 import org.springframework.core.env.Environment;
 import org.springframework.scheduling.annotation.EnableScheduling;
+import org.mybatis.spring.annotation.MapperScan;
 
 /**
  * ADL自动减仓服务启动类
  * 
- * 端口: 8091
+ * 端口: 8103
  * 职责:
  * - ADL触发检测
  * - ADL优先级计算
@@ -18,12 +19,13 @@ import org.springframework.scheduling.annotation.EnableScheduling;
  */
 @SpringBootApplication
 @EnableScheduling
+@MapperScan("com.exchange.adl.mapper")
 public class AdlApplication {
     
     public static void main(String[] args) {
         ConfigurableApplicationContext context = SpringApplication.run(AdlApplication.class, args);
         Environment env = context.getEnvironment();
-        String port = env.getProperty("server.port", "8091");
+        String port = env.getProperty("server.port", "8103");
         System.out.println("╔════════════════════════════════════════════════════════╗");
         System.out.println("║           ADL 自动减仓服务启动成功                      ║");
         System.out.println("║           端口: " + port + "                                    ║");

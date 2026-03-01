@@ -1,0 +1,144 @@
+{
+  "generatedAt": 1772337331726,
+  "durationSec": 142.0,
+  "passed": 7,
+  "failed": 5,
+  "steps": [
+    {
+      "name": "runtime_schema_fix",
+      "ok": true,
+      "message": "Liquidation runtime schema aligned",
+      "details": {
+        "mysqlContainer": "web3-mysql",
+        "completedAtBefore": true,
+        "validatedAtBefore": true,
+        "completedAtAfter": true,
+        "validatedAtAfter": true
+      }
+    },
+    {
+      "name": "service_check",
+      "ok": true,
+      "message": "Required services are listening",
+      "details": {
+        "apiGateway": "http://localhost:8082",
+        "omsBase": "http://localhost:8081",
+        "matchBase": "http://localhost:8083",
+        "positionInternalBase": "http://localhost:8086",
+        "liquidationBase": "http://localhost:8102"
+      }
+    },
+    {
+      "name": "login",
+      "ok": true,
+      "message": "Login success",
+      "details": {
+        "userId": 38,
+        "tokenLen": 176
+      }
+    },
+    {
+      "name": "maker_login",
+      "ok": true,
+      "message": "Maker account login success",
+      "details": {
+        "makerUsername": "zhoufan",
+        "makerUserId": 16,
+        "tokenLen": 175
+      }
+    },
+    {
+      "name": "test_state_reset",
+      "ok": true,
+      "message": "Test account state reset to clean baseline",
+      "details": {
+        "userId": 38,
+        "symbol": "BTCUSDT",
+        "activeOrderCountBefore": 1,
+        "canceledOrders": [
+          {
+            "orderId": "286340414498148352",
+            "finalStatus": "CANCELED",
+            "cancelResponse": {
+              "orderId": "286340414498148352",
+              "status": "CANCELED",
+              "success": true,
+              "errorCode": null,
+              "errorMessage": null
+            }
+          }
+        ],
+        "activeOrderCountAfter": 0,
+        "positionRowsAfter": 0,
+        "liquidationRowsAfter": 0,
+        "liquidationEventRowsAfter": 0
+      }
+    },
+    {
+      "name": "maker_state_reset",
+      "ok": true,
+      "message": "Maker account state reset to clean baseline",
+      "details": {
+        "userId": 16,
+        "symbol": "BTCUSDT",
+        "activeOrderCountBefore": 0,
+        "canceledOrders": [],
+        "activeOrderCountAfter": 0,
+        "positionRowsAfter": 0,
+        "liquidationRowsAfter": 0,
+        "liquidationEventRowsAfter": 0
+      }
+    },
+    {
+      "name": "context_snapshot",
+      "ok": true,
+      "message": "Fetched positions and orderbook depth",
+      "details": {
+        "bestBid": "66603.98448000",
+        "bestAsk": "67276.75200000",
+        "activePosition": null,
+        "positionCount": 0
+      }
+    },
+    {
+      "name": "cancel_flow",
+      "ok": false,
+      "message": "Cancel flow failed",
+      "details": {
+        "error": "Cancel verification failed, status=REJECTED, query={'orderId': '286345321208877056', 'clientOrderId': 'acc-cancel-1772337244582', 'symbol': 'BTCUSDT', 'side': 'SELL', 'type': 'LIMIT', 'price': '74004.4272', 'quantity': '1', 'filledQuantity': '0', 'status': 'REJECTED', 'reasonCode': 'FREEZE_FAILED', 'reasonMsg': 'Freeze failed: Unexpected end of file from server executing POST http://ledger-core/internal/ledger/freeze', 'createTime': 1772337244615}, cancelResp={'orderId': None, 'status': None, 'success': False, 'errorCode': 'OMS_2002', 'errorMessage': '订单状态不允许撤单'}"
+      }
+    },
+    {
+      "name": "fill_flow",
+      "ok": false,
+      "message": "Fill flow failed",
+      "details": {
+        "error": "Seed order failed before taker submit, status=REJECTED, query={'orderId': '286345392440741888', 'clientOrderId': 'acc-seed-open-1772337261586', 'symbol': 'BTCUSDT', 'side': 'SELL', 'type': 'LIMIT', 'price': '80732.1024', 'quantity': '1', 'filledQuantity': '0', 'status': 'REJECTED', 'reasonCode': 'FREEZE_FAILED', 'reasonMsg': 'Freeze failed: Unexpected end of file from server executing POST http://ledger-core/internal/ledger/freeze', 'createTime': 1772337261598}"
+      }
+    },
+    {
+      "name": "manual_close_flow",
+      "ok": false,
+      "message": "Manual close flow failed",
+      "details": {
+        "error": "No active position after fill"
+      }
+    },
+    {
+      "name": "liquidation_price_formula",
+      "ok": false,
+      "message": "Liquidation price formula check failed",
+      "details": {
+        "error": "No active position for liquidation price check"
+      }
+    },
+    {
+      "name": "liquidation_trigger_execution",
+      "ok": false,
+      "message": "Liquidation trigger stage failed",
+      "details": {
+        "error": "No active position for liquidation trigger"
+      }
+    }
+  ]
+}

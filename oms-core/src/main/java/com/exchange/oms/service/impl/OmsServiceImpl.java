@@ -1,6 +1,7 @@
 package com.exchange.oms.service.impl;
 
 import com.exchange.common.core.IdGenerator;
+import com.exchange.oms.config.CfdRouteProperties;
 import com.exchange.oms.dto.*;
 import com.exchange.oms.dto.OrderListRequest;
 import com.exchange.oms.dto.OrderListResponse;
@@ -14,11 +15,14 @@ import com.exchange.oms.mapper.OmsIdempotentKeyMapper;
 import com.exchange.oms.mapper.OmsOrderEventMapper;
 import com.exchange.oms.mapper.OmsOrderMapper;
 import com.exchange.oms.mapper.OmsOrderStateLogMapper;
+import com.exchange.oms.publisher.CfdOrderCommandPublisher;
 import com.exchange.oms.service.OmsService;
+import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.dao.DuplicateKeyException;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.DigestUtils;
@@ -43,6 +47,8 @@ public class OmsServiceImpl implements OmsService {
     private static final BigDecimal SCALE_BD = BigDecimal.valueOf(100_000_000L);
     private static final int ORDER_STATUS_CANCELED = 5;
     private static final int CANCEL_OPTIMISTIC_RETRY = 3;
+    private static final String EXECUTION_MODE_MATCH_ENGINE = "MATCH_ENGINE";
+    private static final String EXECUTION_MODE_CFD_DEALER = "CFD_DEALER";
     
     @Autowired
     private OmsOrderMapper orderMapper;
@@ -61,12 +67,27 @@ public class OmsServiceImpl implements OmsService {
     
     @Autowired
     private com.exchange.oms.publisher.OrderEventPublisher orderEventPublisher;
+
+    @Autowired
+    private CfdOrderCommandPublisher cfdOrderCommandPublisher;
+
+    @Autowired
+    private CfdRouteProperties cfdRouteProperties;
     
     @Autowired
     private com.exchange.oms.publisher.OrderStatePushPublisher orderStatePushPublisher;
     
     @Autowired(required = false)
     private com.exchange.oms.client.LedgerClient ledgerClient;
+
+    @Autowired(required = false)
+    private org.springframework.data.redis.core.StringRedisTemplate stringRedisTemplate;
+
+    @Value("${oms.cfd.reference.redis-prefix:cfd:reference:book:}")
+    private String cfdReferenceRedisPrefix;
+
+    @Value("${oms.cfd.reference.max-stale-ms:0}")
+    private long cfdReferenceMaxStaleMs;
     
     @Override
     @Transactional(rollbackFor = Exception.class)
@@ -108,6 +129,7 @@ public class OmsServiceImpl implements OmsService {
             order.setSymbol(request.getSymbol());
             order.setSide(mapSide(request.getSide()));
             order.setType(mapType(request.getType()));
+            String resolvedExecutionMode = resolveExecutionModeForSubmit(request.getSymbol(), request.getExecutionMode());
             if (request.getPrice() != null) {
                 order.setPrice(normalizeToScaled(request.getPrice()));
             }
@@ -116,6 +138,10 @@ public class OmsServiceImpl implements OmsService {
             order.setStatus(0); // NEW
             order.setTimeInForce(request.getTimeInForce());
             order.setLeverage(resolveLeverage(request.getLeverage()));
+            order.setExecutionMode(resolvedExecutionMode);
+            if (order.getType() != null && order.getType() == 1 && order.getPrice() == null && isCfdExecutionMode(resolvedExecutionMode)) {
+                applyCfdMarketReferencePrice(order);
+            }
             order.setRiskCheckStatus(0);
             order.setFreezeStatus(0);
             order.setVersion(0);
@@ -205,11 +231,7 @@ public class OmsServiceImpl implements OmsService {
             updateOrderStatus(order, 2, "FROZEN", "Fund frozen");
             
             // 11. 投递OrderEvent -> Match Engine ⭐
-            com.exchange.oms.dto.OrderEventCommand command = buildOrderCommand(order, request);
-            log.info("[OMS-LINK] >>> Sending to Kafka, orderId={}, symbol={}, side={}, price={}, qty={}", 
-                orderId, order.getSymbol(), order.getSide(), order.getPrice(), order.getQuantity());
-            orderEventPublisher.publishOrderEvent(command);
-            log.info("[OMS-LINK] >>> Kafka sent success, orderId={}", orderId);
+            publishSubmitCommand(order, request);
             
             // 12. 发送执行报告到 WebSocket (private-order-state topic)
             orderStatePushPublisher.publishNewOrder(order);
@@ -292,9 +314,7 @@ public class OmsServiceImpl implements OmsService {
                 "USER_CANCEL", "User canceled", request.getTraceId());
             
             // 6. 投递CancelEvent -> Match Engine ⭐
-            com.exchange.oms.dto.OrderEventCommand cancelCommand = buildCancelCommand(order);
-            orderEventPublisher.publishOrderEvent(cancelCommand);
-            log.info("[OMS] Cancel event sent to match engine, orderId={}", orderId);
+            publishCancelCommand(order);
             
             log.info("[OMS] Cancel order success, orderId={}", orderId);
             
@@ -507,6 +527,15 @@ public class OmsServiceImpl implements OmsService {
         response.setFilledQuantity(actualFilledQty.stripTrailingZeros().toPlainString());
         
         response.setStatus(mapOrderStatus(order.getStatus()));
+        response.setExecutionMode(resolveExecutionMode(order.getExecutionMode()));
+        response.setLiquiditySource(order.getLiquiditySource());
+        response.setReferenceTopic(order.getReferenceTopic());
+        response.setReferenceOffset(order.getReferenceOffset());
+        response.setReferenceEventTime(order.getReferenceEventTime());
+        response.setReferenceBestBid(toPlainString(order.getReferenceBestBid()));
+        response.setReferenceBestAsk(toPlainString(order.getReferenceBestAsk()));
+        response.setReferenceVwapPrice(toPlainString(order.getReferenceVwapPrice()));
+        response.setSlippageBps(order.getSlippageBps());
         OmsOrderStateLog latestStateLog = stateLogMapper.selectLatestByOrderId(order.getId());
         if (latestStateLog != null) {
             response.setReasonCode(latestStateLog.getReasonCode());
@@ -588,6 +617,14 @@ public class OmsServiceImpl implements OmsService {
         if (request.getLeverage() != null && request.getLeverage() <= 0) {
             throw new OmsException(OmsErrorCode.OMS_4003);
         }
+        if (request.getExecutionMode() != null) {
+            String normalizedMode = request.getExecutionMode().trim();
+            if (!normalizedMode.isEmpty()
+                && !EXECUTION_MODE_MATCH_ENGINE.equalsIgnoreCase(normalizedMode)
+                && !EXECUTION_MODE_CFD_DEALER.equalsIgnoreCase(normalizedMode)) {
+                throw new OmsException(OmsErrorCode.OMS_4001.getCode(), "unsupported executionMode");
+            }
+        }
     }
     
     private String calculateRequestHash(SubmitOrderRequest request) {
@@ -598,7 +635,8 @@ public class OmsServiceImpl implements OmsService {
                      request.getType() + "|" + 
                      request.getPrice() + "|" + 
                      request.getQuantity() + "|" +
-                     resolveLeverage(request.getLeverage());
+                     resolveLeverage(request.getLeverage()) + "|" +
+                     resolveExecutionModeForSubmit(request.getSymbol(), request.getExecutionMode());
         return DigestUtils.md5DigestAsHex(data.getBytes(StandardCharsets.UTF_8));
     }
 
@@ -763,6 +801,25 @@ public class OmsServiceImpl implements OmsService {
     private Integer resolveLeverage(Integer leverage) {
         return (leverage == null || leverage <= 0) ? 10 : leverage;
     }
+
+    private String resolveExecutionMode(String executionMode) {
+        if (executionMode == null || executionMode.isBlank()) {
+            return EXECUTION_MODE_MATCH_ENGINE;
+        }
+        String normalized = executionMode.trim().toUpperCase();
+        if (EXECUTION_MODE_CFD_DEALER.equals(normalized)) {
+            return EXECUTION_MODE_CFD_DEALER;
+        }
+        return EXECUTION_MODE_MATCH_ENGINE;
+    }
+
+    private String resolveExecutionModeForSubmit(String symbol, String requestedExecutionMode) {
+        return cfdRouteProperties.resolveMode(symbol, requestedExecutionMode);
+    }
+
+    private boolean isCfdExecutionMode(String executionMode) {
+        return cfdRouteProperties.isCfdDealer(executionMode);
+    }
     
     /**
      * 构建订单命令（发送给Match Engine）
@@ -780,6 +837,15 @@ public class OmsServiceImpl implements OmsService {
         }
         command.setQuantity(toDecimalString(order.getQuantity()));
         command.setLeverage(resolveLeverage(order.getLeverage()));
+        command.setExecutionMode(resolveExecutionMode(order.getExecutionMode()));
+        command.setLiquiditySource(order.getLiquiditySource());
+        command.setReferenceTopic(order.getReferenceTopic());
+        command.setReferenceOffset(order.getReferenceOffset());
+        command.setReferenceEventTime(order.getReferenceEventTime());
+        command.setReferenceBestBid(toPlainString(order.getReferenceBestBid()));
+        command.setReferenceBestAsk(toPlainString(order.getReferenceBestAsk()));
+        command.setReferenceVwapPrice(toPlainString(order.getReferenceVwapPrice()));
+        command.setSlippageBps(order.getSlippageBps());
         command.setEventTime(System.currentTimeMillis());
         return command;
     }
@@ -793,8 +859,153 @@ public class OmsServiceImpl implements OmsService {
         command.setOrderId(order.getId());
         command.setUserId(order.getUserId());
         command.setSymbol(order.getSymbol());
+        command.setExecutionMode(resolveExecutionMode(order.getExecutionMode()));
+        command.setLiquiditySource(order.getLiquiditySource());
         command.setEventTime(System.currentTimeMillis());
         return command;
+    }
+
+    private CfdOrderCommand buildCfdSubmitCommand(OmsOrder order) {
+        CfdOrderCommand command = new CfdOrderCommand();
+        command.setEventType("CFD_ORDER_SUBMIT");
+        command.setOrderId(order.getId());
+        command.setUserId(order.getUserId());
+        command.setClientOrderId(order.getClientOrderId());
+        command.setSymbol(order.getSymbol());
+        command.setSide(mapOrderSide(order.getSide()));
+        command.setOrderType(mapOrderType(order.getType()));
+        command.setTimeInForce(order.getTimeInForce());
+        if (order.getPrice() != null) {
+            command.setPrice(toDecimalString(order.getPrice()));
+        }
+        command.setQuantity(toDecimalString(order.getQuantity()));
+        command.setLeverage(resolveLeverage(order.getLeverage()));
+        command.setExecutionMode(resolveExecutionMode(order.getExecutionMode()));
+        command.setLiquiditySource(order.getLiquiditySource());
+        command.setReferenceTopic(order.getReferenceTopic());
+        command.setReferenceOffset(order.getReferenceOffset());
+        command.setReferenceEventTime(order.getReferenceEventTime());
+        command.setReferenceBestBid(toPlainString(order.getReferenceBestBid()));
+        command.setReferenceBestAsk(toPlainString(order.getReferenceBestAsk()));
+        command.setReferenceVwapPrice(toPlainString(order.getReferenceVwapPrice()));
+        command.setSlippageBps(order.getSlippageBps());
+        command.setEventTime(System.currentTimeMillis());
+        return command;
+    }
+
+    private CfdOrderCommand buildCfdCancelCommand(OmsOrder order) {
+        CfdOrderCommand command = new CfdOrderCommand();
+        command.setEventType("CFD_CANCEL");
+        command.setOrderId(order.getId());
+        command.setUserId(order.getUserId());
+        command.setClientOrderId(order.getClientOrderId());
+        command.setSymbol(order.getSymbol());
+        command.setExecutionMode(resolveExecutionMode(order.getExecutionMode()));
+        command.setLiquiditySource(order.getLiquiditySource());
+        command.setEventTime(System.currentTimeMillis());
+        return command;
+    }
+
+    private void publishSubmitCommand(OmsOrder order, SubmitOrderRequest request) {
+        if (isCfdExecutionMode(order.getExecutionMode())) {
+            CfdOrderCommand cfdCommand = buildCfdSubmitCommand(order);
+            cfdOrderCommandPublisher.publish(cfdCommand);
+            log.info("[OMS-LINK] >>> routed to CFD, orderId={}, symbol={}, mode={}",
+                    order.getId(), order.getSymbol(), order.getExecutionMode());
+            return;
+        }
+
+        com.exchange.oms.dto.OrderEventCommand command = buildOrderCommand(order, request);
+        log.info("[OMS-LINK] >>> routed to MATCH, orderId={}, symbol={}, side={}, price={}, qty={}",
+                order.getId(), order.getSymbol(), order.getSide(), order.getPrice(), order.getQuantity());
+        orderEventPublisher.publishOrderEvent(command);
+    }
+
+    private void publishCancelCommand(OmsOrder order) {
+        if (isCfdExecutionMode(order.getExecutionMode())) {
+            CfdOrderCommand cfdCommand = buildCfdCancelCommand(order);
+            cfdOrderCommandPublisher.publish(cfdCommand);
+            log.info("[OMS-LINK] >>> cancel routed to CFD, orderId={}, symbol={}, mode={}",
+                    order.getId(), order.getSymbol(), order.getExecutionMode());
+            return;
+        }
+
+        com.exchange.oms.dto.OrderEventCommand cancelCommand = buildCancelCommand(order);
+        orderEventPublisher.publishOrderEvent(cancelCommand);
+        log.info("[OMS-LINK] >>> cancel routed to MATCH, orderId={}, symbol={}, mode={}",
+                order.getId(), order.getSymbol(), order.getExecutionMode());
+    }
+
+    private void applyCfdMarketReferencePrice(OmsOrder order) {
+        if (stringRedisTemplate == null || order == null || order.getSymbol() == null) {
+            return;
+        }
+
+        String symbol = order.getSymbol().trim().toUpperCase();
+        String redisKey = cfdReferenceRedisPrefix + symbol;
+        String rawSnapshot = stringRedisTemplate.opsForValue().get(redisKey);
+        if (rawSnapshot == null) {
+            log.warn("[OMS] CFD market order missing reference snapshot, symbol={}, key={}", symbol, redisKey);
+            return;
+        }
+
+        try {
+            JsonNode snapshot = objectMapper.readTree(rawSnapshot.toString());
+            long eventTime = snapshot.path("eventTime").asLong(0L);
+            if (eventTime > 0 && cfdReferenceMaxStaleMs > 0) {
+                long staleness = Math.max(0L, System.currentTimeMillis() - eventTime);
+                if (staleness > cfdReferenceMaxStaleMs) {
+                    log.warn("[OMS] CFD market snapshot stale, symbol={}, stalenessMs={}, max={}",
+                        symbol, staleness, cfdReferenceMaxStaleMs);
+                    return;
+                }
+            }
+
+            BigDecimal bestBidScaled = normalizePriceMaybeScaled(snapshot.path("bestBid").asText(null));
+            BigDecimal bestAskScaled = normalizePriceMaybeScaled(snapshot.path("bestAsk").asText(null));
+
+            if (bestBidScaled != null) {
+                order.setReferenceBestBid(bestBidScaled);
+            }
+            if (bestAskScaled != null) {
+                order.setReferenceBestAsk(bestAskScaled);
+            }
+
+            BigDecimal selected = (order.getSide() != null && order.getSide() == 0) ? bestAskScaled : bestBidScaled;
+            if (selected == null) {
+                selected = bestAskScaled != null ? bestAskScaled : bestBidScaled;
+            }
+
+            if (selected == null) {
+                log.warn("[OMS] CFD market snapshot has empty best bid/ask, symbol={}", symbol);
+                return;
+            }
+
+            order.setPrice(selected);
+            order.setReferenceVwapPrice(selected);
+            order.setSlippageBps(0);
+            order.setLiquiditySource("BINANCE_REF");
+            order.setReferenceTopic(snapshot.path("topic").asText(null));
+            if (snapshot.has("offset")) {
+                order.setReferenceOffset(snapshot.path("offset").asLong());
+            }
+            if (eventTime > 0) {
+                order.setReferenceEventTime(eventTime);
+            }
+        } catch (Exception e) {
+            log.warn("[OMS] Parse CFD reference snapshot failed, symbol={}, key={}", symbol, redisKey, e);
+        }
+    }
+
+    private BigDecimal normalizePriceMaybeScaled(String rawPrice) {
+        if (rawPrice == null || rawPrice.isBlank()) {
+            return null;
+        }
+        BigDecimal scaled = normalizeToScaled(rawPrice);
+        if (scaled.compareTo(BigDecimal.ZERO) <= 0) {
+            return null;
+        }
+        return scaled;
     }
 
     /**
@@ -828,5 +1039,12 @@ public class OmsServiceImpl implements OmsService {
             return null;
         }
         return scaled.divide(SCALE_BD, 8, RoundingMode.HALF_UP).toPlainString();
+    }
+
+    private String toPlainString(BigDecimal value) {
+        if (value == null) {
+            return null;
+        }
+        return value.stripTrailingZeros().toPlainString();
     }
 }

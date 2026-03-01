@@ -18,7 +18,7 @@ import java.util.function.Supplier;
 @Component
 public class DistributedLockUtil {
 
-    @Autowired
+    @Autowired(required = false)
     private RedissonClient redissonClient;
 
     /**
@@ -60,6 +60,11 @@ public class DistributedLockUtil {
      */
     public <T> T executeWithLock(String lockKey, long waitTime, long leaseTime,
                                   Supplier<T> supplier) {
+        if (redissonClient == null) {
+            log.warn("[DistributedLock] Redisson unavailable, execute without distributed lock, lockKey={}", lockKey);
+            return supplier.get();
+        }
+
         String fullLockKey = LOCK_PREFIX + lockKey;
         RLock lock = redissonClient.getLock(fullLockKey);
 

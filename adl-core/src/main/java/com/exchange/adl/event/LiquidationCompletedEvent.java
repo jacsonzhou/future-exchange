@@ -2,8 +2,6 @@ package com.exchange.adl.event;
 
 import lombok.Data;
 
-import java.math.BigDecimal;
-
 /**
  * Liquidation Completed Event - 强平完成事件
  *
@@ -13,7 +11,12 @@ import java.math.BigDecimal;
 public class LiquidationCompletedEvent {
 
     /**
-     * 强平记录ID
+     * 事件类型
+     */
+    private String eventType;
+
+    /**
+     * 强平记录ID（例如 LIQ_1772300000000_12345）
      */
     private String liquidationId;
 
@@ -28,39 +31,19 @@ public class LiquidationCompletedEvent {
     private String symbol;
 
     /**
-     * 仓位方向
+     * 被强平仓位ID
+     */
+    private Long positionId;
+
+    /**
+     * 仓位方向（LONG/SHORT）
      */
     private String side;
 
     /**
-     * 破产价格
+     * 保证金模式
      */
-    private BigDecimal bankruptPrice;
-
-    /**
-     * 标记价格（强平时）
-     */
-    private BigDecimal markPrice;
-
-    /**
-     * 原始仓位数量
-     */
-    private BigDecimal originalQty;
-
-    /**
-     * 已平仓数量
-     */
-    private BigDecimal filledQty;
-
-    /**
-     * 剩余未平仓数量
-     */
-    private BigDecimal remainingQty;
-
-    /**
-     * 穿仓损失金额（如果有）
-     */
-    private BigDecimal bankruptLoss;
+    private String marginMode;
 
     /**
      * 是否穿仓
@@ -68,9 +51,49 @@ public class LiquidationCompletedEvent {
     private Boolean isBankrupt;
 
     /**
-     * 强平完成时间
+     * 破产价格（8位精度long）
      */
-    private Long completedAt;
+    private Long bankruptPrice;
+
+    /**
+     * 穿仓数量（8位精度long）
+     */
+    private Long bankruptQty;
+
+    /**
+     * 穿仓损失（8位精度long）
+     */
+    private Long bankruptLoss;
+
+    /**
+     * 保险基金赔付金额
+     */
+    private Long insuranceCover;
+
+    /**
+     * 剩余亏损（可能触发ADL）
+     */
+    private Long remainingLoss;
+
+    /**
+     * 是否需要触发ADL
+     */
+    private Boolean adlRequired;
+
+    /**
+     * 强平执行均价
+     */
+    private Long executedPrice;
+
+    /**
+     * 强平执行数量
+     */
+    private Long executedQty;
+
+    /**
+     * 强平已实现盈亏
+     */
+    private Long realizedPnl;
 
     /**
      * 事件时间戳
@@ -78,7 +101,7 @@ public class LiquidationCompletedEvent {
     private Long timestamp;
 
     /**
-     * 事件ID（幂等性）
+     * 序列号
      */
-    private String eventId;
+    private Long sequence;
 }

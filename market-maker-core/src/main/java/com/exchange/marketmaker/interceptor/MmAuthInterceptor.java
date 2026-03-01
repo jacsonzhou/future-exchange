@@ -2,12 +2,11 @@ package com.exchange.marketmaker.interceptor;
 
 import com.exchange.marketmaker.entity.MarketMaker;
 import com.exchange.marketmaker.service.MarketMakerService;
+import jakarta.servlet.http.HttpServletRequest;
+import jakarta.servlet.http.HttpServletResponse;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.web.servlet.HandlerInterceptor;
-
-import javax.servlet.http.HttpServletRequest;
-import javax.servlet.http.HttpServletResponse;
 
 /**
  * 做市商身份验证拦截器

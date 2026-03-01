@@ -656,9 +656,14 @@
         const CONFIG = {
             API_GATEWAY: 'http://localhost:8082',
             MARKET_PRICE_API: 'http://localhost:8095',  // market-price-core 直接访问
+            BINANCE_DATA_API: 'http://localhost:8105',  // binance-data-source
             PUBLIC_PUSH_WS: 'ws://localhost:8096/ws/market',
             PRIVATE_PUSH_WS: 'ws://localhost:8097/ws/private',
-            SNAPSHOT_ACCOUNT: 'http://localhost:8085'  // 直接查询余额
+            SNAPSHOT_ACCOUNT: 'http://localhost:8085',  // 直接查询余额
+            BINANCE_FUTURES_REST: 'https://fapi.binance.com',
+            USE_EXTERNAL_FEED: false,
+            EXTERNAL_SOURCE: 'binance',
+            KLINE_MIN_STANDARD_POINTS: 30
         };
 
         // 临时方案：直接访问 snapshot 服务（绕过 API Gateway）
@@ -677,7 +682,6 @@
             currentOrderFilter: 'active' // active | history
         };
 
-        let positionRefreshTimer = null;
         let publicReconnectTimer = null;
         let privateReconnectTimer = null;
 
@@ -702,6 +706,10 @@
             asks: [], // [[price, qty], ...]
             timestamp: 0
         };
+        let cachedPreHoldMargin = 0;
+        const POSITION_DEFAULT_LEVERAGE = 10;
+        const POSITION_MAINTENANCE_MARGIN_RATE = 0.005;
+        let latestPriceBySymbol = new Map(); // symbol -> latest display mark price
 
         // ==================== K线图表 ====================
         let klineChart = null;
@@ -712,6 +720,25 @@
         let lastKlineTimeMap = new Map(); // interval -> latest candle time(second)
         let klineFetchSeq = 0; // 防止切换周期时旧请求覆盖新图表
         let lastKlinePrice = 0;
+
+        function getCurrentSymbolUpper() {
+            const symbol = document.getElementById('symbol')?.value || 'BTCUSDT';
+            return String(symbol).trim().toUpperCase();
+        }
+
+        function buildPublicMarketChannel(type, interval) {
+            const symbol = getCurrentSymbolUpper();
+            if (CONFIG.USE_EXTERNAL_FEED) {
+                if (type === 'kline') {
+                    return `kline.ext.${CONFIG.EXTERNAL_SOURCE}.${symbol}.${interval}`;
+                }
+                return `${type}.ext.${CONFIG.EXTERNAL_SOURCE}.${symbol}`;
+            }
+            if (type === 'kline') {
+                return `kline.${symbol}.${interval}`;
+            }
+            return `${type}.${symbol}`;
+        }
 
         // ==================== 初始化 ====================
         document.addEventListener('DOMContentLoaded', () => {
@@ -917,10 +944,14 @@
             
             // 初始加载盘口数据（仅一次，后续通过 WebSocket 推送）
             refreshOrderBookOnce();
-            
-            refreshBalance();
-            // 默认展示持仓页，刷新后自动拉取一次持仓
-            loadPositions();
+
+            if (isLikelyJwt(state.token)) {
+                refreshBalance();
+                // 默认展示持仓页，刷新后自动拉取一次持仓
+                loadPositions();
+            } else {
+                renderAuthRequiredState();
+            }
             
             // 连接 WebSocket
             // 公有推送无需登录，私有推送需要 token
@@ -932,31 +963,94 @@
             }
             
             // 初始加载订单列表
-            setTimeout(() => {
-                loadOrders('active');
-            }, 1000);
+            if (isLikelyJwt(state.token)) {
+                setTimeout(() => {
+                    loadOrders('active');
+                }, 1000);
+            }
         }
 
-        function triggerPositionRefresh(reason) {
-            log('info', `触发持仓刷新: ${reason}`);
-            if (positionRefreshTimer) {
-                clearTimeout(positionRefreshTimer);
-                positionRefreshTimer = null;
-            }
+        function renderAuthRequiredState() {
+            const authHintHtml = `
+                <div style="text-align:center;color:#8b949e;padding:30px;">
+                    <div style="font-size:14px;margin-bottom:8px;">请先登录</div>
+                    <div style="font-size:12px;">登录后可查看资产、委托和持仓数据</div>
+                </div>
+            `;
 
-            // 成交后分层重试，覆盖账本/持仓异步链路延迟
-            const delays = [200, 800, 1500];
-            delays.forEach((delay) => {
-                setTimeout(() => {
-                    loadPositions();
-                }, delay);
-            });
+            const available = document.getElementById('availableBalance');
+            const frozen = document.getElementById('frozenBalance');
+            const margin = document.getElementById('marginBalance');
+            const total = document.getElementById('totalBalance');
+            const orders = document.getElementById('ordersList');
+            const positions = document.getElementById('positionsList');
+            const pnl = document.getElementById('totalUnrealizedPnl');
+
+            if (available) {
+                available.textContent = '请登录';
+                available.style.color = '#8b949e';
+            }
+            if (frozen) {
+                frozen.textContent = '请登录';
+                frozen.style.color = '#8b949e';
+            }
+            if (margin) {
+                margin.textContent = '请登录';
+                margin.style.color = '#8b949e';
+            }
+            if (total) {
+                total.textContent = '请登录';
+                total.style.color = '#8b949e';
+            }
+            if (orders) {
+                orders.innerHTML = authHintHtml;
+            }
+            if (positions) {
+                positions.innerHTML = authHintHtml;
+            }
+            if (pnl) {
+                pnl.textContent = '--';
+                pnl.style.color = '#8b949e';
+            }
+        }
+
+        function parsePositionSide(raw) {
+            const sideRaw = String(raw ?? '').trim().toUpperCase();
+            if (sideRaw === '1' || sideRaw === 'LONG') {
+                return 'LONG';
+            }
+            if (sideRaw === '2' || sideRaw === 'SHORT') {
+                return 'SHORT';
+            }
+            return 'LONG';
+        }
+
+        function updateUnrealizedPnlSummary(displayPositions) {
+            const summaryEl = document.getElementById('totalUnrealizedPnl');
+            const totalPnl = displayPositions.reduce((sum, pos) => {
+                const pnl = Number(pos.displayUnrealizedPnl);
+                return sum + (Number.isFinite(pnl) ? pnl : 0);
+            }, 0);
+            summaryEl.textContent = (totalPnl >= 0 ? '+' : '') + formatMoneyDirect(totalPnl).replace(' USDT', '');
+            summaryEl.style.color = totalPnl >= 0 ? '#3fb950' : '#f85149';
+        }
+
+        function renderPositionsFromCache(reason) {
+            const displayPositions = Array.from(positionCache.values()).map(normalizeDisplayPosition);
+            updateUnrealizedPnlSummary(displayPositions);
+            if (state.currentBottomTab === 'positions') {
+                log('info', `持仓视图更新(推送驱动): ${reason}`);
+                renderPositions(displayPositions);
+            }
         }
         
         // ==================== 盘口数据 ====================
         // 从 WebSocket 接收的深度数据
         let wsOrderBookData = null;
         let lastOrderBookUpdate = 0;
+        let lastTradeUpdate = 0;
+        let fallbackPolling = false;
+        let depthResubscribeCooldownUntil = 0;
         
         /**
          * 初始加载盘口数据（仅一次，用于首次显示）
@@ -1089,6 +1183,8 @@
                 const spread = asksAsc[0].price - bidsDesc[0].price;
                 document.getElementById('orderbookSpread').textContent = `价差: ${spread.toFixed(2)} USDT`;
             }
+
+            updateLatestPriceFromBestBidAsk(getCurrentSymbolUpper());
         }
 
         // ==================== 盘口刷新工具 ====================
@@ -1127,52 +1223,201 @@
             }
         }
 
-        // 优先使用 market-price-core，兼容网关旧路由
+        function unwrapResponseData(payload) {
+            if (payload && typeof payload === 'object' && payload.data !== undefined && payload.data !== null) {
+                return payload.data;
+            }
+            return payload;
+        }
+
+        function extractDepthPayload(payload) {
+            const data = unwrapResponseData(payload);
+            if (!data || typeof data !== 'object') {
+                return null;
+            }
+
+            const bids = data.bids || data.b || data.B;
+            const asks = data.asks || data.a || data.A;
+            if (!Array.isArray(bids) || !Array.isArray(asks)) {
+                return null;
+            }
+
+            return {
+                bids,
+                asks,
+                timestamp: normalizeRawNumber(data.messageOutputTime ?? data.timestamp ?? data.E ?? data.T) || Date.now()
+            };
+        }
+
+        function parseExternalTradeRow(row) {
+            if (!row) {
+                return null;
+            }
+            let item = row;
+            if (typeof item === 'string') {
+                try {
+                    item = JSON.parse(item);
+                } catch (_) {
+                    return null;
+                }
+            }
+            if (!item || typeof item !== 'object') {
+                return null;
+            }
+
+            const normalized = {
+                p: item.p ?? item.price,
+                q: item.q ?? item.qty ?? item.quantity,
+                m: item.m ?? item.buyerMaker ?? item.isBuyerMaker,
+                T: item.T ?? item.time ?? item.timestamp ?? Date.now()
+            };
+
+            if (!Number.isFinite(normalizePriceNumber(normalized.p)) || !Number.isFinite(normalizeQtyNumber(normalized.q))) {
+                return null;
+            }
+            return normalized;
+        }
+
+        function extractTradesPayload(payload) {
+            const data = unwrapResponseData(payload);
+            let rows = [];
+            if (Array.isArray(data)) {
+                rows = data;
+            } else if (data && Array.isArray(data.trades)) {
+                rows = data.trades;
+            }
+            return rows.map(parseExternalTradeRow).filter(Boolean);
+        }
+
         async function fetchDepthSnapshot(symbol) {
-            // 1) market-price-core: /api/v1/depth?symbol=BTCUSDT&limit=20
+            const symbolUpper = String(symbol || 'BTCUSDT').toUpperCase();
+            const symbolQuery = encodeURIComponent(symbolUpper);
+
+            // 1) Binance Data Source 本地订单簿（更接近 Binance）
+            if (CONFIG.USE_EXTERNAL_FEED && String(CONFIG.EXTERNAL_SOURCE).toLowerCase() === 'binance') {
+                try {
+                    const res = await fetch(`${CONFIG.BINANCE_DATA_API}/api/binance/orderbook/${symbolUpper}?depth=20`);
+                    if (res.ok) {
+                        const payload = await res.json();
+                        if (payload.success === true || payload.data) {
+                            const depth = extractDepthPayload(payload);
+                            if (depth) return depth;
+                        }
+                    }
+                } catch (_) {}
+
+                try {
+                    const res = await fetch(`${CONFIG.BINANCE_DATA_API}/api/binance/depth/${symbolUpper}?limit=20`);
+                    if (res.ok) {
+                        const payload = await res.json();
+                        if (payload.success === true || payload.data) {
+                            const depth = extractDepthPayload(payload);
+                            if (depth) return depth;
+                        }
+                    }
+                } catch (_) {}
+
+                try {
+                    const res = await fetch(`${CONFIG.BINANCE_FUTURES_REST}/fapi/v1/depth?symbol=${symbolQuery}&limit=20`);
+                    if (res.ok) {
+                        const payload = await res.json();
+                        const depth = extractDepthPayload(payload);
+                        if (depth) return depth;
+                    }
+                } catch (_) {}
+            }
+
+            // 2) market-price-core
             try {
-                const res = await fetch(`${CONFIG.MARKET_PRICE_API}/api/v1/depth?symbol=${encodeURIComponent(symbol)}&limit=20`);
+                const res = await fetch(`${CONFIG.MARKET_PRICE_API}/api/v1/depth?symbol=${symbolQuery}&limit=20`);
                 if (res.ok) {
                     const payload = await res.json();
-                    const data = payload.data || payload;
-                    return {
-                        bids: data.bids || [],
-                        asks: data.asks || [],
-                        timestamp: data.messageOutputTime || Date.now()
-                    };
+                    const depth = extractDepthPayload(payload);
+                    if (depth) return depth;
                 }
             } catch (_) {}
 
-            // 2) gateway fallback: /api/v1/depth?symbol=BTCUSDT&limit=20
+            // 3) gateway fallback
             try {
-                const res = await fetch(`${CONFIG.API_GATEWAY}/api/v1/depth?symbol=${encodeURIComponent(symbol)}&limit=20`);
+                const res = await fetch(`${CONFIG.API_GATEWAY}/api/v1/depth?symbol=${symbolQuery}&limit=20`);
                 if (res.ok) {
-                    const data = await res.json();
-                    return {
-                        bids: data.bids || [],
-                        asks: data.asks || [],
-                        timestamp: data.timestamp || Date.now()
-                    };
+                    const payload = await res.json();
+                    const depth = extractDepthPayload(payload);
+                    if (depth) return depth;
                 }
             } catch (_) {}
 
-            // 3) match-engine fallback: /api/v1/match/orderbook/depth/{symbol}?depth=20
+            // 4) match-engine fallback
             try {
-                const res = await fetch(`${CONFIG.API_GATEWAY}/api/v1/match/orderbook/depth/${symbol}?depth=20`);
+                const res = await fetch(`${CONFIG.API_GATEWAY}/api/v1/match/orderbook/depth/${symbolUpper}?depth=20`);
                 if (res.ok) {
-                    const data = await res.json();
-                    return {
-                        bids: data.bids || [],
-                        asks: data.asks || [],
-                        timestamp: data.timestamp || Date.now()
-                    };
+                    const payload = await res.json();
+                    const depth = extractDepthPayload(payload);
+                    if (depth) return depth;
                 }
             } catch (_) {}
 
             return null;
         }
+
+        async function fetchRecentTradesSnapshot(symbol) {
+            const symbolUpper = String(symbol || 'BTCUSDT').toUpperCase();
+            const symbolQuery = encodeURIComponent(symbolUpper);
+
+            // 1) Binance Data Source / Binance Futures REST
+            if (CONFIG.USE_EXTERNAL_FEED && String(CONFIG.EXTERNAL_SOURCE).toLowerCase() === 'binance') {
+                try {
+                    const res = await fetch(`${CONFIG.BINANCE_DATA_API}/api/binance/trades/${symbolUpper}?limit=20`);
+                    if (res.ok) {
+                        const payload = await res.json();
+                        if (payload.success === true || payload.data) {
+                            const trades = extractTradesPayload(payload);
+                            if (trades.length > 0) return trades;
+                        }
+                    }
+                } catch (_) {}
+
+                try {
+                    const res = await fetch(`${CONFIG.BINANCE_FUTURES_REST}/fapi/v1/trades?symbol=${symbolQuery}&limit=20`);
+                    if (res.ok) {
+                        const payload = await res.json();
+                        const trades = extractTradesPayload(payload);
+                        if (trades.length > 0) return trades;
+                    }
+                } catch (_) {}
+            }
+
+            // 2) market-price-core
+            try {
+                const res = await fetch(`${CONFIG.MARKET_PRICE_API}/api/v1/trades?symbol=${symbolQuery}&limit=20`);
+                if (res.ok) {
+                    const payload = await res.json();
+                    const trades = extractTradesPayload(payload);
+                    if (trades.length > 0) return trades;
+                }
+            } catch (_) {}
+
+            // 3) gateway fallback
+            try {
+                const res = await fetch(`${CONFIG.API_GATEWAY}/api/v1/trades?symbol=${symbolQuery}&limit=20`);
+                if (res.ok) {
+                    const payload = await res.json();
+                    const trades = extractTradesPayload(payload);
+                    if (trades.length > 0) return trades;
+                }
+            } catch (_) {}
+
+            return [];
+        }
         
         function resubscribeDepth() {
+            const now = Date.now();
+            if (now < depthResubscribeCooldownUntil) {
+                log('warn', '深度重订阅过于频繁，已忽略本次请求');
+                return;
+            }
+            depthResubscribeCooldownUntil = now + 3000;
+
             log('info', '📡 重新订阅深度频道...');
             
             // 检查 WebSocket 连接
@@ -1182,33 +1427,97 @@
                 return;
             }
             
+            const depthChannel = buildPublicMarketChannel('depth');
+
             // 取消旧订阅
             state.publicWs.send(JSON.stringify({
                 method: 'UNSUBSCRIBE',
-                params: ['depth.BTCUSDT'],
+                params: [depthChannel],
                 id: Date.now()
             }));
-            log('info', '已取消订阅 depth.BTCUSDT');
+            log('info', `已取消订阅 ${depthChannel}`);
             
             // 延迟后重新订阅
             setTimeout(() => {
                 if (state.publicWs && state.publicWs.readyState === WebSocket.OPEN) {
                     state.publicWs.send(JSON.stringify({
                         method: 'SUBSCRIBE',
-                        params: ['depth.BTCUSDT'],
+                        params: [depthChannel],
                         id: Date.now()
                     }));
-                    log('success', '✅ 已重新订阅 depth.BTCUSDT');
+                    log('success', `✅ 已重新订阅 ${depthChannel}`);
                 }
             }, 500);
         }
 
         // ==================== 余额查询 ====================
+        function applyAccountBalanceSnapshot(balanceLike) {
+            if (!balanceLike || typeof balanceLike !== 'object') {
+                return false;
+            }
+
+            const available = normalizeRawNumber(balanceLike.available ?? balanceLike.f ?? 0);
+            const frozen = normalizeRawNumber(balanceLike.frozen ?? balanceLike.l ?? 0);
+            const positionMargin = normalizeRawNumber(balanceLike.positionMargin ?? balanceLike.m ?? 0);
+            const unrealizedPnl = normalizeRawNumber(balanceLike.unrealizedPnl ?? balanceLike.up ?? 0);
+            const equityFromEvent = normalizeRawNumber(balanceLike.equity ?? balanceLike.totalBalance ?? balanceLike.e);
+
+            if (!Number.isFinite(available) && !Number.isFinite(frozen) &&
+                !Number.isFinite(positionMargin) && !Number.isFinite(equityFromEvent)) {
+                return false;
+            }
+
+            const safeAvailable = Number.isFinite(available) ? available : 0;
+            const safeFrozen = Number.isFinite(frozen) ? frozen : 0;
+            const safePositionMargin = Number.isFinite(positionMargin) ? positionMargin : 0;
+            const safeUnrealized = Number.isFinite(unrealizedPnl) ? unrealizedPnl : 0;
+            const safePreHold = Number.isFinite(cachedPreHoldMargin) ? cachedPreHoldMargin : 0;
+            const equity = Number.isFinite(equityFromEvent)
+                ? equityFromEvent
+                : (safeAvailable + safeFrozen + safePositionMargin + safeUnrealized);
+
+            const actualAvailable = safeAvailable - safePreHold;
+            const totalFrozen = safeFrozen + safePreHold;
+
+            document.getElementById('availableBalance').textContent = formatMoneyDirect(actualAvailable);
+            document.getElementById('availableBalance').style.color = actualAvailable < 0 ? '#f85149' : '#3fb950';
+            document.getElementById('frozenBalance').textContent = formatMoneyDirect(totalFrozen);
+            document.getElementById('marginBalance').textContent = formatMoneyDirect(safePositionMargin);
+            document.getElementById('totalBalance').textContent = formatMoneyDirect(equity);
+            return true;
+        }
+
+        function handleAccountUpdate(accountPayload) {
+            if (!accountPayload || typeof accountPayload !== 'object') {
+                return;
+            }
+
+            const balances = Array.isArray(accountPayload.B)
+                ? accountPayload.B
+                : (Array.isArray(accountPayload.balances) ? accountPayload.balances : []);
+
+            let selected = null;
+            if (balances.length > 0) {
+                selected = balances.find(item => {
+                    const asset = String(item?.asset ?? item?.a ?? '').toUpperCase();
+                    return asset === 'USDT';
+                }) || balances[0];
+            } else {
+                // 兼容历史格式：直接把账户字段放在 payload 顶层
+                selected = accountPayload;
+            }
+
+            if (!applyAccountBalanceSnapshot(selected)) {
+                log('warn', '账户推送字段不足，跳过本次UI更新');
+            }
+        }
+
         async function refreshBalance() {
             try {
                 // 检查登录状态
-                if (!state.token) {
+                if (!isLikelyJwt(state.token)) {
                     log('warn', '未登录，无法查询余额');
+                    renderAuthRequiredState();
                     return;
                 }
                 
@@ -1260,6 +1569,7 @@
                             log('warn', '预扣保证金查询失败: ' + e.message);
                         }
                     }
+                    cachedPreHoldMargin = Number(preHoldMargin) || 0;
                     
                     // 计算余额显示
                     // equity = 账户权益（总资金）
@@ -1280,6 +1590,9 @@
                 } else {
                     const errorText = await res.text();
                     log('error', `余额查询失败 [${res.status}]: ${errorText}`);
+                    if (res.status === 401 || res.status === 403) {
+                        renderAuthRequiredState();
+                    }
                 }
             } catch (err) {
                 log('error', `余额查询异常: ${err.name}: ${err.message}`);
@@ -1313,6 +1626,91 @@
             return {
                 bestBid: normalizePriceNumber(bidRaw),
                 bestAsk: normalizePriceNumber(askRaw)
+            };
+        }
+
+        function updateLatestSymbolPrice(symbol, rawPrice) {
+            const symbolUpper = String(symbol || '').trim().toUpperCase();
+            const price = normalizePriceNumber(rawPrice);
+            if (!symbolUpper || !Number.isFinite(price) || price <= 0) {
+                return;
+            }
+            latestPriceBySymbol.set(symbolUpper, price);
+        }
+
+        function updateLatestPriceFromBestBidAsk(symbol) {
+            const { bestBid, bestAsk } = getBestBidAsk();
+            if (Number.isFinite(bestBid) && bestBid > 0 && Number.isFinite(bestAsk) && bestAsk > 0) {
+                updateLatestSymbolPrice(symbol, (bestBid + bestAsk) / 2);
+                return;
+            }
+            if (Number.isFinite(bestBid) && bestBid > 0) {
+                updateLatestSymbolPrice(symbol, bestBid);
+                return;
+            }
+            if (Number.isFinite(bestAsk) && bestAsk > 0) {
+                updateLatestSymbolPrice(symbol, bestAsk);
+            }
+        }
+
+        function getDisplayMarkPrice(symbol, fallbackRawPrice) {
+            const symbolUpper = String(symbol || getCurrentSymbolUpper()).trim().toUpperCase();
+            if (symbolUpper === getCurrentSymbolUpper()) {
+                updateLatestPriceFromBestBidAsk(symbolUpper);
+            }
+
+            const cachedPrice = latestPriceBySymbol.get(symbolUpper);
+            if (Number.isFinite(cachedPrice) && cachedPrice > 0) {
+                return cachedPrice;
+            }
+
+            const fallback = normalizePriceNumber(fallbackRawPrice);
+            if (Number.isFinite(fallback) && fallback > 0) {
+                return fallback;
+            }
+
+            return NaN;
+        }
+
+        function normalizeDisplayPosition(pos) {
+            const side = (pos.side || pos.ps || (String(pos.positionSide) === '1' ? 'LONG' : 'SHORT')).toUpperCase();
+            const symbol = pos.symbol || pos.s || getCurrentSymbolUpper();
+            const size = normalizeQtyNumber(pos.size ?? pos.pa);
+            const entryPrice = normalizePriceNumber(pos.entryPrice ?? pos.ep);
+            const markPrice = getDisplayMarkPrice(symbol, pos.markPrice ?? pos.mp ?? pos.entryPrice ?? pos.ep);
+            const leverageRaw = Number(pos.leverage ?? pos.l);
+            const leverage = Number.isFinite(leverageRaw) && leverageRaw > 0 ? leverageRaw : POSITION_DEFAULT_LEVERAGE;
+
+            const fallbackUnrealized = Number(pos.unrealizedPnl ?? pos.up ?? 0);
+            let displayUnrealizedPnl = Number.isFinite(fallbackUnrealized) ? fallbackUnrealized : 0;
+            if (Number.isFinite(size) && size > 0 && Number.isFinite(entryPrice) && entryPrice > 0 && Number.isFinite(markPrice) && markPrice > 0) {
+                const priceDiff = side === 'SHORT'
+                    ? entryPrice - markPrice
+                    : markPrice - entryPrice;
+                displayUnrealizedPnl = priceDiff * size;
+            }
+
+            const fallbackMarginRatio = Number(pos.marginRatio ?? 0);
+            let displayMarginRatio = Number.isFinite(fallbackMarginRatio) ? fallbackMarginRatio : 0;
+            if (Number.isFinite(size) && size > 0 && Number.isFinite(entryPrice) && entryPrice > 0 && Number.isFinite(markPrice) && markPrice > 0) {
+                const initialMargin = (entryPrice * size) / leverage;
+                const equity = initialMargin + displayUnrealizedPnl;
+                const maintenanceMargin = size * markPrice * POSITION_MAINTENANCE_MARGIN_RATE;
+                if (maintenanceMargin > 0) {
+                    displayMarginRatio = equity / maintenanceMargin;
+                }
+            }
+
+            return {
+                ...pos,
+                symbol,
+                side,
+                displaySize: size,
+                displayEntryPrice: entryPrice,
+                displayLeverage: leverage,
+                displayMarkPrice: markPrice,
+                displayUnrealizedPnl: displayUnrealizedPnl,
+                displayMarginRatio: displayMarginRatio
             };
         }
 
@@ -1475,9 +1873,11 @@
                     log('success', '公有推送已连接');
                     
                     // 订阅行情数据（订阅成功后会自动收到快照数据）
-                    const klineChannel = `kline.BTCUSDT.${currentKlineInterval}`;
-                    subscribePublic(['trade.BTCUSDT', 'depth.BTCUSDT', klineChannel]);
-                    log('info', `已订阅: trade.BTCUSDT, depth.BTCUSDT, ${klineChannel}`);
+                    const tradeChannel = buildPublicMarketChannel('trade');
+                    const depthChannel = buildPublicMarketChannel('depth');
+                    const klineChannel = buildPublicMarketChannel('kline', currentKlineInterval);
+                    subscribePublic([tradeChannel, depthChannel, klineChannel]);
+                    log('info', `已订阅: ${tradeChannel}, ${depthChannel}, ${klineChannel}`);
                     log('info', '等待服务器推送快照数据...');
                 };
                 
@@ -1646,7 +2046,7 @@
                 const subscribed = msg.data?.subscribed || msg.data || [];
                 log('success', `订阅成功: ${JSON.stringify(subscribed)}`);
                 // 订阅成功后，服务器会自动发送快照数据（snapshot: true）
-                if (subscribed.includes('depth.BTCUSDT')) {
+                if (Array.isArray(subscribed) && subscribed.some(ch => String(ch).includes('depth'))) {
                     log('info', '深度频道订阅成功，等待服务器推送快照数据...');
                 }
                 return;
@@ -1813,9 +2213,16 @@
             }
             
             // 账户更新
+            if (msg.stream === 'account' || msg.e === 'account' || (msg.data && msg.data.e === 'account')) {
+                const accountData = msg.stream === 'account' && msg.data ? msg.data : (msg.data || msg);
+                handleAccountUpdate(accountData);
+                return;
+            }
+
+            // 兼容历史账户事件
             if (msg.e === 'outboundAccountPosition') {
-                log('info', '账户余额更新');
-                refreshBalance();
+                const accountData = msg.data || msg;
+                handleAccountUpdate(accountData);
                 return;
             }
             
@@ -1868,25 +2275,18 @@
         }
 
         function updateTrades(data) {
-            log('info', `updateTrades called with: ${JSON.stringify(data).substring(0, 100)}`);
-            
             if (!data) {
-                log('warn', 'updateTrades: data is null');
                 return;
             }
             
             // 修复：支持单个对象或数组
             const trades = Array.isArray(data) ? data : [data];
-            log('info', `updateTrades: ${trades.length} trades to display`);
-            
             if (trades.length === 0) {
-                log('warn', 'updateTrades: no trades');
                 return;
             }
             
             const list = document.getElementById('tradeList');
             if (!list) {
-                log('error', 'updateTrades: tradeList element not found!');
                 return;
             }
             
@@ -1899,24 +2299,32 @@
             // 添加新的 trades 到顶部
             let newHtml = '';
             trades.slice(0, 20).forEach((trade, idx) => {
-                const isBuy = trade.m; // m = isBuyerMaker
+                const tradePrice = trade.p ?? trade.price ?? trade.P;
+                const tradeQty = trade.q ?? trade.qty ?? trade.quantity ?? trade.Q;
+                const isBuy = (trade.m !== undefined) ? !!trade.m : !!trade.buyerMaker; // m = isBuyerMaker
                 const side = isBuy ? 'sell' : 'buy';
                 const sideText = isBuy ? '卖出' : '买入';
-                
-                log('debug', `Trade ${idx}: p=${trade.p}, q=${trade.q}, m=${trade.m}, side=${side}`);
+                if (!Number.isFinite(normalizePriceNumber(tradePrice)) || !Number.isFinite(normalizeQtyNumber(tradeQty))) {
+                    return;
+                }
+                updateLatestSymbolPrice(getCurrentSymbolUpper(), tradePrice);
                 
                 newHtml += `
                     <div class="trade-item">
                         <span class="trade-${side}">${sideText}</span>
-                        <span class="trade-price">${formatTradePrice(trade.p)}</span>
-                        <span>${formatTradeQty(trade.q)}</span>
+                        <span class="trade-price">${formatTradePrice(tradePrice)}</span>
+                        <span>${formatTradeQty(tradeQty)}</span>
                     </div>
                 `;
             });
+
+            if (!newHtml) {
+                return;
+            }
             
             // 将新数据放在顶部，保留最多 50 条
             list.innerHTML = newHtml + existingHtml;
-            log('info', `updateTrades: DOM updated, list now has ${list.querySelectorAll('.trade-item').length} items`);
+            lastTradeUpdate = Date.now();
             
             // 限制显示数量
             const items = list.querySelectorAll('.trade-item');
@@ -1999,7 +2407,11 @@
                 positionsBtn.style.color = 'white';
                 ordersPanel.style.display = 'none';
                 positionsPanel.style.display = 'block';
-                loadPositions();
+                if (positionCache.size > 0) {
+                    renderPositionsFromCache('switch tab');
+                } else {
+                    loadPositions();
+                }
             }
         }
         
@@ -2019,6 +2431,12 @@
             });
             
             const container = document.getElementById('ordersList');
+
+            if (!isLikelyJwt(state.token)) {
+                renderAuthRequiredState();
+                return;
+            }
+
             container.innerHTML = '<div style="text-align:center;color:#8b949e;padding:30px;"><div>加载中...</div></div>';
             
             try {
@@ -2060,7 +2478,11 @@
                     renderOrders(orders, filter);
                 } else {
                     log('error', `订单列表请求失败: status=${res.status}, url=${url}`);
-                    container.innerHTML = `<div style="text-align:center;color:#f85149;padding:30px;">加载失败</div>`;
+                    if (res.status === 401 || res.status === 403) {
+                        renderAuthRequiredState();
+                    } else {
+                        container.innerHTML = `<div style="text-align:center;color:#f85149;padding:30px;">加载失败</div>`;
+                    }
                 }
             } catch (err) {
                 log('error', '加载订单失败: ' + err.message);
@@ -2316,6 +2738,12 @@
         async function loadPositions() {
             const container = document.getElementById('positionsList');
             const summaryEl = document.getElementById('totalUnrealizedPnl');
+
+            if (!isLikelyJwt(state.token)) {
+                renderAuthRequiredState();
+                return;
+            }
+
             container.innerHTML = '<div style="text-align:center;color:#8b949e;padding:30px;"><div>加载中...</div></div>';
             summaryEl.textContent = '--';
             
@@ -2325,23 +2753,24 @@
                 if (res.ok) {
                     const data = await res.json();
                     const positions = data.positions || data.data?.positions || data.data || [];
+                    const displayPositions = positions.map(normalizeDisplayPosition);
                     
                     // 更新缓存
                     positionCache.clear();
-                    positions.forEach(pos => {
-                        const side = (pos.side || (String(pos.positionSide) === '1' ? 'LONG' : 'SHORT'));
+                    displayPositions.forEach(pos => {
+                        const side = parsePositionSide(pos.side ?? pos.positionSide ?? pos.ps);
                         const key = `${pos.symbol || 'UNKNOWN'}:${side}`;
                         positionCache.set(key, pos);
                     });
-                    
-                    // 更新总盈亏
-                    const totalPnl = parseFloat(data.totalUnrealizedPnl || data.data?.totalUnrealizedPnl || 0);
-                    summaryEl.textContent = (totalPnl >= 0 ? '+' : '') + formatMoneyDirect(totalPnl).replace(' USDT', '');
-                    summaryEl.style.color = totalPnl >= 0 ? '#3fb950' : '#f85149';
-                    
-                    renderPositions(positions);
+
+                    updateUnrealizedPnlSummary(displayPositions);
+                    renderPositions(displayPositions);
                 } else {
-                    container.innerHTML = `<div style="text-align:center;color:#f85149;padding:30px;">加载失败</div>`;
+                    if (res.status === 401 || res.status === 403) {
+                        renderAuthRequiredState();
+                    } else {
+                        container.innerHTML = `<div style="text-align:center;color:#f85149;padding:30px;">加载失败</div>`;
+                    }
                 }
             } catch (err) {
                 log('error', '加载持仓失败: ' + err.message);
@@ -2388,11 +2817,26 @@
             let html = '';
             positions.forEach(pos => {
                 const side = (pos.side || (String(pos.positionSide) === '1' ? 'LONG' : 'SHORT')).toUpperCase();
-                const pnl = Number(pos.unrealizedPnl || 0);
+                const pnl = Number(pos.displayUnrealizedPnl ?? pos.unrealizedPnl ?? pos.up ?? 0);
                 const pnlClass = pnl >= 0 ? 'pnl-positive' : 'pnl-negative';
                 const pnlSign = pnl >= 0 ? '+' : '';
-                const leverage = pos.leverage || '--';
-                const marginRatioNum = Number(pos.marginRatio || 0);
+                const leverage = pos.displayLeverage ?? pos.leverage ?? pos.l ?? '--';
+                const marginRatioNum = Number(pos.displayMarginRatio ?? pos.marginRatio ?? 0);
+                const marginRatioText = Number.isFinite(marginRatioNum)
+                    ? `${(marginRatioNum * 100).toFixed(2)}%`
+                    : '--';
+                const displayEntryPrice = Number.isFinite(pos.displayEntryPrice)
+                    ? pos.displayEntryPrice
+                    : (pos.entryPrice ?? pos.ep ?? 0);
+                const displayMarkPrice = Number.isFinite(pos.displayMarkPrice)
+                    ? pos.displayMarkPrice
+                    : (pos.markPrice ?? pos.mp);
+                const displayMarkPriceText = Number.isFinite(normalizePriceNumber(displayMarkPrice))
+                    ? formatPrice(displayMarkPrice)
+                    : '--';
+                const displaySize = Number.isFinite(pos.displaySize)
+                    ? pos.displaySize
+                    : (pos.size ?? pos.pa ?? 0);
                 
                 html += `
                     <div class="position-card">
@@ -2403,15 +2847,19 @@
                         <div class="position-details">
                             <div class="position-detail-item">
                                 <span class="position-detail-label">持仓数量</span>
-                                <span class="position-detail-value">${formatQty(pos.size)}</span>
+                                <span class="position-detail-value">${formatQty(displaySize)}</span>
                             </div>
                             <div class="position-detail-item">
                                 <span class="position-detail-label">开仓均价</span>
-                                <span class="position-detail-value">${formatPrice(pos.entryPrice)}</span>
+                                <span class="position-detail-value">${formatPrice(displayEntryPrice)}</span>
+                            </div>
+                            <div class="position-detail-item">
+                                <span class="position-detail-label">标记价格</span>
+                                <span class="position-detail-value">${displayMarkPriceText}</span>
                             </div>
                             <div class="position-detail-item">
                                 <span class="position-detail-label">未实现盈亏</span>
-                                <span class="position-detail-value ${pnlClass}">${pnlSign}${formatMoneyDirect(pos.unrealizedPnl).replace(' USDT', '')}</span>
+                                <span class="position-detail-value ${pnlClass}">${pnlSign}${formatMoneyDirect(pnl).replace(' USDT', '')}</span>
                             </div>
                             <div class="position-detail-item">
                                 <span class="position-detail-label">已实现盈亏</span>
@@ -2423,7 +2871,7 @@
                             </div>
                             <div class="position-detail-item">
                                 <span class="position-detail-label">保证金率</span>
-                                <span class="position-detail-value">${(marginRatioNum * 100).toFixed(2)}%</span>
+                                <span class="position-detail-value">${marginRatioText}</span>
                             </div>
                         </div>
                     </div>
@@ -2492,43 +2940,44 @@
                 }
             }
             
-            // 如果完全成交或撤销，刷新余额和持仓
+            // 如果完全成交或撤销，仅刷新余额（持仓由 private position 推送驱动）
             if (status === 'FILLED' || status === 'CANCELED') {
                 setTimeout(() => {
                     refreshBalance();
-                    // 刷新持仓（成交后持仓会变化）
-                    if (status === 'FILLED') {
-                        triggerPositionRefresh(`order ${orderId} FILLED`);
-                    }
                 }, 500);
-            }
-
-
-            const hasTradeDelta = Number(lastFilledQty) > 0;
-            const isTradeExec = execType === 'TRADE' || execType === 'FILLED' || execType === 'PARTIALLY_FILLED';
-            const isTradeStatus = status === 'FILLED' || status === 'PARTIALLY_FILLED';
-            if (hasTradeDelta || isTradeExec || isTradeStatus) {
-                triggerPositionRefresh(`executionReport trade event: order=${orderId}, execType=${execType}, status=${status}`);
             }
         }
         
         function handlePositionUpdate(msg) {
-            log('info', `持仓更新: ${msg.s}`);
-            
-            // 更新持仓缓存
-            const symbol = msg.s;
-            positionCache.set(symbol, {
-                symbol: symbol,
-                side: msg.ps,
-                size: msg.pa,
-                entryPrice: msg.ep,
-                markPrice: msg.mp,
-                unrealizedPnl: msg.up,
-                leverage: msg.l
+            const symbol = String(msg.s ?? msg.symbol ?? '').toUpperCase();
+            const side = parsePositionSide(msg.ps ?? msg.side ?? msg.positionSide);
+            const size = normalizeQtyNumber(msg.pa ?? msg.size ?? 0);
+            const key = `${symbol}:${side}`;
+
+            log('info', `持仓推送更新: ${symbol} ${side}, size=${size}`);
+
+            if (!symbol || !Number.isFinite(size) || size <= 0) {
+                positionCache.delete(key);
+                renderPositionsFromCache(`private position close: ${symbol}:${side}`);
+                return;
+            }
+
+            const prev = positionCache.get(key) || {};
+            positionCache.set(key, {
+                ...prev,
+                symbol,
+                side,
+                size: msg.pa ?? msg.size ?? prev.size ?? 0,
+                entryPrice: msg.ep ?? msg.entryPrice ?? prev.entryPrice ?? 0,
+                markPrice: msg.mp ?? msg.markPrice ?? prev.markPrice ?? 0,
+                unrealizedPnl: msg.up ?? msg.unrealizedPnl ?? prev.unrealizedPnl ?? 0,
+                leverage: msg.l ?? msg.leverage ?? prev.leverage ?? POSITION_DEFAULT_LEVERAGE,
+                realizedPnl: msg.rp ?? msg.realizedPnl ?? prev.realizedPnl ?? 0,
+                liquidationPrice: msg.lp ?? msg.liquidationPrice ?? prev.liquidationPrice,
+                marginRatio: msg.mr ?? msg.marginRatio ?? prev.marginRatio
             });
-            
-            // 如果当前在持仓Tab，刷新显示
-            triggerPositionRefresh(`private position event: ${msg.s}`);
+
+            renderPositionsFromCache(`private position event: ${symbol}:${side}`);
         }
         
         // ==================== K线图表挂单显示 ====================
@@ -2676,15 +3125,31 @@
                 },
                 rightPriceScale: {
                     borderColor: '#30363d',
+                    autoScale: true,
+                    scaleMargins: {
+                        top: 0.08,
+                        bottom: 0.2
+                    }
                 },
                 timeScale: {
                     borderColor: '#30363d',
                     timeVisible: true,
                     secondsVisible: false,
+                    rightOffset: 8,
+                    barSpacing: 8,
+                    minBarSpacing: 3,
+                    lockVisibleTimeRangeOnResize: true,
+                    rightBarStaysOnScroll: true
                 },
                 handleScroll: {
                     vertTouchDrag: false,
                 },
+                localization: {
+                    priceFormatter: price => Number(price).toLocaleString('en-US', {
+                        minimumFractionDigits: 2,
+                        maximumFractionDigits: 2
+                    })
+                }
             });
 
             // 创建K线系列
@@ -2695,6 +3160,8 @@
                 borderDownColor: '#f85149',
                 wickUpColor: '#3fb950',
                 wickDownColor: '#f85149',
+                priceLineVisible: true,
+                lastValueVisible: true
             });
 
             // 创建成交量系列
@@ -2704,8 +3171,10 @@
                     type: 'volume',
                 },
                 priceScaleId: '',
+                priceLineVisible: false,
+                lastValueVisible: false,
                 scaleMargins: {
-                    top: 0.85,
+                    top: 0.78,
                     bottom: 0,
                 },
             });
@@ -2743,6 +3212,59 @@
         }
 
         // 从 API Gateway 获取真实历史K线数据
+        function extractKlineRows(payload) {
+            if (Array.isArray(payload)) {
+                return payload;
+            }
+            if (!payload || typeof payload !== 'object') {
+                return [];
+            }
+            if (Array.isArray(payload.data)) {
+                return payload.data;
+            }
+            if (Array.isArray(payload.result)) {
+                return payload.result;
+            }
+            return [];
+        }
+
+        function normalizeKlineRows(rawRows) {
+            const rows = [];
+            rawRows.forEach(k => {
+                const openTime = toKlineTimeSeconds(Array.isArray(k) ? k[0] : (k.openTime ?? k.t ?? k.time));
+                const open = toKlinePriceNumber(Array.isArray(k) ? k[1] : (k.open ?? k.o));
+                const high = toKlinePriceNumber(Array.isArray(k) ? k[2] : (k.high ?? k.h));
+                const low = toKlinePriceNumber(Array.isArray(k) ? k[3] : (k.low ?? k.l));
+                const close = toKlinePriceNumber(Array.isArray(k) ? k[4] : (k.close ?? k.c));
+                const volume = toKlineVolumeNumber(Array.isArray(k) ? k[5] : (k.volume ?? k.v));
+
+                if (!Number.isFinite(openTime) || !Number.isFinite(open) || !Number.isFinite(high) ||
+                    !Number.isFinite(low) || !Number.isFinite(close) || !Number.isFinite(volume)) {
+                    return;
+                }
+                rows.push({ time: openTime, open, high, low, close, volume });
+            });
+
+            if (rows.length === 0) {
+                return [];
+            }
+
+            rows.sort((a, b) => a.time - b.time);
+
+            // 关键修复：历史接口可能返回重复 openTime，图表库会直接报错，需先去重
+            const deduped = [];
+            rows.forEach(item => {
+                const last = deduped[deduped.length - 1];
+                if (!last || last.time !== item.time) {
+                    deduped.push(item);
+                } else {
+                    deduped[deduped.length - 1] = item;
+                }
+            });
+
+            return deduped;
+        }
+
         async function fetchHistoricalKlines() {
             const symbol = document.getElementById('symbol')?.value || 'BTCUSDT';
             const interval = currentKlineInterval;
@@ -2751,69 +3273,81 @@
             log('info', `正在加载 ${symbol} ${interval} 历史K线数据...`);
             
             try {
-                // 通过 API Gateway 获取K线数据 (网关路由路径)
-                const response = await fetch(
-                    `${CONFIG.API_GATEWAY}/api/v1/klines?symbol=${symbol}&interval=${interval}&limit=200`
+                const query = `symbol=${encodeURIComponent(symbol)}&interval=${encodeURIComponent(interval)}&limit=200`;
+                const candidates = [];
+                if (CONFIG.USE_EXTERNAL_FEED && String(CONFIG.EXTERNAL_SOURCE).toLowerCase() === 'binance') {
+                    candidates.push({
+                        label: 'binance-fapi',
+                        url: `${CONFIG.BINANCE_FUTURES_REST}/fapi/v1/klines?${query}`
+                    });
+                }
+                candidates.push(
+                    {
+                        label: 'gateway',
+                        url: `${CONFIG.API_GATEWAY}/api/v1/klines?${query}`
+                    },
+                    {
+                        label: 'market-price',
+                        url: `${CONFIG.MARKET_PRICE_API}/api/v1/klines?${query}`
+                    }
                 );
 
-                // 周期切换后忽略旧请求
-                if (fetchSeq !== klineFetchSeq || interval !== currentKlineInterval) {
-                    return;
-                }
-                
-                if (!response.ok) {
-                    // API可能还没准备好，显示空图表
-                    console.warn(`K线API返回 ${response.status}，等待WebSocket实时数据...`);
-                    showEmptyKlineChart();
-                    return;
-                }
-                
-                const result = await response.json();
-                
-                if (result.code !== 0 && result.code !== 200) {
-                    throw new Error(result.message || '获取K线数据失败');
-                }
-                
-                const klines = Array.isArray(result.data) ? result.data : [];
-                
-                if (klines.length === 0) {
-                    log('warn', '暂无历史K线数据，等待实时成交生成...');
-                    showEmptyKlineChart();
-                    return;
-                }
-                
-                // 转换并排序（图表要求按时间升序，且数值字段必须是 number）
-                const rows = [];
-                klines.forEach(k => {
-                    const openTime = toKlineTimeSeconds(Array.isArray(k) ? k[0] : (k.openTime ?? k.t ?? k.time));
-                    const open = toKlinePriceNumber(Array.isArray(k) ? k[1] : (k.open ?? k.o));
-                    const high = toKlinePriceNumber(Array.isArray(k) ? k[2] : (k.high ?? k.h));
-                    const low = toKlinePriceNumber(Array.isArray(k) ? k[3] : (k.low ?? k.l));
-                    const close = toKlinePriceNumber(Array.isArray(k) ? k[4] : (k.close ?? k.c));
-                    const volume = toKlineVolumeNumber(Array.isArray(k) ? k[5] : (k.volume ?? k.v));
-                    if (!Number.isFinite(openTime) || !Number.isFinite(open) || !Number.isFinite(high) ||
-                        !Number.isFinite(low) || !Number.isFinite(close) || !Number.isFinite(volume)) {
-                        return;
+                let normalizedRows = [];
+                let chosenSource = null;
+                let lastError = null;
+                for (const candidate of candidates) {
+                    try {
+                        const response = await fetch(candidate.url, { cache: 'no-store' });
+                        if (fetchSeq !== klineFetchSeq || interval !== currentKlineInterval) {
+                            return;
+                        }
+                        if (!response.ok) {
+                            lastError = new Error(`HTTP ${response.status} @ ${candidate.url}`);
+                            continue;
+                        }
+                        const payload = await response.json().catch(() => null);
+                        if (payload == null) {
+                            lastError = new Error(`Empty payload @ ${candidate.url}`);
+                            continue;
+                        }
+
+                        const rawRows = extractKlineRows(payload);
+                        const parsedRows = normalizeKlineRows(rawRows);
+                        if (parsedRows.length === 0) {
+                            lastError = new Error(`No valid kline rows @ ${candidate.url}`);
+                            continue;
+                        }
+
+                        const shouldFallbackForThinData =
+                            parsedRows.length < CONFIG.KLINE_MIN_STANDARD_POINTS &&
+                            candidate.label !== 'binance-fapi' &&
+                            CONFIG.USE_EXTERNAL_FEED &&
+                            String(CONFIG.EXTERNAL_SOURCE).toLowerCase() === 'binance';
+
+                        if (shouldFallbackForThinData) {
+                            log('warn', `${candidate.label} 仅返回 ${parsedRows.length} 根K线，回退到 Binance 历史数据...`);
+                            continue;
+                        }
+
+                        normalizedRows = parsedRows;
+                        chosenSource = candidate.label;
+                        break;
+                    } catch (e) {
+                        lastError = e;
                     }
-                    rows.push({ time: openTime, open, high, low, close, volume });
-                });
-
-                if (rows.length === 0) {
-                    log('warn', '历史K线数据格式异常，等待实时成交生成...');
-                    showEmptyKlineChart();
-                    return;
+                }
+                if (normalizedRows.length === 0) {
+                    throw (lastError || new Error('获取K线数据失败'));
                 }
 
-                rows.sort((a, b) => a.time - b.time);
-
-                const candleData = rows.map(item => ({
+                const candleData = normalizedRows.map(item => ({
                     time: item.time,
                     open: item.open,
                     high: item.high,
                     low: item.low,
                     close: item.close
                 }));
-                const volumeData = rows.map(item => ({
+                const volumeData = normalizedRows.map(item => ({
                     time: item.time,
                     value: item.volume,
                     color: item.close >= item.open ? 'rgba(63, 185, 80, 0.5)' : 'rgba(248, 81, 73, 0.5)'
@@ -2829,8 +3363,11 @@
                 lastKlineTimeMap.set(interval, lastCandle.time);
                 lastKlinePrice = lastCandle.close;
                 updateKlinePriceDisplay(lastCandle.close, lastCandle.close);
+                if (klineChart) {
+                    klineChart.timeScale().fitContent();
+                }
                 
-                log('success', `已加载 ${candleData.length} 根真实K线数据`);
+                log('success', `已加载 ${candleData.length} 根K线数据 (${chosenSource || 'unknown'})`);
                 
             } catch (err) {
                 // 周期切换导致的旧请求报错直接忽略
@@ -2917,6 +3454,7 @@
             // 更新当前价格显示
             updateKlinePriceDisplay(candle.close, lastKlinePrice || candle.open);
             lastKlinePrice = candle.close;
+            updateLatestSymbolPrice(getCurrentSymbolUpper(), candle.close);
         }
         
         function updateKlinePriceDisplay(price, lastPrice) {
@@ -2937,6 +3475,7 @@
         
         function changeKlineInterval(interval) {
             const previousInterval = currentKlineInterval;
+            const symbol = getCurrentSymbolUpper();
             
             // 更新按钮状态
             document.querySelectorAll('.kline-interval-btn').forEach(btn => {
@@ -2955,18 +3494,18 @@
                 if (previousInterval) {
                     state.publicWs.send(JSON.stringify({
                         method: 'UNSUBSCRIBE',
-                        params: [`kline.BTCUSDT.${previousInterval}`],
+                        params: [buildPublicMarketChannel('kline', previousInterval)],
                         id: Date.now()
                     }));
                 }
                 // 订阅新周期
-                subscribePublic([`kline.BTCUSDT.${interval}`]);
+                subscribePublic([buildPublicMarketChannel('kline', interval)]);
             }
             
             // 重新加载当前周期历史数据
             generateInitialKlineData();
             
-            log('info', `切换K线周期: ${interval}`);
+            log('info', `切换K线周期: ${symbol} ${interval}`);
         }
         
         function getKlineIntervalMs(interval) {
@@ -3140,6 +3679,44 @@
                 state.privateWs.send(JSON.stringify({ method: 'PING', id: now }));
             }
         }, 30000);
+
+        // WS 断流保护：低频 HTTP 回补（不替代 WS，仅兜底）
+        setInterval(async () => {
+            if (fallbackPolling) {
+                return;
+            }
+            fallbackPolling = true;
+            try {
+                const symbol = document.getElementById('symbol')?.value || 'BTCUSDT';
+                const now = Date.now();
+
+                // 盘口超过 10s 无更新：回补一次
+                if (!lastOrderBookUpdate || now - lastOrderBookUpdate > 10000) {
+                    const depth = await fetchDepthSnapshot(symbol);
+                    if (depth && Array.isArray(depth.bids) && Array.isArray(depth.asks)) {
+                        wsOrderBookData = {
+                            bids: depth.bids || [],
+                            asks: depth.asks || [],
+                            timestamp: depth.timestamp || Date.now()
+                        };
+                        lastOrderBookUpdate = Date.now();
+                        updateOrderBookDisplay(wsOrderBookData);
+                    }
+                }
+
+                // 成交超过 10s 无更新：回补最近成交
+                if (!lastTradeUpdate || now - lastTradeUpdate > 10000) {
+                    const recentTrades = await fetchRecentTradesSnapshot(symbol);
+                    if (Array.isArray(recentTrades) && recentTrades.length > 0) {
+                        updateTrades(recentTrades);
+                    }
+                }
+            } catch (err) {
+                log('warn', `fallback polling error: ${err.message}`);
+            } finally {
+                fallbackPolling = false;
+            }
+        }, 3000);
     </script>
 </body>
 </html>

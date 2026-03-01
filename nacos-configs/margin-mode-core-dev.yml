@@ -14,8 +14,8 @@ spring:
   datasource:
     driver-class-name: com.mysql.cj.jdbc.Driver
     url: jdbc:mysql://127.0.0.1:3306/exchange_margin?useUnicode=true&characterEncoding=utf8&useSSL=false&serverTimezone=Asia/Shanghai&rewriteBatchedStatements=true
-    username: root
-    password: root
+    username: ${DB_USERNAME:root}
+    password: ${DB_PASSWORD:root123456}
     type: com.alibaba.druid.pool.DruidDataSource
     druid:
       initial-size: 10
@@ -88,6 +88,9 @@ logging:
 
 # Margin Mode核心配置
 margin:
+  kafka:
+    mark-price-topic: mark-price-update
+
   # 保证金模式配置
   mode:
     default: CROSS

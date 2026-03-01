@@ -7,7 +7,6 @@ import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 
 import javax.sql.DataSource;
-import java.sql.SQLException;
 import java.util.Properties;
 
 /**
@@ -32,7 +31,7 @@ public class ClickHouseConfig {
     private int socketTimeout;
 
     @Bean
-    public DataSource clickHouseDataSource() throws SQLException {
+    public DataSource clickHouseDataSource() throws Exception {
         log.info("[ClickHouseConfig] Initializing ClickHouse DataSource, url={}", url);
         
         Properties properties = new Properties();
@@ -45,14 +44,17 @@ public class ClickHouseConfig {
         properties.setProperty("ssl", "false");
         
         ClickHouseDataSource dataSource = new ClickHouseDataSource(url, properties);
-        
-        // 测试连接
-        try (var conn = dataSource.getConnection()) {
-            var stmt = conn.createStatement();
-            var rs = stmt.executeQuery("SELECT 1");
+
+        // 启动阶段仅做健康探测，不因 ClickHouse 短暂不可用阻断行情服务启动
+        try (var conn = dataSource.getConnection();
+             var stmt = conn.createStatement();
+             var rs = stmt.executeQuery("SELECT 1")) {
             if (rs.next()) {
                 log.info("[ClickHouseConfig] ClickHouse connection test passed");
             }
+        } catch (Exception e) {
+            log.warn("[ClickHouseConfig] ClickHouse probe failed, service will run in degraded mode. reason={}",
+                    e.getMessage());
         }
         
         return dataSource;

@@ -14,7 +14,9 @@ import org.springframework.data.redis.core.RedisTemplate;
 import org.springframework.stereotype.Component;
 
 import jakarta.annotation.PostConstruct;
+import java.util.ArrayList;
 import java.util.List;
+import java.util.Set;
 import java.util.concurrent.TimeUnit;
 
 /**
@@ -188,13 +190,22 @@ public class MarketDataCache {
         return kline;
     }
 
-    @SuppressWarnings("unchecked")
     public List<Kline> getKlineHistory(String symbol, String interval, int limit) {
         String key = String.format("market:kline:%s:%s:history", symbol, interval);
-        
+
         // 从Redis获取历史K线（按时间倒序）
-        return (List<Kline>) (List<?>) redisTemplate.opsForZSet()
-                .reverseRange(key, 0, limit - 1);
+        Set<Object> rawSet = redisTemplate.opsForZSet().reverseRange(key, 0, limit - 1);
+        if (rawSet == null || rawSet.isEmpty()) {
+            return List.of();
+        }
+
+        List<Kline> result = new ArrayList<>(rawSet.size());
+        for (Object item : rawSet) {
+            if (item instanceof Kline kline) {
+                result.add(kline);
+            }
+        }
+        return result;
     }
 
     public TradeStats24h getTicker(String symbol) {

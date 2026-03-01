@@ -5,6 +5,9 @@ spring:
     active: ${SPRING_PROFILES_ACTIVE:dev}
   config:
     import: optional:nacos:${spring.application.name}-${spring.profiles.active}.yml
+  autoconfigure:
+    exclude:
+      - org.redisson.spring.starter.RedissonAutoConfigurationV2
 
   cloud:
     nacos:
@@ -21,6 +24,10 @@ spring:
         group: DEFAULT_GROUP
         import-check:
           enabled: false
+
+margin:
+  lock:
+    enabled: ${MARGIN_LOCK_ENABLED:false}
 
 # Logging配置
 logging:

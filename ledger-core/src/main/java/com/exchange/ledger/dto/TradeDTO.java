@@ -115,6 +115,36 @@ public class TradeDTO {
      * Taker 杠杆倍数（从 OMS 透传，默认 10）
      */
     private Integer takerLeverage;
+
+    /**
+     * 执行模式：MATCH_ENGINE / CFD_DEALER
+     */
+    private String executionMode;
+
+    /**
+     * 流动性来源：如 BINANCE_REF
+     */
+    private String liquiditySource;
+
+    /**
+     * 参考行情来源 Topic
+     */
+    private String referenceTopic;
+
+    /**
+     * 参考行情来源 offset
+     */
+    private Long referenceOffset;
+
+    /**
+     * 参考行情事件时间（毫秒）
+     */
+    private Long referenceEventTime;
+
+    /**
+     * 平台对手方账户（CFD 模式）
+     */
+    private Long dealerAccountId;
     
     /**
      * Maker手续费（修复：支持 Long 或 BigDecimal）

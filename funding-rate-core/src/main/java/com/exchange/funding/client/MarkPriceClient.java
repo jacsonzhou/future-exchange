@@ -9,7 +9,7 @@ import org.springframework.web.bind.annotation.RequestParam;
 /**
  * 标记价格服务客户端
  */
-@FeignClient(name = "mark-price-service", url = "${funding-rate.client.mark-price.url:http://localhost:8089}")
+@FeignClient(name = "mark-price-service")
 public interface MarkPriceClient {
 
     /**

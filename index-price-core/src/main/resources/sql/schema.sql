@@ -53,12 +53,15 @@ CREATE TABLE IF NOT EXISTS t_index_price (
     
     -- 来源信息
     source VARCHAR(32) COMMENT '价格来源: AGGREGATED/SINGLE',
+    weight INT COMMENT '权重',
+    raw_price BIGINT COMMENT '原始价格',
     valid_component_count INT DEFAULT 0 COMMENT '有效成分数',
     total_component_count INT DEFAULT 0 COMMENT '总成分数',
     
     -- 时间戳
     timestamp BIGINT NOT NULL COMMENT '数据时间戳（毫秒）',
     created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     
     KEY idx_symbol_time (symbol, timestamp),
     KEY idx_timestamp (timestamp)

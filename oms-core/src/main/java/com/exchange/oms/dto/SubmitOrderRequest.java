@@ -1,5 +1,6 @@
 package com.exchange.oms.dto;
 
+import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import lombok.Data;
 
 import java.io.Serializable;
@@ -8,6 +9,7 @@ import java.io.Serializable;
  * 提交订单请求
  */
 @Data
+@JsonIgnoreProperties(ignoreUnknown = true)
 public class SubmitOrderRequest implements Serializable {
     
     private static final long serialVersionUID = 1L;
@@ -71,7 +73,15 @@ public class SubmitOrderRequest implements Serializable {
      * 保证金模式 ISOLATED/CROSS
      */
     private String marginMode;
+
+    /**
+     * 执行模式（可选）：MATCH_ENGINE / CFD_DEALER
+     */
+    private String executionMode;
+
+    /**
+     * 兼容字段：是否只减仓（部分版本客户端会下发）
+     */
+    private Boolean reduceOnly;
 }
-
-
 

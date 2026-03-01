@@ -6,6 +6,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.kafka.annotation.KafkaListener;
+import org.springframework.kafka.support.Acknowledgment;
 import org.springframework.kafka.support.KafkaHeaders;
 import org.springframework.messaging.handler.annotation.Header;
 import org.springframework.messaging.handler.annotation.Payload;
@@ -58,7 +59,8 @@ public class TradeEntryEventConsumer {
             @Payload String message,
             @Header(KafkaHeaders.RECEIVED_TOPIC) String topic,
             @Header(KafkaHeaders.RECEIVED_PARTITION) int partition,
-            @Header(KafkaHeaders.OFFSET) long offset
+            @Header(KafkaHeaders.OFFSET) long offset,
+            Acknowledgment acknowledgment
     ) {
         log.info("[TradeEntryConsumer] ⬇️ Receive event, topic={}, partition={}, offset={}",
             topic, partition, offset);
@@ -72,6 +74,10 @@ public class TradeEntryEventConsumer {
             
             // 2. 调用Service处理
             accountSnapshotService.onTradeEntryEvent(event);
+
+            if (acknowledgment != null) {
+                acknowledgment.acknowledge();
+            }
             
             log.info("[TradeEntryConsumer] ✅ Event processed, tradeId={}, offset={}",
                 event.getTradeId(), offset);

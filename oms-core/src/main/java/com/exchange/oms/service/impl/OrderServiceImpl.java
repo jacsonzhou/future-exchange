@@ -5,6 +5,7 @@ import com.exchange.common.core.Money;
 import com.exchange.common.core.TimeUtils;
 import com.exchange.common.core.enums.OrderStatus;
 import com.exchange.common.core.enums.OrderType;
+import com.exchange.common.core.enums.Side;
 import com.exchange.common.proto.event.OrderCommand;
 import com.exchange.common.proto.request.CancelOrderRequest;
 import com.exchange.common.proto.request.CreateOrderRequest;
@@ -13,7 +14,9 @@ import com.exchange.oms.client.HardRiskClient;
 import com.exchange.oms.client.MatchEngineClient;
 import com.exchange.oms.client.SnapshotClient;
 import com.exchange.oms.entity.Order;
+import com.exchange.oms.entity.OmsOrder;
 import com.exchange.oms.mapper.OrderMapper;
+import com.exchange.oms.mapper.OmsOrderMapper;
 import com.exchange.oms.service.MarginPreHoldService;
 import com.exchange.oms.service.OrderService;
 import com.exchange.oms.config.OmsSubmitModeConfig;
@@ -49,6 +52,9 @@ public class OrderServiceImpl implements OrderService {
 
     @Autowired
     private OrderMapper orderMapper;
+
+    @Autowired
+    private OmsOrderMapper omsOrderMapper;
 
     @Autowired
     private HardRiskClient hardRiskClient;
@@ -281,6 +287,30 @@ public class OrderServiceImpl implements OrderService {
         return command;
     }
 
+    private OrderCommand buildOrderCommand(OmsOrder order) {
+        OrderCommand command = new OrderCommand();
+        command.setCommandType(OrderCommand.CommandType.NEW_ORDER);
+        command.setOrderId(order.getId());
+        command.setUserId(order.getUserId());
+        command.setSymbol(order.getSymbol());
+        command.setSide(mapSideFromDb(order.getSide()));
+        command.setOrderType(mapTypeFromDb(order.getType()));
+        command.setPrice(toRawLong(order.getPrice()));
+        command.setQuantity(toRawLong(order.getQuantity()));
+        command.setTimestamp(TimeUtils.now());
+        return command;
+    }
+
+    private OrderCommand buildCancelCommand(OmsOrder order) {
+        OrderCommand command = new OrderCommand();
+        command.setCommandType(OrderCommand.CommandType.CANCEL_ORDER);
+        command.setOrderId(order.getId());
+        command.setUserId(order.getUserId());
+        command.setSymbol(order.getSymbol());
+        command.setTimestamp(TimeUtils.now());
+        return command;
+    }
+
     /**
      * 🔥 双通道架构核心：根据配置选择提交方式
      *
@@ -306,10 +336,40 @@ public class OrderServiceImpl implements OrderService {
         } else if (submitModeConfig.isFeignMode()) {
             // Feign通道：同步直连（降级/测试）
             log.info("[Feign Mode] Submitting order to match engine via Feign, orderId={}", order.getOrderId());
-            matchEngineClient.submitOrder(command);
+            try {
+                matchEngineClient.submitOrder(command);
+            } catch (Exception ex) {
+                // 兼容运行时路由差异：Feign不可用时自动回落 Kafka，避免订单链路中断。
+                log.warn("[SubmitFallback] Feign submit failed, fallback to Kafka, orderId={}, error={}",
+                        order.getOrderId(), ex.getMessage());
+                OrderEventCommand kafkaCommand = convertToKafkaCommand(command, order);
+                orderEventPublisher.publishOrderEvent(kafkaCommand);
+            }
         } else {
             log.error("Invalid submit mode: {}, fallback to Kafka", submitModeConfig.getSubmitMode());
             // 未知模式降级到Kafka
+            OrderEventCommand kafkaCommand = convertToKafkaCommand(command, order);
+            orderEventPublisher.publishOrderEvent(kafkaCommand);
+        }
+    }
+
+    private void submitOrderToMatchEngine(OrderCommand command, OmsOrder order) {
+        if (submitModeConfig.isKafkaMode()) {
+            log.info("[Kafka Mode] Submitting order to match engine via Kafka, orderId={}", order.getId());
+            OrderEventCommand kafkaCommand = convertToKafkaCommand(command, order);
+            orderEventPublisher.publishOrderEvent(kafkaCommand);
+        } else if (submitModeConfig.isFeignMode()) {
+            log.info("[Feign Mode] Submitting order to match engine via Feign, orderId={}", order.getId());
+            try {
+                matchEngineClient.submitOrder(command);
+            } catch (Exception ex) {
+                log.warn("[SubmitFallback] Feign submit failed, fallback to Kafka, orderId={}, error={}",
+                        order.getId(), ex.getMessage());
+                OrderEventCommand kafkaCommand = convertToKafkaCommand(command, order);
+                orderEventPublisher.publishOrderEvent(kafkaCommand);
+            }
+        } else {
+            log.error("Invalid submit mode: {}, fallback to Kafka", submitModeConfig.getSubmitMode());
             OrderEventCommand kafkaCommand = convertToKafkaCommand(command, order);
             orderEventPublisher.publishOrderEvent(kafkaCommand);
         }
@@ -327,41 +387,39 @@ public class OrderServiceImpl implements OrderService {
         long now = TimeUtils.now();
         
         try {
-            // 1. 创建订单实体
-            Order order = new Order();
-            order.setOrderId(orderId);
+            // 1. 创建订单实体（对齐当前 t_order 字段：id/created_at/updated_at/type 等）
+            OmsOrder order = new OmsOrder();
+            order.setId(orderId);
             order.setUserId(request.getUserId());
+            order.setClientOrderId(buildInternalClientOrderId("LIQ", orderId, request.getClientOrderId()));
             order.setSymbol(request.getSymbol());
-            order.setSide(request.getSide());
-            order.setOrderType(request.getOrderType());
-            order.setPrice(request.getPrice());
-            order.setQuantity(request.getQuantity());
-            order.setFilledQuantity(0L);
-            // 🔥 强平订单特殊状态：跳过风控
-            order.setStatus(OrderStatus.LIQUIDATION_PENDING);
-            order.setOrderSource(request.getOrderSource());
-            order.setPositionId(request.getPositionId());
-            order.setReduceOnly(true);
-            order.setCreateTime(now);
-            order.setUpdateTime(now);
+            order.setSide(mapSideToDb(request.getSide()));
+            order.setType(mapTypeToDb(request.getOrderType()));
+            if (request.getPrice() != null) {
+                order.setPrice(BigDecimal.valueOf(request.getPrice()));
+            }
+            order.setQuantity(BigDecimal.valueOf(request.getQuantity()));
+            order.setFilledQuantity(BigDecimal.ZERO);
+            // 强平订单跳过风控/预扣，直接置为可撮合活跃态
+            order.setStatus(1);
+            order.setTimeInForce("IOC");
+            order.setLeverage(resolveLeverage(request.getLeverage()));
+            order.setExecutionMode("MATCH_ENGINE");
+            order.setRiskCheckStatus(1);
+            order.setFreezeStatus(0);
+            order.setVersion(0);
+            order.setCreatedAt(now);
+            order.setUpdatedAt(now);
             
             // 2. 持久化订单
-            orderMapper.insert(order);
+            omsOrderMapper.insert(order);
             
-            // 3. 🔥 强平订单跳过风控和保证金预扣
+            // 3. 强平订单跳过风控和保证金预扣
             log.info("[LiquidationOrder] Risk check and margin pre-hold skipped for liquidation order, orderId={}", orderId);
             
-            // 4. 更新状态
-            order.setStatus(OrderStatus.RISK_PASSED);
-            orderMapper.updateById(order);
-            
-            // 5. 发送到撮合引擎
+            // 4. 发送到撮合引擎
             OrderCommand command = buildOrderCommand(order);
             submitOrderToMatchEngine(command, order);
-            
-            // 6. 更新状态
-            order.setStatus(OrderStatus.SENT_TO_MATCH);
-            orderMapper.updateById(order);
             
             log.info("[LiquidationOrder] Liquidation order created successfully, orderId={}", orderId);
             return orderId;
@@ -382,33 +440,34 @@ public class OrderServiceImpl implements OrderService {
         long now = TimeUtils.now();
         
         try {
-            // ADL订单与强平订单逻辑类似
-            Order order = new Order();
-            order.setOrderId(orderId);
+            // ADL订单与强平订单逻辑类似，统一走 OmsOrder 映射
+            OmsOrder order = new OmsOrder();
+            order.setId(orderId);
             order.setUserId(request.getUserId());
+            order.setClientOrderId(buildInternalClientOrderId("ADL", orderId, request.getClientOrderId()));
             order.setSymbol(request.getSymbol());
-            order.setSide(request.getSide());
-            order.setOrderType(OrderType.MARKET);
-            order.setQuantity(request.getQuantity());
-            order.setFilledQuantity(0L);
-            order.setStatus(OrderStatus.ADL_PENDING);
-            order.setOrderSource("ADL");
-            order.setReduceOnly(true);
-            order.setCreateTime(now);
-            order.setUpdateTime(now);
+            order.setSide(mapSideToDb(request.getSide()));
+            order.setType(mapTypeToDb(OrderType.MARKET));
+            if (request.getPrice() != null) {
+                order.setPrice(BigDecimal.valueOf(request.getPrice()));
+            }
+            order.setQuantity(BigDecimal.valueOf(request.getQuantity()));
+            order.setFilledQuantity(BigDecimal.ZERO);
+            order.setStatus(1);
+            order.setTimeInForce("IOC");
+            order.setLeverage(resolveLeverage(request.getLeverage()));
+            order.setExecutionMode("MATCH_ENGINE");
+            order.setRiskCheckStatus(1);
+            order.setFreezeStatus(0);
+            order.setVersion(0);
+            order.setCreatedAt(now);
+            order.setUpdatedAt(now);
             
-            orderMapper.insert(order);
-            
-            // 跳过风控和预扣
-            order.setStatus(OrderStatus.RISK_PASSED);
-            orderMapper.updateById(order);
+            omsOrderMapper.insert(order);
             
             // 发送到撮合引擎
             OrderCommand command = buildOrderCommand(order);
             submitOrderToMatchEngine(command, order);
-            
-            order.setStatus(OrderStatus.SENT_TO_MATCH);
-            orderMapper.updateById(order);
             
             log.info("[AdlOrder] ADL order created successfully, orderId={}", orderId);
             return orderId;
@@ -424,12 +483,12 @@ public class OrderServiceImpl implements OrderService {
     public void cancelOrder(Long orderId) {
         log.info("[CancelOrder] Cancelling order, orderId={}", orderId);
         
-        Order order = orderMapper.selectById(orderId);
+        OmsOrder order = omsOrderMapper.selectById(orderId);
         if (order == null) {
             throw new RuntimeException("Order not found: " + orderId);
         }
         
-        if (order.getStatus().isFinal()) {
+        if (order.isFinalStatus()) {
             log.warn("[CancelOrder] Order already in final state, orderId={}, status={}", orderId, order.getStatus());
             return;
         }
@@ -472,9 +531,51 @@ public class OrderServiceImpl implements OrderService {
             kafkaCommand.setPrice(formatScaledAmount(command.getPrice()));
             kafkaCommand.setQuantity(formatScaledAmount(command.getQuantity()));
         }
+        kafkaCommand.setExecutionMode("MATCH_ENGINE");
 
         kafkaCommand.setEventTime(command.getTimestamp());
 
+        return kafkaCommand;
+    }
+
+    private OrderEventCommand convertToKafkaCommand(OrderCommand command, OmsOrder order) {
+        OrderEventCommand kafkaCommand = new OrderEventCommand();
+
+        if (command.getCommandType() == OrderCommand.CommandType.NEW_ORDER) {
+            kafkaCommand.setEventType("ORDER_SUBMIT");
+        } else if (command.getCommandType() == OrderCommand.CommandType.CANCEL_ORDER) {
+            kafkaCommand.setEventType("ORDER_CANCEL");
+        } else {
+            kafkaCommand.setEventType("ORDER_UNKNOWN");
+        }
+
+        kafkaCommand.setOrderId(command.getOrderId());
+        kafkaCommand.setUserId(command.getUserId());
+        kafkaCommand.setSymbol(command.getSymbol());
+
+        if (command.getCommandType() == OrderCommand.CommandType.NEW_ORDER) {
+            kafkaCommand.setSide(command.getSide().name());
+            kafkaCommand.setOrderType(command.getOrderType().name());
+            kafkaCommand.setPrice(formatScaledAmount(command.getPrice()));
+            kafkaCommand.setQuantity(formatScaledAmount(command.getQuantity()));
+        }
+        kafkaCommand.setExecutionMode(order.getExecutionMode() == null ? "MATCH_ENGINE" : order.getExecutionMode());
+        kafkaCommand.setLiquiditySource(order.getLiquiditySource());
+        kafkaCommand.setReferenceTopic(order.getReferenceTopic());
+        kafkaCommand.setReferenceOffset(order.getReferenceOffset());
+        kafkaCommand.setReferenceEventTime(order.getReferenceEventTime());
+        if (order.getReferenceBestBid() != null) {
+            kafkaCommand.setReferenceBestBid(toPlainString(order.getReferenceBestBid()));
+        }
+        if (order.getReferenceBestAsk() != null) {
+            kafkaCommand.setReferenceBestAsk(toPlainString(order.getReferenceBestAsk()));
+        }
+        if (order.getReferenceVwapPrice() != null) {
+            kafkaCommand.setReferenceVwapPrice(toPlainString(order.getReferenceVwapPrice()));
+        }
+        kafkaCommand.setSlippageBps(order.getSlippageBps());
+
+        kafkaCommand.setEventTime(command.getTimestamp());
         return kafkaCommand;
     }
 
@@ -486,7 +587,51 @@ public class OrderServiceImpl implements OrderService {
                 .divide(SCALE_BD, 8, RoundingMode.HALF_UP)
                 .toPlainString();
     }
+
+    private Integer mapSideToDb(Side side) {
+        if (side == null) {
+            throw new IllegalArgumentException("side is required");
+        }
+        return side == Side.BUY ? 0 : 1;
+    }
+
+    private Side mapSideFromDb(Integer side) {
+        return side != null && side == 0 ? Side.BUY : Side.SELL;
+    }
+
+    private Integer mapTypeToDb(OrderType orderType) {
+        if (orderType == null) {
+            return 1;
+        }
+        return orderType == OrderType.MARKET ? 1 : 0;
+    }
+
+    private OrderType mapTypeFromDb(Integer type) {
+        return type != null && type == 1 ? OrderType.MARKET : OrderType.LIMIT;
+    }
+
+    private Long toRawLong(BigDecimal value) {
+        if (value == null) {
+            return null;
+        }
+        return value.setScale(0, RoundingMode.HALF_UP).longValue();
+    }
+
+    private String toPlainString(BigDecimal value) {
+        if (value == null) {
+            return null;
+        }
+        return value.stripTrailingZeros().toPlainString();
+    }
+
+    private Integer resolveLeverage(Integer leverage) {
+        return leverage == null || leverage <= 0 ? 10 : leverage;
+    }
+
+    private String buildInternalClientOrderId(String prefix, Long orderId, String clientOrderId) {
+        if (clientOrderId != null && !clientOrderId.isBlank()) {
+            return clientOrderId.trim();
+        }
+        return prefix + "_" + orderId;
+    }
 }
-
-
-

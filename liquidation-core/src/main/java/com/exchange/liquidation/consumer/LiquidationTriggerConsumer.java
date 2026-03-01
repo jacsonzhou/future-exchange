@@ -5,12 +5,11 @@ import com.exchange.liquidation.dto.LiquidationTriggerEvent;
 import com.exchange.liquidation.service.LiquidationService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.apache.kafka.clients.consumer.ConsumerRecord;
 import org.springframework.kafka.annotation.KafkaListener;
 import org.springframework.kafka.support.Acknowledgment;
+import org.springframework.kafka.support.KafkaHeaders;
+import org.springframework.messaging.handler.annotation.Header;
 import org.springframework.stereotype.Component;
-
-import java.util.List;
 
 /**
  * 强平触发事件消费者
@@ -36,46 +35,43 @@ public class LiquidationTriggerConsumer {
         groupId = "${spring.kafka.consumer.group-id:liquidation-service-group}",
         containerFactory = "kafkaListenerContainerFactory"
     )
-    public void consume(List<ConsumerRecord<String, String>> records, Acknowledgment ack) {
+    public void consume(
+            String message,
+            Acknowledgment ack,
+            @Header(KafkaHeaders.RECEIVED_PARTITION) int partition,
+            @Header(KafkaHeaders.OFFSET) long offset,
+            @Header(name = KafkaHeaders.RECEIVED_KEY, required = false) String key
+    ) {
         long startTime = System.currentTimeMillis();
-        int successCount = 0;
-        int failCount = 0;
 
-        for (ConsumerRecord<String, String> record : records) {
-            try {
-                log.info("[LiquidationTriggerConsumer] Received liquidation trigger event, " +
-                        "partition={}, offset={}, key={}",
-                        record.partition(), record.offset(), record.key());
+        try {
+            log.info("[LiquidationTriggerConsumer] Received liquidation trigger event, partition={}, offset={}, key={}",
+                    partition, offset, key);
 
-                // 解析事件
-                LiquidationTriggerEvent event = JSON.parseObject(record.value(), LiquidationTriggerEvent.class);
+            // 解析事件
+            LiquidationTriggerEvent event = JSON.parseObject(message, LiquidationTriggerEvent.class);
 
-                // 处理强平
-                liquidationService.processLiquidation(event);
+            // 处理强平
+            liquidationService.processLiquidation(event);
 
-                successCount++;
-
-            } catch (Exception e) {
-                failCount++;
-                log.error("❌ [LiquidationTriggerConsumer] CRITICAL: Failed to process liquidation trigger, " +
-                        "partition={}, offset={}, userId={}, positionId={}, error={}",
-                        record.partition(), record.offset(),
-                        extractUserId(record.value()), extractPositionId(record.value()),
-                        e.getMessage(), e);
-
-                // 严重问题：如果处理失败，不能ACK，必须抛出异常让Kafka重试
-                // 防止强平触发事件丢失导致用户资金损失
-                throw new RuntimeException("Failed to process liquidation trigger event at offset " +
-                        record.offset() + ", will retry", e);
+            // 只有成功才手动确认
+            if (ack != null) {
+                ack.acknowledge();
             }
+
+            long duration = System.currentTimeMillis() - startTime;
+            log.info("✅ [LiquidationTriggerConsumer] Processed successfully, partition={}, offset={}, duration={}ms",
+                    partition, offset, duration);
+
+        } catch (Exception e) {
+            log.error("❌ [LiquidationTriggerConsumer] CRITICAL: Failed to process liquidation trigger, " +
+                            "partition={}, offset={}, userId={}, positionId={}, error={}",
+                    partition, offset, extractUserId(message), extractPositionId(message), e.getMessage(), e);
+
+            // 严重问题：处理失败不能ACK，必须抛异常让Kafka重试
+            throw new RuntimeException("Failed to process liquidation trigger event at offset " +
+                    offset + ", will retry", e);
         }
-
-        // 只有全部成功才手动确认
-        ack.acknowledge();
-
-        long duration = System.currentTimeMillis() - startTime;
-        log.info("✅ [LiquidationTriggerConsumer] Batch processed successfully, total={}, duration={}ms",
-                records.size(), duration);
     }
 
     /**

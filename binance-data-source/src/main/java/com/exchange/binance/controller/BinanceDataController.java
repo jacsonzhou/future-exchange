@@ -4,9 +4,11 @@ import com.alibaba.fastjson2.JSON;
 import com.alibaba.fastjson2.JSONObject;
 import com.exchange.binance.client.BinanceWebSocketClient;
 import com.exchange.binance.config.BinanceDataSourceConfig;
+import com.exchange.binance.dto.ReferenceBookSnapshot;
 import com.exchange.binance.fetcher.BinanceSnapshotFetcher;
 import com.exchange.binance.handler.BinanceMessageHandler;
 import com.exchange.binance.manager.OrderBookManager;
+import com.exchange.binance.service.ReferenceBookService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.data.redis.core.RedisTemplate;
@@ -47,6 +49,9 @@ public class BinanceDataController {
 
     @Autowired
     private final BinanceSnapshotFetcher snapshotFetcher;
+
+    @Autowired
+    private final ReferenceBookService referenceBookService;
 
     private static final String REDIS_DEPTH_PREFIX = "binance:depth:";
     private static final String REDIS_TRADE_PREFIX = "binance:trade:";
@@ -116,6 +121,49 @@ public class BinanceDataController {
         }
         
         return result;
+    }
+
+    /**
+     * 获取 CFD 参考盘口快照
+     *
+     * 契约字段：
+     * - symbol, eventTime, topic, offset
+     * - bestBid, bestAsk
+     * - bidsTopN, asksTopN
+     * - source, stalenessMs
+     */
+    @GetMapping("/reference-book/{symbol}")
+    public Map<String, Object> getReferenceBook(
+            @PathVariable String symbol,
+            @RequestParam(defaultValue = "20") int depth) {
+
+        Map<String, Object> result = new HashMap<>();
+
+        try {
+            ReferenceBookSnapshot snapshot = referenceBookService.getReferenceBook(symbol, depth);
+            if (snapshot == null) {
+                result.put("success", false);
+                result.put("message", "No reference book available for " + symbol);
+                return result;
+            }
+
+            // 盘口空簿不返回 success=true，避免交易链路误用
+            if (snapshot.getBestBid() == null || snapshot.getBestAsk() == null) {
+                result.put("success", false);
+                result.put("message", "Reference book is empty for " + symbol);
+                result.put("data", snapshot);
+                return result;
+            }
+
+            result.put("success", true);
+            result.put("data", snapshot);
+            result.put("timestamp", System.currentTimeMillis());
+            return result;
+        } catch (Exception e) {
+            result.put("success", false);
+            result.put("message", "Failed to build reference book: " + e.getMessage());
+            return result;
+        }
     }
 
     /**
@@ -439,4 +487,3 @@ public class BinanceDataController {
         return String.format("%.8f", value).replaceAll("0+$", "").replaceAll("\\.$", "");
     }
 }
-

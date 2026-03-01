@@ -7,6 +7,7 @@ import com.exchange.liquidation.producer.LiquidationEventProducer;
 import com.exchange.liquidation.service.*;
 import com.exchange.liquidation.client.OmsClient;
 import com.exchange.liquidation.client.PositionClient;
+import com.exchange.liquidation.util.OmsResponseUtil;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
@@ -69,7 +70,7 @@ public class LiquidationServiceImpl implements LiquidationService {
             LiquidationExecution execution = createExecution(liquidationId, event);
             
             // 3. 创建订单
-            Long orderId = createOrder(event);
+            Long orderId = createOrder(liquidationId, event);
             execution.setOrderId(orderId);
             execution.setStatus("SUBMITTED");
             execution.setSubmittedAt(System.currentTimeMillis());
@@ -99,6 +100,7 @@ public class LiquidationServiceImpl implements LiquidationService {
      */
     @Async("liquidationTaskExecutor")
     @Transactional(rollbackFor = Exception.class)
+    @Override
     public void processFilledLiquidation(String liquidationId) {
         log.info("[LiquidationService] Processing filled liquidation, liquidationId={}", liquidationId);
         
@@ -328,7 +330,7 @@ public class LiquidationServiceImpl implements LiquidationService {
         return e;
     }
     
-    private Long createOrder(LiquidationTriggerEvent event) {
+    private Long createOrder(String liquidationId, LiquidationTriggerEvent event) {
         CreateOrderRequest req = new CreateOrderRequest();
         req.setUserId(event.getUserId());
         req.setSymbol(event.getSymbol());
@@ -337,17 +339,55 @@ public class LiquidationServiceImpl implements LiquidationService {
         req.setQuantity(event.getPositionQty());
         req.setReduceOnly(true);
         req.setOrderSource("LIQUIDATION");
-        return omsClient.createOrder(req);
+        req.setPositionId(event.getPositionId());
+        req.setLiquidationId(liquidationId);
+
+        Object raw = omsClient.createOrder(req);
+        Long orderId = OmsResponseUtil.extractOrderId(raw);
+        if (orderId == null) {
+            throw new IllegalStateException(
+                "OMS create liquidation order failed, liquidationId=" + liquidationId + ", "
+                    + OmsResponseUtil.extractErrorMessage(raw)
+            );
+        }
+        return orderId;
     }
-    
+
     private void handleFailure(String liquidationId, String error) {
         LiquidationExecution execution = executionMapper.selectByLiquidationId(liquidationId);
         if (execution != null) {
             execution.setStatus("FAILED");
-            execution.setErrorMsg(error);
+            execution.setErrorMsg(trimError(error));
             execution.setUpdatedAt(System.currentTimeMillis());
-            executionMapper.updateById(execution);
+            try {
+                int updated = executionMapper.updateById(execution);
+                if (updated > 0) {
+                    return;
+                }
+                log.warn("[LiquidationService] updateById returned 0, fallback update by liquidationId, liquidationId={}",
+                    liquidationId);
+            } catch (Exception updateEx) {
+                log.error("[LiquidationService] updateById failed on handleFailure, liquidationId={}",
+                    liquidationId, updateEx);
+            }
+
+            int fallback = executionMapper.updateFailureStateByLiquidationId(
+                liquidationId,
+                "FAILED",
+                trimError(error),
+                System.currentTimeMillis()
+            );
+            if (fallback <= 0) {
+                log.error("[LiquidationService] fallback failure update affected 0 rows, liquidationId={}", liquidationId);
+            }
         }
+    }
+
+    private String trimError(String error) {
+        if (error == null) {
+            return null;
+        }
+        return error.length() <= 512 ? error : error.substring(0, 512);
     }
     
     @Override

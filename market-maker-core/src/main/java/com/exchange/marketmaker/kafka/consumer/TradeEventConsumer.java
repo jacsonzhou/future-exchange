@@ -1,6 +1,4 @@
 package com.exchange.marketmaker.kafka.consumer;
-
-import com.alibaba.fastjson.JSON;
 import com.exchange.marketmaker.entity.MmFeeLog;
 import com.exchange.marketmaker.service.MmFeeService;
 import lombok.extern.slf4j.Slf4j;

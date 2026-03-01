@@ -2,6 +2,7 @@ package com.exchange.adl.client;
 
 import com.exchange.adl.client.dto.PositionDTO;
 import com.exchange.adl.client.dto.PositionQueryRequest;
+import jakarta.annotation.PostConstruct;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
@@ -27,8 +28,15 @@ public class PositionServiceClient {
     @Autowired
     private RestTemplate restTemplate;
 
-    @Value("${service.position.url:http://localhost:8084}")
+    @Value("${service.position.url:}")
     private String positionServiceUrl;
+
+    @PostConstruct
+    public void validateConfig() {
+        if (positionServiceUrl == null || positionServiceUrl.isBlank()) {
+            throw new IllegalStateException("Missing required config: service.position.url");
+        }
+    }
 
     /**
      * 获取用户持仓

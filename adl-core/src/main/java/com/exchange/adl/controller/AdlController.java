@@ -209,10 +209,10 @@ public class AdlController {
         item.setRank(ranking.getAdlRank());
         item.setUserId(maskUserId(ranking.getUserId())); // 脱敏
         item.setPositionId(ranking.getPositionId());
-        item.setQty(ranking.getQty());
-        item.setPnlRatio(formatPercentage(ranking.getPnlRatio()));
-        item.setEffectiveLeverage(ranking.getEffectiveLeverage());
-        item.setAdlScore(ranking.getAdlScore());
+        item.setQty(toDecimal(ranking.getQty()));
+        item.setPnlRatio(formatPercentage(toDecimal(ranking.getPnlRatio())));
+        item.setEffectiveLeverage(toDecimal(ranking.getEffectiveLeverage()));
+        item.setAdlScore(toDecimal(ranking.getAdlScore()));
         item.setRiskLevel(calculateRiskLevel(ranking.getAdlRank()));
         return item;
     }
@@ -241,6 +241,13 @@ public class AdlController {
         return value.multiply(new BigDecimal("100"))
                 .setScale(2, RoundingMode.HALF_UP)
                 .toPlainString() + "%";
+    }
+
+    private BigDecimal toDecimal(Number value) {
+        if (value == null) {
+            return BigDecimal.ZERO;
+        }
+        return new BigDecimal(String.valueOf(value));
     }
 
     /**

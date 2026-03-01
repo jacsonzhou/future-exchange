@@ -64,14 +64,14 @@ public class AdlServiceImplComplete implements AdlService {
 
     @Override
     @Transactional
-    public void onLiquidationCompleted(Long liquidationId, Long userId, String symbol, String side,
+    public void onLiquidationCompleted(String liquidationId, Long userId, String symbol, String side,
                                         Long bankruptPrice, Long bankruptQty, Long bankruptLoss) {
         log.info("Processing liquidation event: liquidationId={}, symbol={}, userId={}, loss={}",
                 liquidationId, symbol, userId, bankruptLoss);
 
         // 1. 创建穿仓记录
         BankruptcyRecord record = createBankruptcyRecord(
-                String.valueOf(liquidationId), userId, symbol, side,
+                liquidationId, userId, symbol, side,
                 new BigDecimal(bankruptPrice), new BigDecimal(bankruptQty), new BigDecimal(bankruptLoss)
         );
 
@@ -128,7 +128,7 @@ public class AdlServiceImplComplete implements AdlService {
 
     @Override
     @Transactional
-    public void executeAdl(String symbol, String oppositeSide, Long requiredQty, Long sourceLiquidationId) {
+    public void executeAdl(String symbol, String oppositeSide, Long requiredQty, String sourceLiquidationId, Long sourceUserId) {
         log.info("Executing ADL: symbol={}, oppositeSide={}, requiredQty={}, sourceLiquidationId={}",
                 symbol, oppositeSide, requiredQty, sourceLiquidationId);
 
@@ -156,7 +156,7 @@ public class AdlServiceImplComplete implements AdlService {
 
                 // 执行单个ADL
                 AdlExecutedEvent.AdlExecutionDetail detail = executeSingleAdl(
-                        candidate, remainingQty, symbol, String.valueOf(sourceLiquidationId)
+                        candidate, remainingQty, symbol, sourceLiquidationId
                 );
 
                 if (detail != null) {
@@ -171,7 +171,7 @@ public class AdlServiceImplComplete implements AdlService {
         }
 
         // 发布ADL执行完成事件
-        publishAdlExecutedEvent(symbol, String.valueOf(sourceLiquidationId), executionDetails, affectedUsers);
+        publishAdlExecutedEvent(symbol, sourceLiquidationId, executionDetails, affectedUsers);
 
         log.info("ADL execution completed: symbol={}, batches={}, affectedUsers={}, remainingQty={}",
                 symbol, batchCount, affectedUsers, remainingQty);
@@ -296,7 +296,7 @@ public class AdlServiceImplComplete implements AdlService {
 
         // 执行ADL
         executeAdl(record.getSymbol(), event.getOppositeSide(), remainingLoss.longValue(),
-                Long.parseLong(record.getLiquidationId()));
+                record.getLiquidationId(), record.getUserId());
     }
 
     /**

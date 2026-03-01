@@ -3,9 +3,11 @@ package com.exchange.margin.config;
 import org.redisson.Redisson;
 import org.redisson.api.RedissonClient;
 import org.redisson.config.Config;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.context.annotation.Profile;
 
 /**
  * Redisson配置类
@@ -13,6 +15,8 @@ import org.springframework.context.annotation.Configuration;
  * 用于分布式锁实现
  */
 @Configuration
+@Profile("prod")
+@ConditionalOnProperty(prefix = "margin.lock", name = "enabled", havingValue = "true")
 public class RedissonConfig {
 
     @Value("${spring.redis.host:localhost}")

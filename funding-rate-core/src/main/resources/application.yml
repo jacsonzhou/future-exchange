@@ -5,6 +5,9 @@ spring:
     active: ${SPRING_PROFILES_ACTIVE:dev}
   config:
     import: optional:nacos:${spring.application.name}-${spring.profiles.active}.yml
+  autoconfigure:
+    exclude:
+      - org.redisson.spring.starter.RedissonAutoConfigurationV2
 
   cloud:
     nacos:

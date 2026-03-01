@@ -48,6 +48,15 @@ CREATE TABLE IF NOT EXISTS t_order (
     -- 杠杆与保证金
     leverage INT DEFAULT 1 COMMENT '杠杆倍数',
     margin_mode VARCHAR(16) DEFAULT 'CROSS' COMMENT '保证金模式: CROSS/ISOLATED',
+    execution_mode VARCHAR(32) NOT NULL DEFAULT 'MATCH_ENGINE' COMMENT '执行模式: MATCH_ENGINE/CFD_DEALER',
+    liquidity_source VARCHAR(32) DEFAULT NULL COMMENT '流动性来源: BINANCE_REF 等',
+    reference_topic VARCHAR(128) DEFAULT NULL COMMENT '参考行情来源 Topic',
+    reference_offset BIGINT DEFAULT NULL COMMENT '参考行情来源 offset',
+    reference_event_time BIGINT DEFAULT NULL COMMENT '参考行情事件时间（毫秒）',
+    reference_best_bid DECIMAL(30,8) DEFAULT NULL COMMENT '参考最优买价',
+    reference_best_ask DECIMAL(30,8) DEFAULT NULL COMMENT '参考最优卖价',
+    reference_vwap_price DECIMAL(30,8) DEFAULT NULL COMMENT '参考成交均价',
+    slippage_bps INT DEFAULT NULL COMMENT '滑点（bps）',
     
     -- 止盈止损配置
     tp_trigger_price DECIMAL(32,16) COMMENT '止盈触发价格',
@@ -80,12 +89,36 @@ CREATE TABLE IF NOT EXISTS t_order (
     UNIQUE KEY uk_user_client (user_id, client_order_id),
     KEY idx_user_symbol (user_id, symbol),
     KEY idx_symbol_status (symbol, status),
+    KEY idx_exec_symbol_status_created (execution_mode, symbol, status, created_at),
     KEY idx_status (status),
     KEY idx_created_at (created_at)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='订单主表';
 
 -- =====================================================
--- 2. 订单事件表（事件流）
+-- 2. CFD 工作订单表（仅 CFD_DEALER LIMIT 挂单）
+-- =====================================================
+CREATE TABLE IF NOT EXISTS t_cfd_working_order (
+    order_id BIGINT NOT NULL COMMENT 'OMS订单ID',
+    user_id BIGINT NOT NULL COMMENT '用户ID',
+    symbol VARCHAR(32) NOT NULL COMMENT '交易对',
+    side TINYINT NOT NULL COMMENT '方向: 0=BUY 1=SELL',
+    limit_price DECIMAL(30,8) DEFAULT NULL COMMENT '限价（可为空，市价不会入此表）',
+    quantity DECIMAL(32,16) NOT NULL COMMENT '原始数量',
+    remaining_quantity DECIMAL(32,16) NOT NULL COMMENT '剩余数量',
+    status VARCHAR(16) NOT NULL COMMENT '状态: WORKING/FILLED/CANCELED/EXPIRED',
+    trigger_source VARCHAR(64) DEFAULT NULL COMMENT '触发来源: market.ext.binance.depth.*',
+    trigger_event_time BIGINT DEFAULT NULL COMMENT '最近触发事件时间（毫秒）',
+    created_at BIGINT NOT NULL COMMENT '创建时间（毫秒）',
+    updated_at BIGINT NOT NULL COMMENT '更新时间（毫秒）',
+    version INT NOT NULL DEFAULT 0 COMMENT '乐观锁版本',
+    PRIMARY KEY (order_id),
+    KEY idx_cfd_symbol_status_updated (symbol, status, updated_at),
+    KEY idx_cfd_user_symbol_status (user_id, symbol, status),
+    KEY idx_cfd_status_trigger_time (status, trigger_event_time)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='CFD工作订单表';
+
+-- =====================================================
+-- 3. 订单事件表（事件流）
 -- =====================================================
 CREATE TABLE IF NOT EXISTS t_order_event (
     id BIGINT NOT NULL AUTO_INCREMENT COMMENT '事件ID',
@@ -112,7 +145,7 @@ CREATE TABLE IF NOT EXISTS t_order_event (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='订单事件表';
 
 -- =====================================================
--- 3. 订单状态日志表（审计链）
+-- 4. 订单状态日志表（审计链）
 -- =====================================================
 CREATE TABLE IF NOT EXISTS t_order_state_log (
     id BIGINT NOT NULL AUTO_INCREMENT COMMENT '日志ID',
@@ -144,7 +177,7 @@ CREATE TABLE IF NOT EXISTS t_order_state_log (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='订单状态日志表';
 
 -- =====================================================
--- 4. 成交记录表
+-- 5. 成交记录表
 -- =====================================================
 CREATE TABLE IF NOT EXISTS t_trade (
     id BIGINT NOT NULL AUTO_INCREMENT COMMENT '成交ID',
@@ -182,7 +215,7 @@ CREATE TABLE IF NOT EXISTS t_trade (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='成交记录表';
 
 -- =====================================================
--- 5. 幂等Key表
+-- 6. 幂等Key表
 -- =====================================================
 CREATE TABLE IF NOT EXISTS t_idempotent_key (
     id BIGINT NOT NULL AUTO_INCREMENT COMMENT 'ID',
@@ -205,7 +238,7 @@ CREATE TABLE IF NOT EXISTS t_idempotent_key (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='幂等key表';
 
 -- =====================================================
--- 6. 条件订单表（止盈止损/触发单）
+-- 7. 条件订单表（止盈止损/触发单）
 -- =====================================================
 CREATE TABLE IF NOT EXISTS t_conditional_order (
     id BIGINT NOT NULL COMMENT '条件单ID',

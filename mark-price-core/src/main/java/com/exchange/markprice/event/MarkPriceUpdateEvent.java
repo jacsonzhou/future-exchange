@@ -25,11 +25,17 @@ public class MarkPriceUpdateEvent {
 
     @Data
     public static class MarkPriceData {
+        private String markPriceId;
+        private String indexPriceId;
         private String symbol;
         private Long markPrice;
         private Long indexPrice;
         private Long fundingRate;
         private Long nextFundingTime;
+        private String source;
+        private Long sourceEventTime;
+        private String sourceTopic;
+        private Long sourceOffset;
         private Long timestamp;
     }
 }

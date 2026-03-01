@@ -1,28 +1,35 @@
 package com.exchange.position.service.impl;
 
 import com.exchange.common.core.IdGenerator;
+import com.exchange.position.dto.AccountUpnlSnapshot;
 import com.exchange.position.dto.MarkPriceEvent;
 import com.exchange.position.dto.RiskEvent;
 import com.exchange.position.dto.TradeEntryEvent;
 import com.exchange.position.dto.TradeEvent;
 import com.exchange.position.entity.PositionSnapshot;
 import com.exchange.position.enums.RiskEventType;
+import com.exchange.position.mapper.AccountSnapshotMirrorMapper;
 import com.exchange.position.mapper.PositionSnapshotMapper;
 import com.exchange.position.publisher.PositionChangePublisher;
 import com.exchange.position.publisher.RiskEventPublisher;
 import com.exchange.position.service.PositionService;
-import com.fasterxml.jackson.databind.ObjectMapper;
+import com.exchange.position.service.support.ActivePositionIndex;
+import com.exchange.position.service.support.MarkPriceBatchUpdater;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.data.redis.core.RedisTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.sql.Statement;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
+import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.TimeUnit;
 
 /**
@@ -44,27 +51,34 @@ import java.util.concurrent.TimeUnit;
 @Service
 public class PositionServiceImpl implements PositionService {
     private static final Integer USER_POSITION_MARGIN_ACCOUNT_TYPE = 3;
+    private static final int ACCOUNT_UPNL_SYNC_MAX_RETRIES = 3;
     
     @Autowired
     private PositionSnapshotMapper positionSnapshotMapper;
+
+    @Autowired(required = false)
+    private AccountSnapshotMirrorMapper accountSnapshotMirrorMapper;
     
     @Autowired
     private RiskEventPublisher riskEventPublisher;
     
     @Autowired
     private PositionChangePublisher positionChangePublisher;
+
+    @Autowired
+    private ActivePositionIndex activePositionIndex;
+
+    @Autowired
+    private MarkPriceBatchUpdater markPriceBatchUpdater;
     
     @Autowired(required = false)
     private RedisTemplate<String, Object> redisTemplate;
-    
-    @Autowired
-    private ObjectMapper objectMapper;
     
     // Redis Key前缀（双向持仓模式需要包含方向）
     private static final String REDIS_KEY_PREFIX = "position:";
     private static final long REDIS_TTL_HOURS = 24;
     private static final BigDecimal MAINTENANCE_MARGIN_RATE = new BigDecimal("0.005"); // 0.5%
-    private static final BigDecimal MARGIN_WARNING_RATIO = new BigDecimal("1.2");
+    private static final BigDecimal DEFAULT_LEVERAGE = new BigDecimal("10");
     
     // 持仓方向常量
     private static final int POSITION_SIDE_LONG = 1;
@@ -167,7 +181,8 @@ public class PositionServiceImpl implements PositionService {
                     event.getPrice(),
                     event.getQuantity(),
                     makerIsBuy,
-                    event.getTradeId()
+                    event.getTradeId(),
+                    event.getBizSeq()
                 );
                 log.info("[PositionService] ✅ Maker position updated, userId={}, isBuy={}",
                     event.getMakerUserId(), makerIsBuy);
@@ -181,7 +196,8 @@ public class PositionServiceImpl implements PositionService {
                     event.getPrice(),
                     event.getQuantity(),
                     takerIsBuy,
-                    event.getTradeId()
+                    event.getTradeId(),
+                    event.getBizSeq()
                 );
                 log.info("[PositionService] ✅ Taker position updated, userId={}, isBuy={}",
                     event.getTakerUserId(), takerIsBuy);
@@ -199,17 +215,119 @@ public class PositionServiceImpl implements PositionService {
      * 消费MarkPriceEvent更新估值（核心方法）
      */
     @Override
+    @Transactional(rollbackFor = Exception.class)
     public void onMarkPrice(MarkPriceEvent markPrice) {
+        String symbol = markPrice != null ? markPrice.getSymbol() : null;
+        BigDecimal incomingMarkPrice = markPrice != null ? markPrice.getMarkPrice() : null;
         log.info("[PositionService] ⬇️ On mark price, symbol={}, markPrice={}",
-            markPrice.getSymbol(), markPrice.getMarkPrice());
+            symbol, incomingMarkPrice);
         
         try {
-            // 双向持仓模式：查询该Symbol的所有持仓（包括LONG和SHORT），分别更新估值
-            // 实际生产环境需要批量处理
-            log.info("[PositionService] ✅ Mark price processed, symbol={}", markPrice.getSymbol());
+            if (markPrice == null || symbol == null || symbol.isBlank()) {
+                log.warn("[PositionService] ⚠️ Skip mark price update, invalid symbol");
+                return;
+            }
+
+            if (incomingMarkPrice == null || incomingMarkPrice.compareTo(BigDecimal.ZERO) <= 0) {
+                log.warn("[PositionService] ⚠️ Skip mark price update, invalid price, symbol={}, markPrice={}",
+                    symbol, incomingMarkPrice);
+                return;
+            }
+
+            List<PositionSnapshot> positions = activePositionIndex.getActivePositions(symbol);
+            if (positions == null || positions.isEmpty()) {
+                log.debug("[PositionService] No active position for symbol={}, skip mark update", symbol);
+                return;
+            }
+
+            int updatedCount = 0;
+            int skippedCount = 0;
+            Set<Long> affectedUserIds = new HashSet<>();
+            List<PositionSnapshot> pendingUpdates = new ArrayList<>(positions.size());
+            String markPriceId = markPrice.getMarkPriceId();
+            String indexPriceId = markPrice.getIndexPriceId();
+            if (indexPriceId == null || indexPriceId.isBlank()) {
+                indexPriceId = markPriceId;
+            }
+
+            for (PositionSnapshot position : positions) {
+                if (position == null || !position.hasPosition()) {
+                    skippedCount++;
+                    continue;
+                }
+
+                if (markPrice.getMarkPriceId() != null
+                    && markPrice.getMarkPriceId().equals(position.getLastMarkPriceId())) {
+                    skippedCount++;
+                    continue;
+                }
+
+                BigDecimal unrealizedPnl = calculateUnrealizedPnl(position, incomingMarkPrice);
+                BigDecimal marginRatio = calculateMarginRatioByMarkPrice(position, incomingMarkPrice, unrealizedPnl);
+                BigDecimal liquidationPrice = calculateLiquidationPriceByMarkPrice(position);
+
+                position.setUnrealizedPnl(unrealizedPnl);
+                position.setMarginRatio(marginRatio);
+                position.setLiquidationPrice(liquidationPrice);
+                if (markPrice.getMarkPriceId() != null && !markPrice.getMarkPriceId().isBlank()) {
+                    position.setLastMarkPriceId(markPrice.getMarkPriceId());
+                }
+                position.setLastUpdateSeq(IdGenerator.generate());
+                position.setUpdatedAt(System.currentTimeMillis());
+                pendingUpdates.add(position);
+            }
+
+            if (pendingUpdates.isEmpty()) {
+                log.info("[PositionService] ✅ Mark price processed, symbol={}, updated={}, skipped={}",
+                    symbol, updatedCount, skippedCount);
+                return;
+            }
+
+            int[] batchResults = markPriceBatchUpdater.batchUpdateMarkFields(pendingUpdates);
+            for (int i = 0; i < pendingUpdates.size(); i++) {
+                PositionSnapshot updatedSnapshot = pendingUpdates.get(i);
+                int rowState = i < batchResults.length ? batchResults[i] : 0;
+                if (!isBatchWriteSuccess(rowState)) {
+                    log.warn("[PositionService] ⚠️ Skip mark update due to version conflict, userId={}, symbol={}, side={}",
+                        updatedSnapshot.getUserId(), updatedSnapshot.getSymbol(), updatedSnapshot.getPositionSide());
+
+                    PositionSnapshot latest = positionSnapshotMapper.selectById(updatedSnapshot.getId());
+                    if (latest != null) {
+                        activePositionIndex.upsert(latest);
+                    } else {
+                        activePositionIndex.remove(updatedSnapshot.getId(), updatedSnapshot.getSymbol());
+                    }
+                    skippedCount++;
+                    continue;
+                }
+
+                updatedSnapshot.setVersion((updatedSnapshot.getVersion() == null ? 0 : updatedSnapshot.getVersion()) + 1);
+                activePositionIndex.upsert(updatedSnapshot);
+
+                updateRedisSnapshot(updatedSnapshot);
+                publishPositionChangeEvent(
+                    updatedSnapshot.getUserId(),
+                    updatedSnapshot,
+                    PositionChangePublisher.CHANGE_TYPE_MARK_PRICE_UPDATE,
+                    BigDecimal.ZERO,
+                    incomingMarkPrice,
+                    incomingMarkPrice,
+                    markPriceId,
+                    indexPriceId
+                );
+                checkRiskAndPublishEvent(updatedSnapshot);
+                affectedUserIds.add(updatedSnapshot.getUserId());
+                updatedCount++;
+            }
+
+            syncAccountUnrealizedPnl(affectedUserIds);
+
+            log.info("[PositionService] ✅ Mark price processed, symbol={}, updated={}, skipped={}",
+                symbol, updatedCount, skippedCount);
             
         } catch (Exception e) {
-            log.error("[PositionService] ❌ On mark price error, symbol={}", markPrice.getSymbol(), e);
+            log.error("[PositionService] ❌ On mark price error, symbol={}", symbol, e);
+            throw new RuntimeException("Process mark price event failed", e);
         }
     }
     
@@ -230,6 +348,9 @@ public class PositionServiceImpl implements PositionService {
         
         // 2. 查MySQL
         PositionSnapshot snapshot = positionSnapshotMapper.selectByUserAndSymbolAndSide(userId, symbol, positionSide);
+        if (snapshot != null) {
+            activePositionIndex.upsert(snapshot);
+        }
         
         if (snapshot != null && redisTemplate != null) {
             // 3. 回写Redis
@@ -431,23 +552,84 @@ public class PositionServiceImpl implements PositionService {
      * 2. 剩余数量再开/加同向仓位
      */
     private void updatePositionNetMode(Long userId, String symbol, BigDecimal price,
-                                       BigDecimal quantity, boolean isBuy, String tradeId) {
+                                       BigDecimal quantity, boolean isBuy, String tradeId, Long bizSeq) {
+        final int maxRetry = 3;
+        for (int attempt = 1; attempt <= maxRetry; attempt++) {
+            try {
+                doUpdatePositionNetMode(userId, symbol, price, quantity, isBuy, tradeId, bizSeq);
+                return;
+            } catch (RuntimeException ex) {
+                if (!isVersionConflict(ex) || attempt == maxRetry) {
+                    throw ex;
+                }
+                log.warn("[PositionService] ⚠️ Version conflict in net-mode update, retry {}/{}, userId={}, symbol={}, tradeId={}, bizSeq={}",
+                    attempt, maxRetry, userId, symbol, tradeId, bizSeq);
+            }
+        }
+    }
+
+    private void doUpdatePositionNetMode(Long userId, String symbol, BigDecimal price,
+                                         BigDecimal quantity, boolean isBuy, String tradeId, Long bizSeq) {
         int sameSide = isBuy ? POSITION_SIDE_LONG : POSITION_SIDE_SHORT;
         int oppositeSide = isBuy ? POSITION_SIDE_SHORT : POSITION_SIDE_LONG;
         BigDecimal remaining = quantity;
 
+        PositionSnapshot sameSidePosition = positionSnapshotMapper.selectByUserAndSymbolAndSide(userId, symbol, sameSide);
         PositionSnapshot oppositePosition = positionSnapshotMapper.selectByUserAndSymbolAndSide(userId, symbol, oppositeSide);
+
+        if (isDuplicateOrStaleTradeEvent(sameSidePosition, tradeId, bizSeq)
+            || isDuplicateOrStaleTradeEvent(oppositePosition, tradeId, bizSeq)) {
+            log.warn("[PositionService] ⚠️ Skip duplicate/stale trade event, userId={}, symbol={}, tradeId={}, bizSeq={}",
+                userId, symbol, tradeId, bizSeq);
+            return;
+        }
+
         if (oppositePosition != null && oppositePosition.getSize().compareTo(BigDecimal.ZERO) > 0) {
             BigDecimal closeQty = remaining.min(oppositePosition.getSize());
             if (closeQty.compareTo(BigDecimal.ZERO) > 0) {
-                decreaseOrClosePosition(oppositePosition, price, closeQty, tradeId);
+                decreaseOrClosePosition(oppositePosition, price, closeQty, tradeId, bizSeq);
                 remaining = remaining.subtract(closeQty);
             }
         }
 
         if (remaining.compareTo(BigDecimal.ZERO) > 0) {
-            increasePosition(userId, symbol, price, remaining, sameSide, tradeId);
+            increasePosition(userId, symbol, price, remaining, sameSide, tradeId, bizSeq);
         }
+    }
+
+    private boolean isDuplicateOrStaleTradeEvent(PositionSnapshot position, String tradeId, Long bizSeq) {
+        if (position == null) {
+            return false;
+        }
+        if (tradeId != null && tradeId.equals(position.getLastTradeId())) {
+            return true;
+        }
+        if (bizSeq != null && bizSeq > 0 && position.getLastUpdateSeq() != null) {
+            return position.getLastUpdateSeq() >= bizSeq;
+        }
+        return false;
+    }
+
+    private long resolveUpdateSeq(Long bizSeq) {
+        if (bizSeq != null && bizSeq > 0) {
+            return bizSeq;
+        }
+        return IdGenerator.generate();
+    }
+
+    private boolean isVersionConflict(Throwable throwable) {
+        if (throwable == null) {
+            return false;
+        }
+        String message = throwable.getMessage();
+        if (message != null && message.toLowerCase().contains("version conflict")) {
+            return true;
+        }
+        return isVersionConflict(throwable.getCause());
+    }
+
+    private boolean isBatchWriteSuccess(int rowState) {
+        return rowState > 0 || rowState == Statement.SUCCESS_NO_INFO;
     }
 
     /**
@@ -483,8 +665,10 @@ public class PositionServiceImpl implements PositionService {
             position.setVersion(0);
             position.setCreatedAt(System.currentTimeMillis());
             position.setUpdatedAt(System.currentTimeMillis());
+            recalculateRiskFields(position, price);
             
             positionSnapshotMapper.insert(position);
+            activePositionIndex.upsert(position);
             
             // 发布持仓变更事件（开仓）
             publishPositionChangeEvent(userId, position, PositionChangePublisher.CHANGE_TYPE_OPEN, quantity, price);
@@ -531,6 +715,7 @@ public class PositionServiceImpl implements PositionService {
                 position.setPositionSide(positionSide == POSITION_SIDE_LONG ? POSITION_SIDE_SHORT : POSITION_SIDE_LONG);
             }
             
+            recalculateRiskFields(position, price);
             position.setLastTradeId(tradeId);
             position.setLastUpdateSeq(IdGenerator.generate());
             position.setUpdatedAt(System.currentTimeMillis());
@@ -542,6 +727,9 @@ public class PositionServiceImpl implements PositionService {
                     userId, symbol, positionSide);
                 throw new RuntimeException("Update position failed, version conflict");
             }
+            position.setVersion((position.getVersion() == null ? 0 : position.getVersion()) + 1);
+
+            activePositionIndex.upsert(position);
             
             // 发布持仓变更事件
             publishPositionChangeEvent(userId, position, changeType, quantity, price);
@@ -558,9 +746,10 @@ public class PositionServiceImpl implements PositionService {
     }
 
     private void increasePosition(Long userId, String symbol, BigDecimal price,
-                                  BigDecimal quantity, int positionSide, String tradeId) {
+                                  BigDecimal quantity, int positionSide, String tradeId, Long bizSeq) {
         PositionSnapshot position = positionSnapshotMapper.selectByUserAndSymbolAndSide(userId, symbol, positionSide);
         String changeType;
+        long updateSeq = resolveUpdateSeq(bizSeq);
 
         if (position == null) {
             position = new PositionSnapshot();
@@ -572,10 +761,11 @@ public class PositionServiceImpl implements PositionService {
             position.setUnrealizedPnl(BigDecimal.ZERO);
             position.setRealizedPnl(BigDecimal.ZERO);
             position.setLastTradeId(tradeId);
-            position.setLastUpdateSeq(IdGenerator.generate());
+            position.setLastUpdateSeq(updateSeq);
             position.setVersion(0);
             position.setCreatedAt(System.currentTimeMillis());
             position.setUpdatedAt(System.currentTimeMillis());
+            recalculateRiskFields(position, price);
             positionSnapshotMapper.insert(position);
             changeType = PositionChangePublisher.CHANGE_TYPE_OPEN;
         } else {
@@ -593,22 +783,25 @@ public class PositionServiceImpl implements PositionService {
             }
 
             position.setSize(newSize);
+            recalculateRiskFields(position, price);
             position.setLastTradeId(tradeId);
-            position.setLastUpdateSeq(IdGenerator.generate());
+            position.setLastUpdateSeq(updateSeq);
             position.setUpdatedAt(System.currentTimeMillis());
             int updated = positionSnapshotMapper.updateWithOptimisticLock(position);
             if (updated == 0) {
                 throw new RuntimeException("Increase position failed, version conflict");
             }
+            position.setVersion((position.getVersion() == null ? 0 : position.getVersion()) + 1);
         }
 
+        activePositionIndex.upsert(position);
         publishPositionChangeEvent(userId, position, changeType, quantity, price);
         updateRedisSnapshot(position);
         checkRiskAndPublishEvent(position);
     }
 
     private void decreaseOrClosePosition(PositionSnapshot position, BigDecimal price,
-                                         BigDecimal closeQty, String tradeId) {
+                                         BigDecimal closeQty, String tradeId, Long bizSeq) {
         BigDecimal oldSize = position.getSize();
         BigDecimal newSize = oldSize.subtract(closeQty);
         BigDecimal realizedPnl = calculateRealizedPnl(position.getPositionSide(), position.getEntryPrice(), price, closeQty);
@@ -618,15 +811,18 @@ public class PositionServiceImpl implements PositionService {
         if (newSize.compareTo(BigDecimal.ZERO) == 0) {
             position.setEntryPrice(BigDecimal.ZERO);
         }
+        recalculateRiskFields(position, price);
         position.setLastTradeId(tradeId);
-        position.setLastUpdateSeq(IdGenerator.generate());
+        position.setLastUpdateSeq(resolveUpdateSeq(bizSeq));
         position.setUpdatedAt(System.currentTimeMillis());
 
         int updated = positionSnapshotMapper.updateWithOptimisticLock(position);
         if (updated == 0) {
             throw new RuntimeException("Decrease position failed, version conflict");
         }
+        position.setVersion((position.getVersion() == null ? 0 : position.getVersion()) + 1);
 
+        activePositionIndex.upsert(position);
         String changeType = newSize.compareTo(BigDecimal.ZERO) == 0
             ? PositionChangePublisher.CHANGE_TYPE_CLOSE
             : PositionChangePublisher.CHANGE_TYPE_DECREASE;
@@ -639,9 +835,35 @@ public class PositionServiceImpl implements PositionService {
      * 发布持仓变更事件
      */
     private void publishPositionChangeEvent(Long userId, PositionSnapshot position, String changeType, BigDecimal quantity, BigDecimal price) {
+        publishPositionChangeEvent(userId, position, changeType, quantity, price, price, null, null);
+    }
+
+    /**
+     * 发布持仓变更事件（显式携带 markPrice）
+     */
+    private void publishPositionChangeEvent(Long userId, PositionSnapshot position, String changeType,
+                                            BigDecimal quantity, BigDecimal price, BigDecimal markPrice) {
+        publishPositionChangeEvent(userId, position, changeType, quantity, price, markPrice, null, null);
+    }
+
+    /**
+     * 发布持仓变更事件（显式携带 mark/index 事件位点）
+     */
+    private void publishPositionChangeEvent(Long userId, PositionSnapshot position, String changeType,
+                                            BigDecimal quantity, BigDecimal price, BigDecimal markPrice,
+                                            String markPriceId, String indexPriceId) {
         try {
             if (positionChangePublisher != null) {
-                positionChangePublisher.publishPositionChange(userId, position, changeType, quantity, price);
+                positionChangePublisher.publishPositionChange(
+                    userId,
+                    position,
+                    changeType,
+                    quantity,
+                    price,
+                    markPrice,
+                    markPriceId,
+                    indexPriceId
+                );
             }
         } catch (Exception e) {
             log.warn("[PositionService] ⚠️ Failed to publish position change event, userId={}, symbol={}", 
@@ -663,13 +885,148 @@ public class PositionServiceImpl implements PositionService {
             return entryPrice.subtract(exitPrice).multiply(closedSize);
         }
     }
+
+    /**
+     * 使用 markPrice 重算保证金率（简化模型：固定10x杠杆）
+     */
+    private BigDecimal calculateMarginRatioByMarkPrice(PositionSnapshot position, BigDecimal markPrice, BigDecimal unrealizedPnl) {
+        if (position == null || position.getSize() == null || position.getSize().compareTo(BigDecimal.ZERO) <= 0) {
+            return BigDecimal.ZERO;
+        }
+        if (markPrice == null || markPrice.compareTo(BigDecimal.ZERO) <= 0) {
+            return BigDecimal.ZERO;
+        }
+
+        BigDecimal initialMargin = position.getEntryPrice()
+            .multiply(position.getSize())
+            .divide(DEFAULT_LEVERAGE, 8, RoundingMode.HALF_UP);
+        BigDecimal equity = initialMargin.add(unrealizedPnl);
+        BigDecimal maintenanceMargin = position.getSize()
+            .multiply(markPrice)
+            .multiply(MAINTENANCE_MARGIN_RATE);
+        if (maintenanceMargin.compareTo(BigDecimal.ZERO) <= 0) {
+            return BigDecimal.ZERO;
+        }
+        return equity.divide(maintenanceMargin, 8, RoundingMode.HALF_UP);
+    }
+
+    /**
+     * 使用固定杠杆近似计算强平价（long/short 各自闭式解）。
+     */
+    private BigDecimal calculateLiquidationPriceByMarkPrice(PositionSnapshot position) {
+        if (position == null
+            || position.getEntryPrice() == null
+            || position.getEntryPrice().compareTo(BigDecimal.ZERO) <= 0
+            || position.getSize() == null
+            || position.getSize().compareTo(BigDecimal.ZERO) <= 0) {
+            return BigDecimal.ZERO;
+        }
+
+        BigDecimal one = BigDecimal.ONE;
+        BigDecimal leverageFactor = one.divide(DEFAULT_LEVERAGE, 8, RoundingMode.HALF_UP);
+
+        if (position.isLong()) {
+            BigDecimal denominator = one.subtract(MAINTENANCE_MARGIN_RATE);
+            if (denominator.compareTo(BigDecimal.ZERO) <= 0) {
+                return BigDecimal.ZERO;
+            }
+            BigDecimal numerator = position.getEntryPrice().multiply(one.subtract(leverageFactor));
+            return numerator.divide(denominator, 8, RoundingMode.HALF_UP).max(BigDecimal.ZERO);
+        }
+
+        BigDecimal denominator = one.add(MAINTENANCE_MARGIN_RATE);
+        BigDecimal numerator = position.getEntryPrice().multiply(one.add(leverageFactor));
+        return numerator.divide(denominator, 8, RoundingMode.HALF_UP).max(BigDecimal.ZERO);
+    }
+
+    /**
+     * 成交后同步刷新风险字段，避免在 mark 事件到来前出现 liquidationPrice=0 的窗口期。
+     */
+    private void recalculateRiskFields(PositionSnapshot position, BigDecimal markPrice) {
+        if (position == null) {
+            return;
+        }
+        if (!position.hasPosition()) {
+            position.setUnrealizedPnl(BigDecimal.ZERO);
+            position.setMarginRatio(BigDecimal.ZERO);
+            position.setLiquidationPrice(BigDecimal.ZERO);
+            return;
+        }
+        BigDecimal safeMark = markPrice;
+        if (safeMark == null || safeMark.compareTo(BigDecimal.ZERO) <= 0) {
+            safeMark = position.getEntryPrice();
+        }
+        BigDecimal unrealizedPnl = calculateUnrealizedPnl(position, safeMark);
+        BigDecimal marginRatio = calculateMarginRatioByMarkPrice(position, safeMark, unrealizedPnl);
+        BigDecimal liquidationPrice = calculateLiquidationPriceByMarkPrice(position);
+        position.setUnrealizedPnl(unrealizedPnl);
+        position.setMarginRatio(marginRatio);
+        position.setLiquidationPrice(liquidationPrice);
+    }
+
+    /**
+     * 持仓侧与账户侧同事务联动：
+     * 在持仓 mark 更新后，立即按用户汇总回写 account_snapshot.unrealized_pnl/equity，
+     * 缩短 position->account 异步窗口导致的对账偏差。
+     */
+    private void syncAccountUnrealizedPnl(Set<Long> userIds) {
+        if (accountSnapshotMirrorMapper == null || userIds == null || userIds.isEmpty()) {
+            return;
+        }
+
+        long now = System.currentTimeMillis();
+        for (Long userId : userIds) {
+            if (userId == null || userId <= 0) {
+                continue;
+            }
+            syncSingleAccountUnrealizedPnl(userId, now);
+        }
+    }
+
+    private void syncSingleAccountUnrealizedPnl(Long userId, long now) {
+        BigDecimal totalUpnl = positionSnapshotMapper.sumOpenUnrealizedPnl(userId);
+        if (totalUpnl == null) {
+            totalUpnl = BigDecimal.ZERO;
+        }
+
+        for (int attempt = 1; attempt <= ACCOUNT_UPNL_SYNC_MAX_RETRIES; attempt++) {
+            AccountUpnlSnapshot snapshot = accountSnapshotMirrorMapper.selectByUserId(userId);
+            if (snapshot == null) {
+                return;
+            }
+
+            BigDecimal available = snapshot.getAvailable() == null ? BigDecimal.ZERO : snapshot.getAvailable();
+            BigDecimal frozen = snapshot.getFrozen() == null ? BigDecimal.ZERO : snapshot.getFrozen();
+            BigDecimal positionMargin = snapshot.getPositionMargin() == null ? BigDecimal.ZERO : snapshot.getPositionMargin();
+            BigDecimal equity = available.add(frozen).add(positionMargin).add(totalUpnl);
+            BigDecimal oldUpnl = snapshot.getUnrealizedPnl() == null ? BigDecimal.ZERO : snapshot.getUnrealizedPnl();
+            BigDecimal oldEquity = snapshot.getEquity() == null ? BigDecimal.ZERO : snapshot.getEquity();
+
+            if (oldUpnl.compareTo(totalUpnl) == 0 && oldEquity.compareTo(equity) == 0) {
+                return;
+            }
+
+            int updated = accountSnapshotMirrorMapper.updateUnrealizedPnlWithOptimisticLock(
+                userId,
+                totalUpnl,
+                equity,
+                now,
+                snapshot.getVersion() == null ? 0 : snapshot.getVersion()
+            );
+            if (updated > 0) {
+                return;
+            }
+        }
+
+        log.debug("[PositionService] account unrealized pnl sync conflict, userId={}", userId);
+    }
     
     /**
      * 旧版方法（兼容）- 用于净持仓模式
      */
     private void updatePositionByTrade(Long userId, String symbol, BigDecimal price, 
                                        BigDecimal quantity, Boolean isBuy, String tradeId) {
-        updatePositionNetMode(userId, symbol, price, quantity, Boolean.TRUE.equals(isBuy), tradeId);
+        updatePositionNetMode(userId, symbol, price, quantity, Boolean.TRUE.equals(isBuy), tradeId, null);
     }
 
     private boolean isPositionImpactEntry(TradeEntryEvent.LedgerEntry entry) {
@@ -689,6 +1046,9 @@ public class PositionServiceImpl implements PositionService {
      * 检查风险并发布事件
      */
     private void checkRiskAndPublishEvent(PositionSnapshot position) {
+        if (position == null || !position.hasPosition()) {
+            return;
+        }
         if (position.getMarginRatio() == null) {
             return;
         }
