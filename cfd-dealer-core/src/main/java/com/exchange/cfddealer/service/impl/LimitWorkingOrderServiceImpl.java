@@ -101,10 +101,48 @@ public class LimitWorkingOrderServiceImpl implements LimitWorkingOrderService {
         if (workingOrders == null || workingOrders.isEmpty()) {
             return 0;
         }
+        return triggerCandidates(normalizedSymbol, workingOrders, "REFERENCE_TRIGGER", null, null);
+    }
 
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public int triggerWorkingOrdersByQuote(String symbol,
+                                           BigDecimal bestBid,
+                                           BigDecimal bestAsk,
+                                           Long referenceEventTime,
+                                           String triggerSource,
+                                           Long referenceOffset) {
+        if (bestBid == null || bestAsk == null
+            || bestBid.compareTo(BigDecimal.ZERO) <= 0
+            || bestAsk.compareTo(BigDecimal.ZERO) <= 0) {
+            return 0;
+        }
+
+        String normalizedSymbol = normalizeSymbol(symbol);
+        List<CfdWorkingOrder> candidates = workingOrderMapper.selectTriggerCandidates(
+            normalizedSymbol,
+            bestBid,
+            bestAsk,
+            properties.getTriggerBatchSize()
+        );
+        if (candidates == null || candidates.isEmpty()) {
+            return 0;
+        }
+
+        String source = triggerSource == null || triggerSource.isBlank()
+            ? "REFERENCE_EVENT"
+            : triggerSource;
+        return triggerCandidates(normalizedSymbol, candidates, source, referenceEventTime, referenceOffset);
+    }
+
+    private int triggerCandidates(String symbol,
+                                  List<CfdWorkingOrder> workingOrders,
+                                  String triggerSource,
+                                  Long referenceEventTime,
+                                  Long referenceOffset) {
         int triggered = 0;
         for (CfdWorkingOrder workingOrder : workingOrders) {
-            CfdOrderCommand command = toLimitCommand(workingOrder);
+            CfdOrderCommand command = toLimitCommand(workingOrder, triggerSource, referenceOffset, referenceEventTime);
             MarketExecutionResult result = marketExecutionService.executeLimit(command);
             if (result == null) {
                 continue;
@@ -115,7 +153,7 @@ public class LimitWorkingOrderServiceImpl implements LimitWorkingOrderService {
                 workingOrder.getOrderId(),
                 STATUS_WORKING,
                 STATUS_FILLED,
-                "REFERENCE_TRIGGER",
+                triggerSource,
                 result.getReferenceEventTime() != null ? result.getReferenceEventTime() : now,
                 now
             );
@@ -127,15 +165,15 @@ public class LimitWorkingOrderServiceImpl implements LimitWorkingOrderService {
             orderStateProducer.publishFilled(result);
             triggered++;
 
-            log.info("[CFD-DEALER] working order triggered FILLED, orderId={}, symbol={}, vwap={}, qty={}, refTopic={}, refOffset={}",
+            log.info("[CFD-DEALER] working order triggered FILLED, orderId={}, symbol={}, triggerSource={}, vwap={}, qty={}, refTopic={}, refOffset={}",
                 workingOrder.getOrderId(),
-                normalizedSymbol,
+                symbol,
+                triggerSource,
                 result.getVwapPrice(),
                 result.getFilledQuantity(),
                 result.getReferenceTopic(),
                 result.getReferenceOffset());
         }
-
         return triggered;
     }
 
@@ -159,6 +197,13 @@ public class LimitWorkingOrderServiceImpl implements LimitWorkingOrderService {
     }
 
     private CfdOrderCommand toLimitCommand(CfdWorkingOrder workingOrder) {
+        return toLimitCommand(workingOrder, null, null, null);
+    }
+
+    private CfdOrderCommand toLimitCommand(CfdWorkingOrder workingOrder,
+                                           String referenceTopic,
+                                           Long referenceOffset,
+                                           Long referenceEventTime) {
         CfdOrderCommand command = new CfdOrderCommand();
         command.setEventType("CFD_ORDER_SUBMIT");
         command.setOrderId(workingOrder.getOrderId());
@@ -171,6 +216,9 @@ public class LimitWorkingOrderServiceImpl implements LimitWorkingOrderService {
         command.setExecutionMode("CFD_DEALER");
         command.setLiquiditySource(properties.getLiquiditySource());
         command.setLeverage(10);
+        command.setReferenceTopic(referenceTopic);
+        command.setReferenceOffset(referenceOffset);
+        command.setReferenceEventTime(referenceEventTime);
         command.setEventTime(System.currentTimeMillis());
         return command;
     }

@@ -17,6 +17,9 @@ public class WorkingOrderTriggerTask {
 
     @Scheduled(fixedDelayString = "${cfd.dealer.limit-trigger-interval-ms:100}")
     public void trigger() {
+        if (!properties.isPollingEnabled()) {
+            return;
+        }
         if (properties.getSymbols() == null || properties.getSymbols().isEmpty()) {
             return;
         }

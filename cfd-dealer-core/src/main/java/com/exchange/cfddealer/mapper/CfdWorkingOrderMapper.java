@@ -7,6 +7,7 @@ import org.apache.ibatis.annotations.Param;
 import org.apache.ibatis.annotations.Select;
 import org.apache.ibatis.annotations.Update;
 
+import java.math.BigDecimal;
 import java.util.List;
 
 @Mapper
@@ -14,6 +15,17 @@ public interface CfdWorkingOrderMapper extends BaseMapper<CfdWorkingOrder> {
 
     @Select("SELECT * FROM t_cfd_working_order WHERE symbol = #{symbol} AND status = 'WORKING' ORDER BY updated_at ASC LIMIT #{limit}")
     List<CfdWorkingOrder> selectWorkingBySymbol(@Param("symbol") String symbol, @Param("limit") int limit);
+
+    @Select("SELECT * FROM t_cfd_working_order " +
+            "WHERE symbol = #{symbol} " +
+            "  AND status = 'WORKING' " +
+            "  AND ((side = 0 AND limit_price >= #{bestAsk}) OR (side = 1 AND limit_price <= #{bestBid})) " +
+            "ORDER BY updated_at ASC " +
+            "LIMIT #{limit}")
+    List<CfdWorkingOrder> selectTriggerCandidates(@Param("symbol") String symbol,
+                                                  @Param("bestBid") BigDecimal bestBid,
+                                                  @Param("bestAsk") BigDecimal bestAsk,
+                                                  @Param("limit") int limit);
 
     @Update("UPDATE t_cfd_working_order " +
             "SET status=#{toStatus}, remaining_quantity=0, trigger_source=#{triggerSource}, trigger_event_time=#{triggerEventTime}, updated_at=#{updatedAt}, version=version+1 " +

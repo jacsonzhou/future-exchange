@@ -25,7 +25,6 @@ import java.util.Locale;
 public class ReferenceBookService {
 
     private static final String REDIS_DEPTH_PREFIX = "binance:depth:";
-    private static final String REDIS_CFD_REFERENCE_PREFIX = "cfd:reference:book:";
     private static final int MAX_DEPTH_LIMIT = 200;
 
     private final RedisTemplate<String, Object> redisTemplate;
@@ -71,8 +70,6 @@ public class ReferenceBookService {
                 .stalenessMs(stalenessMs)
                 .build();
 
-        // 额外落一个标准化快照，供 CFD dealer/排障直接读取
-        redisTemplate.opsForValue().set(REDIS_CFD_REFERENCE_PREFIX + normalizedSymbol, JSON.toJSONString(snapshot));
         return snapshot;
     }
 

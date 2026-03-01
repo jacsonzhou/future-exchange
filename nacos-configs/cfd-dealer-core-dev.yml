@@ -39,11 +39,15 @@ cfd:
     dealer-account-id: 0
     liquidity-source: BINANCE_REF
     command-topic-pattern: cfd-order-command-.*
+    reference-topic-pattern: market.ext.binance.depth.*
+    reference-consumer-group: cfd-dealer-reference
     order-state-topic-prefix: order-state-
     trade-topic-prefix: trade-event-
     symbols: [BTCUSDT]
     trigger-batch-size: 200
     limit-trigger-interval-ms: 100
+    polling-enabled: false
+    reference-depth-levels: 20
 
 mybatis-plus:
   configuration:
