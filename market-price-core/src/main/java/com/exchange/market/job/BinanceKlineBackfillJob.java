@@ -34,6 +34,12 @@ public class BinanceKlineBackfillJob {
 
     private static final long SCALE = 100_000_000L;
     private static final BigDecimal SCALE_BD = BigDecimal.valueOf(SCALE);
+    private static final int MAX_SYMBOL_RETRIES = 3;
+    private static final int MAX_FETCH_RETRIES = 5;
+    private static final int MAX_SAVE_RETRIES = 3;
+    private static final long FETCH_RETRY_BASE_DELAY_MS = 1_000L;
+    private static final long SAVE_RETRY_BASE_DELAY_MS = 1_000L;
+    private static final long SYMBOL_RETRY_BASE_DELAY_MS = 3_000L;
 
     private final ExternalMarketProperties externalProperties;
     private final KlineService klineService;
@@ -73,10 +79,27 @@ public class BinanceKlineBackfillJob {
         }
 
         for (String symbol : symbols) {
-            try {
-                backfillSymbol(symbol, interval, intervalMs);
-            } catch (Exception e) {
-                log.error("[Backfill] Failed for symbol={}", symbol, e);
+            boolean completed = false;
+            for (int attempt = 1; attempt <= MAX_SYMBOL_RETRIES; attempt++) {
+                try {
+                    backfillSymbol(symbol, interval, intervalMs);
+                    completed = true;
+                    break;
+                } catch (Exception e) {
+                    if (attempt >= MAX_SYMBOL_RETRIES) {
+                        log.error("[Backfill] Failed for symbol={} after {} attempts", symbol, attempt, e);
+                        break;
+                    }
+
+                    long retryDelay = SYMBOL_RETRY_BASE_DELAY_MS * attempt;
+                    log.warn("[Backfill] Attempt {}/{} failed for symbol={}, retry in {}ms",
+                            attempt, MAX_SYMBOL_RETRIES, symbol, retryDelay, e);
+                    sleepSilently(retryDelay);
+                }
+            }
+
+            if (!completed) {
+                log.warn("[Backfill] Skip symbol={} in this round after retries exhausted", symbol);
             }
         }
     }
@@ -152,7 +175,7 @@ public class BinanceKlineBackfillJob {
                 break;
             }
 
-            klineService.saveKlines(valid);
+            saveKlinesWithRetry(symbol, interval, cursor, valid);
             total += valid.size();
 
             long lastOpen = valid.get(valid.size() - 1).getOpenTime();
@@ -171,6 +194,27 @@ public class BinanceKlineBackfillJob {
         return total;
     }
 
+    private void saveKlinesWithRetry(String symbol, String interval, long cursor, List<Kline> batch) {
+        RuntimeException lastError = null;
+        for (int attempt = 1; attempt <= MAX_SAVE_RETRIES; attempt++) {
+            try {
+                klineService.saveKlines(batch);
+                return;
+            } catch (RuntimeException e) {
+                lastError = e;
+                if (attempt >= MAX_SAVE_RETRIES) {
+                    break;
+                }
+                long delay = SAVE_RETRY_BASE_DELAY_MS * attempt;
+                log.warn("[Backfill] Save retry {}/{} for {} {}, cursor={}, batchSize={}, delay={}ms",
+                        attempt, MAX_SAVE_RETRIES, symbol, interval, cursor, batch.size(), delay, e);
+                sleepSilently(delay);
+            }
+        }
+
+        throw lastError != null ? lastError : new RuntimeException("Unknown backfill save failure");
+    }
+
     private boolean sleepBetweenRequests() {
         long delay = Math.max(0L, externalProperties.getBackfill().getRequestDelayMs());
         if (delay <= 0) {
@@ -185,64 +229,119 @@ public class BinanceKlineBackfillJob {
         }
     }
 
-    private List<Kline> fetchKlines(String symbol, String interval, long startTime, int limit) {
+    private void sleepSilently(long delayMs) {
+        if (delayMs <= 0) {
+            return;
+        }
         try {
-            String baseUrl = normalizeBaseUrl(externalProperties.getRestBaseUrl());
-            String url = baseUrl + "/fapi/v1/klines?symbol=" + symbol +
-                    "&interval=" + interval +
-                    "&startTime=" + startTime +
-                    "&limit=" + limit;
+            Thread.sleep(delayMs);
+        } catch (InterruptedException ie) {
+            Thread.currentThread().interrupt();
+        }
+    }
 
-            HttpRequest request = HttpRequest.newBuilder()
-                    .uri(URI.create(url))
-                    .timeout(Duration.ofSeconds(15))
-                    .GET()
-                    .build();
+    private List<Kline> fetchKlines(String symbol, String interval, long startTime, int limit) {
+        String baseUrl = normalizeBaseUrl(externalProperties.getRestBaseUrl());
+        String url = baseUrl + "/fapi/v1/klines?symbol=" + symbol +
+                "&interval=" + interval +
+                "&startTime=" + startTime +
+                "&limit=" + limit;
 
-            HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
-            if (response.statusCode() != 200) {
-                log.warn("[Backfill] Binance response code={}, symbol={}, body={}",
-                        response.statusCode(), symbol, response.body());
-                return List.of();
-            }
+        RuntimeException lastError = null;
+        for (int attempt = 1; attempt <= MAX_FETCH_RETRIES; attempt++) {
+            try {
+                HttpRequest request = HttpRequest.newBuilder()
+                        .uri(URI.create(url))
+                        .timeout(Duration.ofSeconds(15))
+                        .GET()
+                        .build();
 
-            JSONArray rows = JSON.parseArray(response.body());
-            if (rows == null || rows.isEmpty()) {
-                return List.of();
-            }
+                HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
+                int statusCode = response.statusCode();
+                if (statusCode == 200) {
+                    JSONArray rows = JSON.parseArray(response.body());
+                    if (rows == null || rows.isEmpty()) {
+                        return List.of();
+                    }
+                    return mapRows(symbol, interval, rows);
+                }
 
-            List<Kline> result = new ArrayList<>(rows.size());
-            for (int i = 0; i < rows.size(); i++) {
-                JSONArray row = rows.getJSONArray(i);
-                if (row == null || row.size() < 11) {
+                if (isRetryableStatus(statusCode) && attempt < MAX_FETCH_RETRIES) {
+                    long delay = FETCH_RETRY_BASE_DELAY_MS * attempt;
+                    log.warn("[Backfill] Binance response code={}, symbol={}, interval={}, startTime={}, attempt={}/{}, retry in {}ms",
+                            statusCode, symbol, interval, startTime, attempt, MAX_FETCH_RETRIES, delay);
+                    sleepSilently(delay);
                     continue;
                 }
 
-                long openTime = row.getLongValue(0);
-                long closeTime = row.getLongValue(6);
-                Kline kline = Kline.builder()
-                        .symbol(symbol)
-                        .interval(interval)
-                        .openTime(openTime)
-                        .closeTime(closeTime)
-                        .openPrice(parseScaled(row.getString(1)))
-                        .highPrice(parseScaled(row.getString(2)))
-                        .lowPrice(parseScaled(row.getString(3)))
-                        .closePrice(parseScaled(row.getString(4)))
-                        .volume(parseScaled(row.getString(5)))
-                        .quoteVolume(parseScaled(row.getString(7)))
-                        .tradeCount(row.getIntValue(8))
-                        .takerBuyVolume(parseScaled(row.getString(9)))
-                        .takerBuyQuoteVolume(parseScaled(row.getString(10)))
-                        .build();
-                result.add(kline);
+                if (isRetryableStatus(statusCode)) {
+                    throw new RuntimeException("Binance retryable response code=" + statusCode);
+                }
+
+                log.warn("[Backfill] Binance non-retryable response code={}, symbol={}, interval={}, startTime={}, body={}",
+                        statusCode, symbol, interval, startTime, trimBody(response.body()));
+                return List.of();
+            } catch (Exception e) {
+                lastError = new RuntimeException("Failed to fetch Binance klines", e);
+                if (attempt >= MAX_FETCH_RETRIES) {
+                    break;
+                }
+
+                long delay = FETCH_RETRY_BASE_DELAY_MS * attempt;
+                log.warn("[Backfill] Fetch retry {}/{} for symbol={}, interval={}, startTime={}, retry in {}ms",
+                        attempt, MAX_FETCH_RETRIES, symbol, interval, startTime, delay, e);
+                sleepSilently(delay);
             }
-            return result;
-        } catch (Exception e) {
-            log.error("[Backfill] Failed to fetch Binance klines, symbol={}, interval={}, startTime={}",
-                    symbol, interval, startTime, e);
-            return List.of();
         }
+
+        log.error("[Backfill] Failed to fetch Binance klines, symbol={}, interval={}, startTime={}, retries={}",
+                symbol, interval, startTime, MAX_FETCH_RETRIES, lastError);
+        throw lastError != null ? lastError : new RuntimeException("Unknown fetch failure");
+    }
+
+    private List<Kline> mapRows(String symbol, String interval, JSONArray rows) {
+        List<Kline> result = new ArrayList<>(rows.size());
+        for (int i = 0; i < rows.size(); i++) {
+            JSONArray row = rows.getJSONArray(i);
+            if (row == null || row.size() < 11) {
+                continue;
+            }
+
+            long openTime = row.getLongValue(0);
+            long closeTime = row.getLongValue(6);
+            Kline kline = Kline.builder()
+                    .symbol(symbol)
+                    .interval(interval)
+                    .openTime(openTime)
+                    .closeTime(closeTime)
+                    .openPrice(parseScaled(row.getString(1)))
+                    .highPrice(parseScaled(row.getString(2)))
+                    .lowPrice(parseScaled(row.getString(3)))
+                    .closePrice(parseScaled(row.getString(4)))
+                    .volume(parseScaled(row.getString(5)))
+                    .quoteVolume(parseScaled(row.getString(7)))
+                    .tradeCount(row.getIntValue(8))
+                    .takerBuyVolume(parseScaled(row.getString(9)))
+                    .takerBuyQuoteVolume(parseScaled(row.getString(10)))
+                    .build();
+            result.add(kline);
+        }
+        return result;
+    }
+
+    private boolean isRetryableStatus(int statusCode) {
+        return statusCode == 429 || statusCode >= 500;
+    }
+
+    private String trimBody(String body) {
+        if (body == null) {
+            return "";
+        }
+        String text = body.strip();
+        if (text.length() <= 300) {
+            return text;
+        }
+        return text.substring(0, 300) + "...";
     }
 
     private List<String> resolveSymbols() {

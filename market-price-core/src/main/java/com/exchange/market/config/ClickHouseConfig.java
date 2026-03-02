@@ -27,7 +27,7 @@ public class ClickHouseConfig {
     @Value("${clickhouse.password:clickhouse123456}")
     private String password;
 
-    @Value("${clickhouse.socket-timeout:30000}")
+    @Value("${clickhouse.socket-timeout:120000}")
     private int socketTimeout;
 
     @Bean

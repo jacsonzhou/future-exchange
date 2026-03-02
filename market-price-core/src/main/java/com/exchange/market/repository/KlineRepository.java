@@ -280,7 +280,8 @@ public class KlineRepository {
         long safeEndTime = endTime != null ? endTime : System.currentTimeMillis();
         Long safeStartTime = startTime;
         if (safeStartTime == null && limit != null && limit > 0) {
-            long lookback = spec.approxIntervalMs * (long) (limit + 5);
+            long lookbackIntervals = Math.max(limit + 5L, (long) Math.ceil(limit * 1.5d));
+            long lookback = spec.approxIntervalMs * lookbackIntervals;
             safeStartTime = Math.max(0L, safeEndTime - lookback);
         }
 

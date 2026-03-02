@@ -53,11 +53,34 @@ public class KlineService {
     public List<Kline> getKlines(String symbol, String interval, 
                                   Long startTime, Long endTime, Integer limit) {
         if (klineRepository.supports1mAggregation(interval)) {
-            List<Kline> aggregated = klineRepository.queryAggregatedFrom1m(symbol, interval, startTime, endTime, limit);
-            if (!aggregated.isEmpty()) {
-                return aggregated;
+            // 回补高并发写入期间，聚合查询可能偶发超时，增加轻量重试避免退化到缓存少量数据。
+            RuntimeException lastError = null;
+            for (int attempt = 1; attempt <= 3; attempt++) {
+                try {
+                    List<Kline> aggregated = klineRepository.queryAggregatedFrom1m(symbol, interval, startTime, endTime, limit);
+                    if (!aggregated.isEmpty()) {
+                        return aggregated;
+                    }
+                    break;
+                } catch (RuntimeException e) {
+                    lastError = e;
+                    if (attempt >= 3) {
+                        break;
+                    }
+                    try {
+                        Thread.sleep(100L * attempt);
+                    } catch (InterruptedException interrupted) {
+                        Thread.currentThread().interrupt();
+                        break;
+                    }
+                }
             }
-            log.debug("[KlineService] Aggregated result empty, fallback to raw interval query: {} {}", symbol, interval);
+
+            if (lastError != null) {
+                log.warn("[KlineService] Aggregation failed after retries, fallback to raw interval query: {} {}", symbol, interval, lastError);
+            } else {
+                log.debug("[KlineService] Aggregated result empty, fallback to raw interval query: {} {}", symbol, interval);
+            }
         }
         return klineRepository.query(symbol, interval, startTime, endTime, limit);
     }

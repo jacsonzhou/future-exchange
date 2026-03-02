@@ -27,7 +27,7 @@ spring:
     url: jdbc:clickhouse://localhost:8123/exchange_kline
     user: default
     password: clickhouse123456
-    socket-timeout: 30000
+    socket-timeout: 120000
   
   # Redis配置
   redis:
