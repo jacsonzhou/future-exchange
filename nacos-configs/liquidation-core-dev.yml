@@ -78,6 +78,7 @@ liquidation:
   # 订单配置
   order:
     default-type: MARKET
+    execution-mode: CFD_DEALER
     price-protection-threshold: 5
     limit-price-slippage: 1
     split-threshold: 10000000000
@@ -121,6 +122,7 @@ liquidation:
 kafka:
   topic:
     liquidation-trigger: liquidation-trigger-topic
+    order-status-pattern: order-state-.*
     order-status: order-state-BTCUSDT
     liquidation-completed: liquidation-completed-topic
     adl-trigger: adl-trigger-topic

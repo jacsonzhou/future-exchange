@@ -13,13 +13,16 @@ import com.exchange.common.proto.response.CreateOrderResponse;
 import com.exchange.oms.client.HardRiskClient;
 import com.exchange.oms.client.MatchEngineClient;
 import com.exchange.oms.client.SnapshotClient;
+import com.exchange.oms.config.CfdRouteProperties;
 import com.exchange.oms.entity.Order;
 import com.exchange.oms.entity.OmsOrder;
 import com.exchange.oms.mapper.OrderMapper;
 import com.exchange.oms.mapper.OmsOrderMapper;
+import com.exchange.oms.dto.CfdOrderCommand;
 import com.exchange.oms.service.MarginPreHoldService;
 import com.exchange.oms.service.OrderService;
 import com.exchange.oms.config.OmsSubmitModeConfig;
+import com.exchange.oms.publisher.CfdOrderCommandPublisher;
 import com.exchange.oms.publisher.OrderEventPublisher;
 import com.exchange.oms.dto.OrderEventCommand;
 import lombok.extern.slf4j.Slf4j;
@@ -49,6 +52,8 @@ import java.math.RoundingMode;
 @Service
 public class OrderServiceImpl implements OrderService {
     private static final BigDecimal SCALE_BD = BigDecimal.valueOf(Money.SCALE);
+    private static final String EXECUTION_MODE_MATCH_ENGINE = "MATCH_ENGINE";
+    private static final String EXECUTION_MODE_CFD_DEALER = "CFD_DEALER";
 
     @Autowired
     private OrderMapper orderMapper;
@@ -73,6 +78,12 @@ public class OrderServiceImpl implements OrderService {
 
     @Autowired
     private OrderEventPublisher orderEventPublisher;
+
+    @Autowired
+    private CfdOrderCommandPublisher cfdOrderCommandPublisher;
+
+    @Autowired
+    private CfdRouteProperties cfdRouteProperties;
     
     @Override
     @Transactional
@@ -404,7 +415,11 @@ public class OrderServiceImpl implements OrderService {
             order.setStatus(1);
             order.setTimeInForce("IOC");
             order.setLeverage(resolveLeverage(request.getLeverage()));
-            order.setExecutionMode("MATCH_ENGINE");
+            String executionMode = resolveExecutionMode(request.getSymbol(), request.getExecutionMode());
+            order.setExecutionMode(executionMode);
+            if (isCfdExecutionMode(executionMode)) {
+                order.setLiquiditySource("BINANCE_REF");
+            }
             order.setRiskCheckStatus(1);
             order.setFreezeStatus(0);
             order.setVersion(0);
@@ -417,11 +432,11 @@ public class OrderServiceImpl implements OrderService {
             // 3. 强平订单跳过风控和保证金预扣
             log.info("[LiquidationOrder] Risk check and margin pre-hold skipped for liquidation order, orderId={}", orderId);
             
-            // 4. 发送到撮合引擎
-            OrderCommand command = buildOrderCommand(order);
-            submitOrderToMatchEngine(command, order);
+            // 4. 按 executionMode 路由（CFD_DEALER -> cfd-order-command，MATCH_ENGINE -> order-event）
+            submitInternalOrder(order);
             
-            log.info("[LiquidationOrder] Liquidation order created successfully, orderId={}", orderId);
+            log.info("[LiquidationOrder] Liquidation order created successfully, orderId={}, mode={}",
+                orderId, executionMode);
             return orderId;
             
         } catch (Exception e) {
@@ -493,9 +508,13 @@ public class OrderServiceImpl implements OrderService {
             return;
         }
         
-        // 发送撤单命令
-        OrderCommand command = buildCancelCommand(order);
-        submitOrderToMatchEngine(command, order);
+        // 发送撤单命令（CFD / MATCH 路由）
+        if (isCfdExecutionMode(order.getExecutionMode())) {
+            publishCfdCancelCommand(order);
+        } else {
+            OrderCommand command = buildCancelCommand(order);
+            submitOrderToMatchEngine(command, order);
+        }
         
         log.info("[CancelOrder] Cancel command sent, orderId={}", orderId);
     }
@@ -586,6 +605,84 @@ public class OrderServiceImpl implements OrderService {
         return BigDecimal.valueOf(raw)
                 .divide(SCALE_BD, 8, RoundingMode.HALF_UP)
                 .toPlainString();
+    }
+
+    private String formatScaledAmount(BigDecimal scaled) {
+        if (scaled == null) {
+            return null;
+        }
+        return scaled.divide(SCALE_BD, 8, RoundingMode.HALF_UP).toPlainString();
+    }
+
+    private void submitInternalOrder(OmsOrder order) {
+        if (isCfdExecutionMode(order.getExecutionMode())) {
+            publishCfdSubmitCommand(order);
+            return;
+        }
+        OrderCommand command = buildOrderCommand(order);
+        submitOrderToMatchEngine(command, order);
+    }
+
+    private void publishCfdSubmitCommand(OmsOrder order) {
+        CfdOrderCommand command = new CfdOrderCommand();
+        command.setEventType("CFD_ORDER_SUBMIT");
+        command.setOrderId(order.getId());
+        command.setUserId(order.getUserId());
+        command.setClientOrderId(order.getClientOrderId());
+        command.setSymbol(order.getSymbol());
+        command.setSide(mapSideFromDb(order.getSide()).name());
+        command.setOrderType(mapTypeFromDb(order.getType()).name());
+        command.setTimeInForce(order.getTimeInForce());
+        command.setPrice(formatScaledAmount(order.getPrice()));
+        command.setQuantity(formatScaledAmount(order.getQuantity()));
+        command.setLeverage(resolveLeverage(order.getLeverage()));
+        command.setExecutionMode(resolveExecutionMode(order.getSymbol(), order.getExecutionMode()));
+        command.setLiquiditySource(order.getLiquiditySource());
+        command.setReferenceTopic(order.getReferenceTopic());
+        command.setReferenceOffset(order.getReferenceOffset());
+        command.setReferenceEventTime(order.getReferenceEventTime());
+        command.setReferenceBestBid(toPlainString(order.getReferenceBestBid()));
+        command.setReferenceBestAsk(toPlainString(order.getReferenceBestAsk()));
+        command.setReferenceVwapPrice(toPlainString(order.getReferenceVwapPrice()));
+        command.setSlippageBps(order.getSlippageBps());
+        command.setEventTime(TimeUtils.now());
+        cfdOrderCommandPublisher.publish(command);
+    }
+
+    private void publishCfdCancelCommand(OmsOrder order) {
+        CfdOrderCommand command = new CfdOrderCommand();
+        command.setEventType("CFD_CANCEL");
+        command.setOrderId(order.getId());
+        command.setUserId(order.getUserId());
+        command.setClientOrderId(order.getClientOrderId());
+        command.setSymbol(order.getSymbol());
+        command.setExecutionMode(resolveExecutionMode(order.getSymbol(), order.getExecutionMode()));
+        command.setLiquiditySource(order.getLiquiditySource());
+        command.setEventTime(TimeUtils.now());
+        cfdOrderCommandPublisher.publish(command);
+    }
+
+    private String resolveExecutionMode(String symbol, String requestedMode) {
+        String normalized = normalizeExecutionMode(requestedMode);
+        if (normalized != null) {
+            return normalized;
+        }
+        return cfdRouteProperties.resolveMode(symbol, null);
+    }
+
+    private boolean isCfdExecutionMode(String mode) {
+        return cfdRouteProperties.isCfdDealer(mode);
+    }
+
+    private String normalizeExecutionMode(String mode) {
+        if (mode == null || mode.isBlank()) {
+            return null;
+        }
+        String normalized = mode.trim().toUpperCase();
+        if (EXECUTION_MODE_MATCH_ENGINE.equals(normalized) || EXECUTION_MODE_CFD_DEALER.equals(normalized)) {
+            return normalized;
+        }
+        throw new IllegalArgumentException("unsupported executionMode: " + mode);
     }
 
     private Integer mapSideToDb(Side side) {

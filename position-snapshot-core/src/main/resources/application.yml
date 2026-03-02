@@ -31,7 +31,8 @@ spring:
 # Position 配置
 position:
   kafka:
-    trade-entry-symbols: "BTCUSDT"
+    trade-entry-symbols: ""
+    trade-entry-enforce-whitelist: false
     trade-topics: ""
     mark-price-topics: ""
     position-change-topic: private-position-change

@@ -35,11 +35,7 @@ public class OrderStateConsumer {
      * 监听所有symbol的订单状态事件
      */
     @KafkaListener(
-        topics = {
-            "${kafka.topic.order-status-btc:order-state-BTCUSDT}",
-            "${kafka.topic.order-status-eth:order-state-ETHUSDT}",
-            "${kafka.topic.order-status-xrp:order-state-XRPUSDT}"
-        },
+        topicPattern = "${kafka.topic.order-status-pattern:order-state-.*}",
         groupId = "${spring.kafka.consumer.group-id:liquidation-order-state-group}",
         containerFactory = "kafkaListenerContainerFactory"
     )

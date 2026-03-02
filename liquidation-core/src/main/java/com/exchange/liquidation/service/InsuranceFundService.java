@@ -40,5 +40,15 @@ public interface InsuranceFundService {
                                      Long partialBankruptLoss,
                                      Long filledQty,
                                      Long totalQty);
-}
 
+    /**
+     * 将强平盈余注入保险基金
+     *
+     * 计算规则：当 (realizedPnl + initialMargin) > 0 且未穿仓时，
+     * 该盈余金额可注入保险基金，调用方无需关心幂等细节。
+     *
+     * @param execution 强平执行记录
+     * @return 实际注资金额（8位小数）
+     */
+    Long injectLiquidationSurplus(LiquidationExecution execution);
+}

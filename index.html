@@ -1,0 +1,879 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>NovaX 合约交易平台</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&family=Noto+Sans+SC:wght@400;500;700&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --bg-main: #05070c;
+            --bg-card: rgba(11, 16, 28, 0.74);
+            --bg-card-strong: rgba(15, 22, 36, 0.94);
+            --bg-soft: rgba(33, 47, 72, 0.36);
+            --line-soft: rgba(160, 188, 226, 0.22);
+            --line-strong: rgba(160, 188, 226, 0.44);
+            --text-main: #f2f7ff;
+            --text-sub: #8fa5c6;
+            --accent: #00c2ff;
+            --accent-2: #00e0b6;
+            --buy: #1ccb92;
+            --sell: #ff6e6e;
+            --warning: #ffb347;
+            --max-width: 1240px;
+            --shadow-strong: 0 30px 60px rgba(0, 0, 0, 0.36);
+            --radius-xl: 24px;
+            --radius-lg: 18px;
+            --radius-sm: 10px;
+        }
+
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
+        body {
+            min-height: 100vh;
+            color: var(--text-main);
+            font-family: "Noto Sans SC", "Space Grotesk", sans-serif;
+            background:
+                radial-gradient(800px 520px at -10% -15%, rgba(0, 194, 255, 0.16), transparent 70%),
+                radial-gradient(900px 480px at 110% 20%, rgba(0, 224, 182, 0.14), transparent 74%),
+                radial-gradient(1200px 700px at 50% 120%, rgba(80, 123, 255, 0.12), transparent 78%),
+                linear-gradient(150deg, #04060b 0%, #080b14 50%, #05070c 100%);
+            overflow-x: hidden;
+        }
+
+        a {
+            color: inherit;
+            text-decoration: none;
+        }
+
+        .ambient-strip {
+            position: fixed;
+            inset: 0;
+            pointer-events: none;
+            z-index: -1;
+        }
+
+        .ambient-strip::before,
+        .ambient-strip::after {
+            content: "";
+            position: absolute;
+            width: 50vw;
+            height: 50vw;
+            filter: blur(100px);
+            opacity: 0.42;
+        }
+
+        .ambient-strip::before {
+            top: -16vw;
+            left: -8vw;
+            background: radial-gradient(circle, rgba(0, 188, 255, 0.38) 0%, transparent 72%);
+        }
+
+        .ambient-strip::after {
+            right: -12vw;
+            bottom: -24vw;
+            background: radial-gradient(circle, rgba(0, 224, 182, 0.34) 0%, transparent 72%);
+        }
+
+        .announcement {
+            display: block;
+            width: min(var(--max-width), calc(100vw - 32px));
+            margin: 18px auto 12px;
+            padding: 12px 18px;
+            border: 1px solid rgba(0, 194, 255, 0.38);
+            border-radius: 999px;
+            background: linear-gradient(90deg, rgba(0, 194, 255, 0.12), rgba(0, 224, 182, 0.08));
+            color: #def7ff;
+            font-size: 13px;
+            letter-spacing: 0.1px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 10px;
+            transition: transform 0.22s ease, border-color 0.22s ease;
+            backdrop-filter: blur(8px);
+        }
+
+        .announcement:hover {
+            transform: translateY(-1px);
+            border-color: rgba(0, 224, 182, 0.5);
+        }
+
+        .announcement strong {
+            color: #ffffff;
+            font-weight: 600;
+        }
+
+        .announcement .cta {
+            color: var(--accent-2);
+            font-weight: 700;
+            white-space: nowrap;
+        }
+
+        .layout {
+            width: min(var(--max-width), calc(100vw - 32px));
+            margin: 0 auto 44px;
+        }
+
+        .topbar {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            gap: 18px;
+            padding: 16px 0;
+        }
+
+        .brand {
+            display: inline-flex;
+            align-items: center;
+            gap: 12px;
+            font-family: "Space Grotesk", sans-serif;
+            font-weight: 700;
+            letter-spacing: 0.2px;
+        }
+
+        .brand-mark {
+            width: 32px;
+            height: 32px;
+            border-radius: 10px;
+            background: linear-gradient(135deg, #00c2ff, #00e0b6);
+            color: #021218;
+            display: grid;
+            place-items: center;
+            font-size: 16px;
+            font-weight: 700;
+        }
+
+        .topnav {
+            display: flex;
+            align-items: center;
+            gap: 16px;
+            color: var(--text-sub);
+            font-size: 13px;
+        }
+
+        .topnav span {
+            transition: color 0.2s ease;
+            cursor: default;
+        }
+
+        .topnav span:hover {
+            color: #d5e6ff;
+        }
+
+        .user-pill {
+            display: inline-flex;
+            align-items: center;
+            gap: 10px;
+            padding: 8px 12px;
+            border-radius: 999px;
+            border: 1px solid var(--line-soft);
+            background: rgba(12, 18, 30, 0.76);
+            color: var(--text-sub);
+            font-size: 12px;
+            white-space: nowrap;
+        }
+
+        .user-pill strong {
+            color: #ffffff;
+            font-weight: 600;
+        }
+
+        .hero {
+            margin-top: 14px;
+            border: 1px solid var(--line-soft);
+            border-radius: var(--radius-xl);
+            background: linear-gradient(160deg, rgba(10, 17, 30, 0.86), rgba(6, 11, 20, 0.92));
+            box-shadow: var(--shadow-strong);
+            overflow: hidden;
+            display: grid;
+            grid-template-columns: 1.35fr 1fr;
+            min-height: 420px;
+        }
+
+        .hero-left {
+            padding: 44px 42px;
+            display: flex;
+            flex-direction: column;
+            justify-content: space-between;
+            gap: 24px;
+            position: relative;
+        }
+
+        .hero-left::before {
+            content: "";
+            position: absolute;
+            inset: auto 12% -34% -10%;
+            height: 62%;
+            background: radial-gradient(circle, rgba(0, 224, 182, 0.16) 0%, transparent 72%);
+            pointer-events: none;
+        }
+
+        .label {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            width: fit-content;
+            font-size: 12px;
+            padding: 6px 10px;
+            border-radius: 999px;
+            border: 1px solid rgba(0, 224, 182, 0.36);
+            color: #b7fff2;
+            background: rgba(0, 224, 182, 0.08);
+        }
+
+        .hero h1 {
+            font-family: "Space Grotesk", sans-serif;
+            font-size: clamp(34px, 5.2vw, 58px);
+            line-height: 1.04;
+            max-width: 620px;
+            letter-spacing: 0.2px;
+        }
+
+        .hero h1 span {
+            background: linear-gradient(120deg, #00c2ff, #00e0b6 72%);
+            -webkit-background-clip: text;
+            background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+
+        .hero p {
+            max-width: 560px;
+            font-size: 15px;
+            line-height: 1.72;
+            color: var(--text-sub);
+        }
+
+        .hero-stats {
+            display: grid;
+            grid-template-columns: repeat(3, minmax(0, 1fr));
+            gap: 10px;
+            max-width: 620px;
+        }
+
+        .hero-stat {
+            border: 1px solid rgba(160, 188, 226, 0.2);
+            border-radius: 14px;
+            padding: 12px;
+            background: rgba(15, 22, 35, 0.65);
+        }
+
+        .hero-stat .k {
+            display: block;
+            color: var(--text-sub);
+            font-size: 11px;
+            margin-bottom: 6px;
+        }
+
+        .hero-stat .v {
+            font-family: "Space Grotesk", sans-serif;
+            font-size: 18px;
+            font-weight: 700;
+        }
+
+        .hero-right {
+            border-left: 1px solid var(--line-soft);
+            background: linear-gradient(185deg, rgba(16, 24, 38, 0.93), rgba(9, 14, 24, 0.98));
+            padding: 34px 28px;
+            display: flex;
+            flex-direction: column;
+            gap: 18px;
+        }
+
+        .panel-title {
+            font-family: "Space Grotesk", sans-serif;
+            font-size: 18px;
+            font-weight: 700;
+            letter-spacing: 0.15px;
+        }
+
+        .panel-sub {
+            color: var(--text-sub);
+            font-size: 13px;
+            line-height: 1.6;
+        }
+
+        .pair-control {
+            margin-top: 8px;
+            display: grid;
+            gap: 10px;
+        }
+
+        .field-label {
+            color: #d9e9ff;
+            font-size: 12px;
+            font-weight: 600;
+        }
+
+        select,
+        input,
+        button {
+            font-family: inherit;
+            outline: none;
+        }
+
+        .pair-select {
+            width: 100%;
+            height: 44px;
+            border-radius: 12px;
+            border: 1px solid var(--line-soft);
+            background: rgba(6, 11, 20, 0.74);
+            color: #f3f8ff;
+            font-size: 14px;
+            padding: 0 14px;
+        }
+
+        .btn-primary,
+        .btn-ghost {
+            width: 100%;
+            height: 46px;
+            border-radius: 12px;
+            cursor: pointer;
+            transition: transform 0.18s ease, box-shadow 0.18s ease, border-color 0.18s ease;
+            font-size: 14px;
+            font-weight: 600;
+        }
+
+        .btn-primary {
+            color: #03131c;
+            border: 0;
+            background: linear-gradient(135deg, #00c2ff, #00e0b6);
+            box-shadow: 0 16px 30px rgba(0, 194, 255, 0.24);
+        }
+
+        .btn-primary:hover {
+            transform: translateY(-1px);
+            box-shadow: 0 20px 35px rgba(0, 194, 255, 0.28);
+        }
+
+        .btn-ghost {
+            border: 1px solid var(--line-soft);
+            color: #d6e7ff;
+            background: rgba(20, 30, 48, 0.3);
+        }
+
+        .btn-ghost:hover {
+            border-color: var(--line-strong);
+            transform: translateY(-1px);
+        }
+
+        .tip-row {
+            margin-top: auto;
+            border-radius: 12px;
+            border: 1px dashed rgba(0, 194, 255, 0.35);
+            padding: 12px 14px;
+            font-size: 12px;
+            color: #a7bfde;
+            line-height: 1.6;
+            background: rgba(9, 16, 28, 0.54);
+        }
+
+        .tip-row strong {
+            color: #ddf6ff;
+        }
+
+        .section {
+            margin-top: 22px;
+            display: grid;
+            gap: 16px;
+            grid-template-columns: repeat(3, minmax(0, 1fr));
+        }
+
+        .card {
+            border-radius: var(--radius-lg);
+            border: 1px solid var(--line-soft);
+            background: var(--bg-card);
+            backdrop-filter: blur(8px);
+            padding: 18px;
+            min-height: 160px;
+            display: flex;
+            flex-direction: column;
+            justify-content: space-between;
+            gap: 12px;
+        }
+
+        .card .eyebrow {
+            color: var(--text-sub);
+            font-size: 12px;
+        }
+
+        .card .value {
+            font-family: "Space Grotesk", sans-serif;
+            font-size: 27px;
+            font-weight: 700;
+            letter-spacing: 0.2px;
+        }
+
+        .card .value.buy {
+            color: var(--buy);
+        }
+
+        .card .value.sell {
+            color: var(--sell);
+        }
+
+        .card .value.accent {
+            color: var(--accent);
+        }
+
+        .market-table {
+            margin-top: 16px;
+            border-radius: var(--radius-lg);
+            border: 1px solid var(--line-soft);
+            background: var(--bg-card-strong);
+            overflow: hidden;
+        }
+
+        .market-head,
+        .market-row {
+            display: grid;
+            grid-template-columns: 1.2fr 1fr 0.9fr 0.9fr;
+            align-items: center;
+            gap: 12px;
+            padding: 14px 18px;
+        }
+
+        .market-head {
+            font-size: 12px;
+            color: var(--text-sub);
+            border-bottom: 1px solid var(--line-soft);
+            background: rgba(10, 15, 25, 0.9);
+        }
+
+        .market-row {
+            font-size: 14px;
+            border-bottom: 1px solid rgba(151, 177, 214, 0.12);
+        }
+
+        .market-row:last-child {
+            border-bottom: 0;
+        }
+
+        .pair-name {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            font-weight: 600;
+        }
+
+        .pair-dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background: linear-gradient(135deg, #00c2ff, #00e0b6);
+        }
+
+        .mono {
+            font-family: "IBM Plex Mono", monospace;
+        }
+
+        .change-up {
+            color: var(--buy);
+            font-weight: 600;
+        }
+
+        .change-down {
+            color: var(--sell);
+            font-weight: 600;
+        }
+
+        .row-enter {
+            width: 100%;
+            border: 0;
+            background: rgba(22, 34, 53, 0.82);
+            color: #d7ebff;
+            border-radius: 10px;
+            height: 34px;
+            cursor: pointer;
+            font-size: 12px;
+            font-weight: 600;
+        }
+
+        .row-enter:hover {
+            background: rgba(32, 48, 72, 0.94);
+        }
+
+        .features {
+            margin-top: 18px;
+            display: grid;
+            grid-template-columns: repeat(3, minmax(0, 1fr));
+            gap: 16px;
+        }
+
+        .feature {
+            border: 1px solid var(--line-soft);
+            border-radius: var(--radius-lg);
+            background: rgba(12, 18, 30, 0.7);
+            padding: 20px;
+        }
+
+        .feature h3 {
+            font-size: 17px;
+            margin-bottom: 10px;
+            font-family: "Space Grotesk", sans-serif;
+        }
+
+        .feature p {
+            color: var(--text-sub);
+            font-size: 13px;
+            line-height: 1.65;
+        }
+
+        .footer {
+            margin: 20px 0 10px;
+            color: #6f89ac;
+            font-size: 12px;
+            text-align: center;
+        }
+
+        .fade-up {
+            opacity: 0;
+            transform: translateY(14px);
+            animation: fadeUp 0.54s cubic-bezier(0.2, 0.75, 0.25, 1) forwards;
+        }
+
+        .delay-1 { animation-delay: 0.08s; }
+        .delay-2 { animation-delay: 0.16s; }
+        .delay-3 { animation-delay: 0.24s; }
+
+        @keyframes fadeUp {
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+
+        @media (max-width: 1024px) {
+            .hero {
+                grid-template-columns: 1fr;
+            }
+
+            .hero-right {
+                border-left: 0;
+                border-top: 1px solid var(--line-soft);
+            }
+
+            .section,
+            .features {
+                grid-template-columns: 1fr;
+            }
+
+            .market-head,
+            .market-row {
+                grid-template-columns: 1.3fr 1fr 1fr;
+            }
+
+            .market-head > :last-child,
+            .market-row > :last-child {
+                display: none;
+            }
+        }
+
+        @media (max-width: 720px) {
+            .layout,
+            .announcement {
+                width: calc(100vw - 20px);
+            }
+
+            .topbar {
+                flex-wrap: wrap;
+                justify-content: center;
+            }
+
+            .hero-left {
+                padding: 30px 22px;
+            }
+
+            .hero-right {
+                padding: 24px 18px;
+            }
+
+            .hero-stats {
+                grid-template-columns: 1fr;
+            }
+
+            .announcement {
+                padding: 11px 14px;
+                font-size: 12px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="ambient-strip" aria-hidden="true"></div>
+
+    <a id="topBanner" class="announcement fade-up" href="trading-test.html">
+        <span><strong>新版本交易终端已上线</strong> ｜ 更流畅盘口、登录态隔离、可切换交易币对</span>
+        <span class="cta">点击进入交易</span>
+    </a>
+
+    <div class="layout">
+        <header class="topbar fade-up delay-1">
+            <a class="brand" href="index.html">
+                <span class="brand-mark">N</span>
+                <span>NovaX Futures</span>
+            </a>
+            <nav class="topnav" aria-label="主导航">
+                <span>市场</span>
+                <span>合约</span>
+                <span>跟单</span>
+                <span>机构 API</span>
+            </nav>
+            <div class="user-pill" id="userPill">
+                <span>状态:</span>
+                <strong id="userStateText">未登录</strong>
+            </div>
+        </header>
+
+        <section class="hero fade-up delay-2">
+            <div class="hero-left">
+                <div>
+                    <div class="label">实时撮合 + 风控链路可观测</div>
+                    <h1>让用户从首页 <span>一键进入</span> 交易主场</h1>
+                    <p>
+                        首页聚焦增长和转化，交易页聚焦速度和清晰度。当前版本将登录前后状态、币对切换、下单路径和实时行情分层处理，
+                        在保证可扩展性的同时减少渲染负担。
+                    </p>
+                </div>
+                <div class="hero-stats">
+                    <div class="hero-stat">
+                        <span class="k">交易响应</span>
+                        <span class="v">&lt; 120ms</span>
+                    </div>
+                    <div class="hero-stat">
+                        <span class="k">盘口更新频率</span>
+                        <span class="v">100ms</span>
+                    </div>
+                    <div class="hero-stat">
+                        <span class="k">支持账户模式</span>
+                        <span class="v">登录 / 游客</span>
+                    </div>
+                </div>
+            </div>
+
+            <aside class="hero-right">
+                <div>
+                    <h2 class="panel-title">立即开始交易</h2>
+                    <p class="panel-sub">选择交易币对后，顶部 Banner 和下方按钮都会跳转到同一交易界面。</p>
+                </div>
+
+                <div class="pair-control">
+                    <label class="field-label" for="homePairSelect">交易币对</label>
+                    <select class="pair-select" id="homePairSelect"></select>
+                    <button class="btn-primary" id="enterTradeBtn">进入交易终端</button>
+                    <button class="btn-ghost" id="altEnterBtn">在新标签页打开</button>
+                </div>
+
+                <div class="tip-row" id="authTip">
+                    <strong>提示:</strong> 当前为游客模式，可查看行情。登录后可直接下单、查看余额和持仓。
+                </div>
+            </aside>
+        </section>
+
+        <section class="section fade-up delay-3">
+            <article class="card">
+                <span class="eyebrow">24h 成交额（模拟）</span>
+                <span class="value accent mono">$2.43B</span>
+                <span class="eyebrow">多市场聚合展示，支持更多交易对扩容</span>
+            </article>
+            <article class="card">
+                <span class="eyebrow">当前热门方向</span>
+                <span class="value buy">Long 57%</span>
+                <span class="eyebrow">来自最新成交与订单流统计</span>
+            </article>
+            <article class="card">
+                <span class="eyebrow">风险指数</span>
+                <span class="value sell">0.84</span>
+                <span class="eyebrow">接近中性，适合分批建仓</span>
+            </article>
+        </section>
+
+        <section class="market-table fade-up delay-3" aria-label="市场概览">
+            <div class="market-head">
+                <span>交易对</span>
+                <span>最新价</span>
+                <span>24h 涨跌</span>
+                <span>操作</span>
+            </div>
+            <div id="marketRows"></div>
+        </section>
+
+        <section class="features fade-up delay-3">
+            <article class="feature">
+                <h3>双阶段体验</h3>
+                <p>首页承担品牌和转化，交易页承担执行和反馈。用户路径更短，不会在一个页面塞满所有信息导致卡顿。</p>
+            </article>
+            <article class="feature">
+                <h3>登录前后分离</h3>
+                <p>游客可无门槛看行情；已登录用户自动切换到账户模式，展示余额、持仓和订单操作，减少误触与无效请求。</p>
+            </article>
+            <article class="feature">
+                <h3>币对驱动入口</h3>
+                <p>Banner 和 CTA 都携带币对参数跳转，适配营销活动与专题页投放，便于后续做按币对的转化漏斗统计。</p>
+            </article>
+        </section>
+
+        <div class="footer">NovaX Futures 前端入口页 · 跳转到 <code>trading-test.html</code> 进行交易</div>
+    </div>
+
+    <script>
+        (function () {
+            const PAIRS = [
+                { symbol: "BTCUSDT", price: 68421.5, change: 2.38 },
+                { symbol: "ETHUSDT", price: 3725.1, change: 1.74 },
+                { symbol: "SOLUSDT", price: 163.87, change: -1.22 },
+                { symbol: "BNBUSDT", price: 641.03, change: 0.54 },
+                { symbol: "XRPUSDT", price: 0.6834, change: -0.69 }
+            ];
+
+            const STORAGE = {
+                token: ["fx_token", "token"],
+                username: ["fx_username", "username"],
+                symbol: "fx_symbol"
+            };
+
+            const elements = {
+                pairSelect: document.getElementById("homePairSelect"),
+                topBanner: document.getElementById("topBanner"),
+                enterBtn: document.getElementById("enterTradeBtn"),
+                altEnterBtn: document.getElementById("altEnterBtn"),
+                marketRows: document.getElementById("marketRows"),
+                userStateText: document.getElementById("userStateText"),
+                authTip: document.getElementById("authTip")
+            };
+
+            function readStorage(keys) {
+                if (Array.isArray(keys)) {
+                    for (const key of keys) {
+                        const value = localStorage.getItem(key);
+                        if (value && value !== "undefined" && value !== "null") {
+                            return value;
+                        }
+                    }
+                    return null;
+                }
+                return localStorage.getItem(keys);
+            }
+
+            function normalizeToken(rawToken) {
+                if (!rawToken) return null;
+                let token = String(rawToken).trim();
+                if (token.startsWith("Bearer ")) {
+                    token = token.slice(7).trim();
+                }
+                if ((token.startsWith('"') && token.endsWith('"')) || (token.startsWith("'") && token.endsWith("'"))) {
+                    token = token.slice(1, -1).trim();
+                }
+                if (!token || token === "undefined" || token === "null") {
+                    return null;
+                }
+                return token;
+            }
+
+            function isLikelyJwt(token) {
+                return /^[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/.test(token || "");
+            }
+
+            function formatPrice(value) {
+                if (!Number.isFinite(value)) return "--";
+                if (value >= 1000) {
+                    return value.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+                }
+                if (value >= 1) {
+                    return value.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 4 });
+                }
+                return value.toLocaleString("en-US", { minimumFractionDigits: 4, maximumFractionDigits: 6 });
+            }
+
+            function tradingUrl(symbol) {
+                return `trading-test.html?symbol=${encodeURIComponent(symbol)}`;
+            }
+
+            function updateEntryLinks(symbol) {
+                const url = tradingUrl(symbol);
+                elements.topBanner.href = url;
+                elements.enterBtn.dataset.href = url;
+                elements.altEnterBtn.dataset.href = url;
+            }
+
+            function renderPairs() {
+                const selected = localStorage.getItem(STORAGE.symbol) || "BTCUSDT";
+                elements.pairSelect.innerHTML = PAIRS
+                    .map(item => `<option value="${item.symbol}" ${item.symbol === selected ? "selected" : ""}>${item.symbol}</option>`)
+                    .join("");
+                updateEntryLinks(elements.pairSelect.value);
+            }
+
+            function renderMarketRows() {
+                elements.marketRows.innerHTML = PAIRS.map(item => {
+                    const cls = item.change >= 0 ? "change-up" : "change-down";
+                    const sign = item.change >= 0 ? "+" : "";
+                    return `
+                        <div class="market-row">
+                            <span class="pair-name"><span class="pair-dot"></span>${item.symbol}</span>
+                            <span class="mono">${formatPrice(item.price)}</span>
+                            <span class="${cls}">${sign}${item.change.toFixed(2)}%</span>
+                            <button class="row-enter" data-symbol="${item.symbol}">立即交易</button>
+                        </div>
+                    `;
+                }).join("");
+            }
+
+            function applyAuthView() {
+                const token = normalizeToken(readStorage(STORAGE.token));
+                const username = readStorage(STORAGE.username);
+                const loggedIn = Boolean(token && isLikelyJwt(token));
+                if (loggedIn) {
+                    elements.userStateText.textContent = username ? `${username} 已登录` : "已登录";
+                    elements.authTip.innerHTML = "<strong>提示:</strong> 已识别登录态，进入交易页后将自动连接私有推送并加载余额/持仓。";
+                } else {
+                    elements.userStateText.textContent = "未登录";
+                    elements.authTip.innerHTML = "<strong>提示:</strong> 当前为游客模式，可查看行情。登录后可直接下单、查看余额和持仓。";
+                }
+            }
+
+            function bindEvents() {
+                elements.pairSelect.addEventListener("change", () => {
+                    const symbol = elements.pairSelect.value;
+                    localStorage.setItem(STORAGE.symbol, symbol);
+                    updateEntryLinks(symbol);
+                });
+
+                elements.enterBtn.addEventListener("click", () => {
+                    const href = elements.enterBtn.dataset.href;
+                    window.location.href = href;
+                });
+
+                elements.altEnterBtn.addEventListener("click", () => {
+                    const href = elements.altEnterBtn.dataset.href;
+                    window.open(href, "_blank", "noopener");
+                });
+
+                elements.marketRows.addEventListener("click", (event) => {
+                    const target = event.target;
+                    if (!(target instanceof HTMLElement)) return;
+                    if (!target.classList.contains("row-enter")) return;
+                    const symbol = target.dataset.symbol || "BTCUSDT";
+                    localStorage.setItem(STORAGE.symbol, symbol);
+                    window.location.href = tradingUrl(symbol);
+                });
+            }
+
+            function init() {
+                renderPairs();
+                renderMarketRows();
+                applyAuthView();
+                bindEvents();
+            }
+
+            init();
+        })();
+    </script>
+</body>
+</html>

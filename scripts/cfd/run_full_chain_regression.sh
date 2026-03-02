@@ -21,6 +21,7 @@ RUN_C8="${RUN_C8:-true}"
 RUN_R2="${RUN_R2:-true}"
 RUN_R6="${RUN_R6:-${RUN_ACCEPTANCE}}"
 RUN_PNL_PUSH="${RUN_PNL_PUSH:-${RUN_ACCEPTANCE}}"
+RUN_C9="${RUN_C9:-false}"
 WITH_LIQUIDATION="${WITH_LIQUIDATION:-true}"
 STRICT_LIQUIDATION="${STRICT_LIQUIDATION:-true}"
 AUTO_START="${AUTO_START:-true}"
@@ -218,6 +219,12 @@ run_pnl_push_check() {
     python3 scripts/test_position_up_mark_push.py
 }
 
+run_c9_insurance_fund_contract() {
+  log "Run C9 insurance fund contract check"
+  SYMBOL="${SYMBOL}" \
+    bash scripts/cfd/test_c9_insurance_fund_contract.sh
+}
+
 main() {
   if [[ "${AUTO_START}" == "true" ]]; then
     start_minimal_services
@@ -262,6 +269,10 @@ main() {
 
   if [[ "${RUN_R6}" == "true" ]]; then
     run_r6_liquidation_e2e "${taker_username}" "${PASSWORD}" "${maker_username}" "${PASSWORD}"
+  fi
+
+  if [[ "${RUN_C9}" == "true" ]]; then
+    run_c9_insurance_fund_contract
   fi
 
   log "Full chain regression PASS"

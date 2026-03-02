@@ -198,6 +198,7 @@ public class AuthGatewayFilter implements GlobalFilter, Ordered {
             "/api/v1/kline/**",
             "/api/v1/klines/**",           // ✅ K线数据接口（复数形式）
             "/api/v1/bookTicker/**",       // ✅ 最优盘口接口
+            "/api/binance/**",             // ✅ Binance外部行情公开接口
             "/api/v1/match/orderbook/**",  // 🔥 盘口数据公开接口（无需认证）
             "/actuator/health",
             "/actuator/info",

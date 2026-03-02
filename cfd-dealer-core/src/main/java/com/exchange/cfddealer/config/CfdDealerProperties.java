@@ -38,7 +38,13 @@ public class CfdDealerProperties {
     /**
      * WORKING 订单触发扫描交易对。
      */
-    private List<String> symbols = List.of("BTCUSDT");
+    private List<String> symbols = List.of(
+        "BTCUSDT",
+        "ETHUSDT",
+        "SOLUSDT",
+        "BNBUSDT",
+        "XRPUSDT"
+    );
 
     /**
      * 每次扫描每个交易对最多处理的 WORKING 订单数。

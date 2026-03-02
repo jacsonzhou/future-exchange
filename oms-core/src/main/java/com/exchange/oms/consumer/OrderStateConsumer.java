@@ -69,7 +69,7 @@ public class OrderStateConsumer {
     /**
      * 消费订单状态事件（来自Match Engine）
      * 
-     * Topic: order-state-{symbol}
+     * Topic Pattern: order-state-.*
      * 
      * 事件类型：
      * - NEW：新建订单
@@ -79,13 +79,9 @@ public class OrderStateConsumer {
      * - REJECTED：被拒绝
      */
     @KafkaListener(
-        topics = {
-            "order-state-BTCUSDT",
-            "order-state-ETHUSDT",
-            "order-state-XRPUSDT"
-        },
-        groupId = "oms-order-state",
-        concurrency = "3"  // 可并发消费不同Symbol
+        topicPattern = "${oms.kafka.order-state.topic-pattern:order-state-.*}",
+        groupId = "${spring.kafka.consumer.group-id:oms-order-state}",
+        concurrency = "${oms.kafka.order-state.concurrency:3}"  // 可并发消费不同Symbol
     )
     @Transactional(rollbackFor = Exception.class)
     public void consumeOrderState(

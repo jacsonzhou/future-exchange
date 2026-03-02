@@ -34,6 +34,9 @@ LIQUIDATION_QTY_INT="${LIQUIDATION_QTY_INT:-50000}"
 MYSQL_CONTAINER="${MYSQL_CONTAINER:-web3-mysql}"
 MYSQL_USER="${MYSQL_USER:-root}"
 MYSQL_PASSWORD="${MYSQL_PASSWORD:-root123456}"
+REDIS_CONTAINER="${REDIS_CONTAINER:-redis-dev}"
+REDIS_PASSWORD="${REDIS_PASSWORD:-redis}"
+LIQUIDATION_IDEMPOTENCY_KEY_PREFIX="${LIQUIDATION_IDEMPOTENCY_KEY_PREFIX:-liquidation:idempotency:}"
 
 require_cmd() {
   if ! command -v "$1" >/dev/null 2>&1; then
@@ -106,6 +109,61 @@ WHERE user_id=${user_id} AND symbol='${symbol}';
 " >/dev/null 2>&1 || true
 }
 
+query_open_position_ids() {
+  local user_id="$1"
+  local symbol="$2"
+  [[ -n "${user_id}" && "${user_id}" != "null" ]] || return 0
+  docker exec "${MYSQL_CONTAINER}" mysql "-u${MYSQL_USER}" "-p${MYSQL_PASSWORD}" -Nse "
+SELECT id
+FROM exchange_position.position_snapshot
+WHERE user_id=${user_id}
+  AND symbol='${symbol}'
+  AND size > 0;
+" 2>/dev/null || true
+}
+
+redis_del_key() {
+  local key="$1"
+  local out=""
+  if [[ -n "${REDIS_PASSWORD}" ]]; then
+    out="$(docker exec "${REDIS_CONTAINER}" redis-cli -a "${REDIS_PASSWORD}" DEL "${key}" 2>/dev/null || true)"
+    if [[ "${out}" =~ ^[0-9]+$ ]]; then
+      echo "${out}"
+      return 0
+    fi
+  fi
+  out="$(docker exec "${REDIS_CONTAINER}" redis-cli DEL "${key}" 2>/dev/null || true)"
+  if [[ "${out}" =~ ^[0-9]+$ ]]; then
+    echo "${out}"
+    return 0
+  fi
+  echo "${out}"
+}
+
+cleanup_liquidation_idempotency_keys() {
+  local user_id="$1"
+  local symbol="$2"
+  [[ -n "${user_id}" && "${user_id}" != "null" ]] || return 0
+
+  local position_ids
+  position_ids="$(query_open_position_ids "${user_id}" "${symbol}")"
+  if [[ -z "${position_ids}" ]]; then
+    echo "[R6] no open positions found for redis idempotency cleanup, userId=${user_id}, symbol=${symbol}"
+    return 0
+  fi
+
+  local count=0
+  while IFS= read -r position_id; do
+    [[ -n "${position_id}" ]] || continue
+    local key="${LIQUIDATION_IDEMPOTENCY_KEY_PREFIX}${position_id}"
+    local del_result
+    del_result="$(redis_del_key "${key}")"
+    echo "[R6] cleanup redis idempotency key=${key}, del=${del_result:-n/a}"
+    count=$((count + 1))
+  done <<< "${position_ids}"
+  echo "[R6] redis idempotency cleanup done, keys_checked=${count}"
+}
+
 run_id="$(date +%s)"
 if [[ -z "${USERNAME}" ]]; then
   USERNAME="r6_taker_${run_id}"
@@ -133,6 +191,7 @@ if [[ "${SKIP_TEST_STATE_RESET}" == "true" ]]; then
     sleep 1
   done
   cleanup_liquidation_history "${taker_user_id}" "${SYMBOL}"
+  cleanup_liquidation_idempotency_keys "${taker_user_id}" "${SYMBOL}"
 fi
 
 cmd=(python3 scripts/e2e_acceptance_suite.py

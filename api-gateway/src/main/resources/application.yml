@@ -82,6 +82,12 @@ spring:
           uri: lb://market-price-core
           predicates:
             - Path=/api/v1/bookTicker
+
+        # Binance 外部行情查询（CFD参考盘口/成交/ticker）
+        - id: binance-data-source
+          uri: lb://binance-data-source
+          predicates:
+            - Path=/api/binance/**
         
         # ========== 订单服务 (oms-core) ==========
         - id: order-service-create

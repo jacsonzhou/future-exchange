@@ -40,8 +40,8 @@ public class OrderInternalController {
      */
     @PostMapping("/createLiquidation")
     public Long createLiquidationOrder(@RequestBody LiquidationOrderRequest request) {
-        log.info("[OrderInternalController] Creating liquidation order, userId={}, positionId={}, symbol={}",
-                request.getUserId(), request.getPositionId(), request.getSymbol());
+        log.info("[OrderInternalController] Creating liquidation order, userId={}, positionId={}, symbol={}, executionMode={}",
+                request.getUserId(), request.getPositionId(), request.getSymbol(), request.getExecutionMode());
         
         try {
             // 转换为标准订单请求
@@ -59,6 +59,7 @@ public class OrderInternalController {
                     : request.getOrderSource()
             );
             orderRequest.setPositionId(request.getPositionId());
+            orderRequest.setExecutionMode(request.getExecutionMode());
             
             // 调用服务创建订单 (特殊处理)
             Long orderId = orderService.createLiquidationOrder(orderRequest);
@@ -116,6 +117,7 @@ public class OrderInternalController {
         private String orderSource;
         private Long positionId;
         private String liquidationId;
+        private String executionMode;
     }
     
     @lombok.Data

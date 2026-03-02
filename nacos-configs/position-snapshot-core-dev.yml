@@ -67,6 +67,7 @@ position:
     # 标记价格消费组使用新组，避免历史积压回放导致估值滞后
     mark-price-group: position-mark-service-v2
     trade-entry-symbols: ""
+    trade-entry-enforce-whitelist: false
     trade-topics: ""
     mark-price-topics: ""
     # 持仓变更事件Topic（供Private Push Service消费）

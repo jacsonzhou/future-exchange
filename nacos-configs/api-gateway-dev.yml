@@ -163,6 +163,12 @@ spring:
           #       redis-rate-limiter.replenishRate: 100
           #       redis-rate-limiter.burstCapacity: 200
           #       key-resolver: "#{@ipKeyResolver}"
+
+        # ==================== Binance 外部行情路由（公开）====================
+        - id: binance-data-public
+          uri: lb://binance-data-source
+          predicates:
+            - Path=/api/binance/**
         
         # ==================== 账户余额路由 ====================
         - id: account-balance
@@ -214,6 +220,7 @@ gateway:
       - /api/v1/market/**
       - /api/v1/ticker/**
       - /api/v1/depth/**
+      - /api/binance/**
       - /api/v1/oms/order/list
       - /api/v1/kline/**       # 单数形式（兼容旧版本）
       - /api/v1/klines/**      # ✅ 复数形式（K线数据接口）
@@ -240,6 +247,9 @@ gateway:
     per-symbol:
       BTCUSDT: 200
       ETHUSDT: 150
+      SOLUSDT: 120
+      BNBUSDT: 120
+      XRPUSDT: 120
 
 # 熔断配置
 resilience4j:

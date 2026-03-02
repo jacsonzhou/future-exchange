@@ -1,0 +1,120 @@
+{
+  "generatedAt": 1772418252488,
+  "durationSec": 120.49,
+  "passed": 6,
+  "failed": 4,
+  "steps": [
+    {
+      "name": "runtime_schema_fix",
+      "ok": true,
+      "message": "Liquidation runtime schema aligned",
+      "details": {
+        "mysqlContainer": "web3-mysql",
+        "completedAtBefore": true,
+        "validatedAtBefore": true,
+        "completedAtAfter": true,
+        "validatedAtAfter": true
+      }
+    },
+    {
+      "name": "service_check",
+      "ok": true,
+      "message": "Required services are listening",
+      "details": {
+        "apiGateway": "http://127.0.0.1:8082",
+        "omsBase": "http://127.0.0.1:8081",
+        "matchBase": "http://127.0.0.1:8083",
+        "positionInternalBase": "http://127.0.0.1:8086",
+        "liquidationBase": "http://127.0.0.1:8102"
+      }
+    },
+    {
+      "name": "login",
+      "ok": true,
+      "message": "Login success",
+      "details": {
+        "userId": 98,
+        "tokenLen": 192
+      }
+    },
+    {
+      "name": "maker_login",
+      "ok": true,
+      "message": "Maker account login success",
+      "details": {
+        "makerUsername": "cfd_maker_1772418093",
+        "makerUserId": 99,
+        "tokenLen": 192
+      }
+    },
+    {
+      "name": "context_snapshot",
+      "ok": true,
+      "message": "Depth empty, fallback bid/ask from ticker24h",
+      "details": {
+        "bestBid": "6600592800000.00000000",
+        "bestAsk": "6613807200000.00000000",
+        "depthHasLevels": false,
+        "fallbackSource": "ticker24h",
+        "activePosition": {
+          "symbol": "BTCUSDT",
+          "side": "LONG",
+          "positionSide": 1,
+          "size": "0.0010000000000000",
+          "entryPrice": "66072.0000000000000000",
+          "unrealizedPnl": "0.01315",
+          "realizedPnl": "0.0",
+          "marginRatio": "20.03581743",
+          "liquidationPrice": "59763.6180904500000000"
+        },
+        "positionCount": 1
+      }
+    },
+    {
+      "name": "cancel_flow",
+      "ok": false,
+      "message": "Cancel flow failed",
+      "details": {
+        "error": "Order submit failed. gateway={'error': 'timed out'}, gatewayErr=timed out, oms={'orderId': None, 'status': None, 'clientOrderId': None, 'success': False, 'errorCode': 'OMS_9001', 'errorMessage': '系统异常'}, omsErr=None"
+      }
+    },
+    {
+      "name": "fill_flow",
+      "ok": false,
+      "message": "Fill flow failed",
+      "details": {
+        "error": "Order submit failed. gateway={'error': 'timed out'}, gatewayErr=timed out, oms={'orderId': None, 'status': None, 'clientOrderId': None, 'success': False, 'errorCode': 'OMS_9001', 'errorMessage': '系统异常'}, omsErr=None"
+      }
+    },
+    {
+      "name": "manual_close_flow",
+      "ok": false,
+      "message": "Manual close flow failed",
+      "details": {
+        "error": "Order submit failed. gateway={'error': 'timed out'}, gatewayErr=timed out, oms={'orderId': None, 'status': None, 'clientOrderId': None, 'success': False, 'errorCode': 'OMS_9001', 'errorMessage': '系统异常'}, omsErr=None"
+      }
+    },
+    {
+      "name": "liquidation_price_formula",
+      "ok": true,
+      "message": "Liquidation price formula matched",
+      "details": {
+        "side": "LONG",
+        "entryPrice": "66072.0000000000000000",
+        "leverage": "10",
+        "actualLiquidationPrice": "59763.6180904500000000",
+        "expectedLiquidationPrice": "59763.61809045",
+        "diff": "0E-16",
+        "tolerance": "59.76361809045"
+      }
+    },
+    {
+      "name": "liquidation_trigger_execution",
+      "ok": false,
+      "message": "Liquidation trigger stage failed",
+      "details": {
+        "error": "Order submit failed. gateway={'error': 'timed out'}, gatewayErr=timed out, oms={'orderId': None, 'status': None, 'clientOrderId': None, 'success': False, 'errorCode': 'OMS_9001', 'errorMessage': '系统异常'}, omsErr=None"
+      }
+    }
+  ]
+}

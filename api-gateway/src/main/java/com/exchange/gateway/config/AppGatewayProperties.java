@@ -61,6 +61,10 @@ public class AppGatewayProperties {
             perUser.put("cancelOrder", 100);
             perIp.put("submitOrder", 20);
             perSymbol.put("BTCUSDT", 200);
+            perSymbol.put("ETHUSDT", 150);
+            perSymbol.put("SOLUSDT", 120);
+            perSymbol.put("BNBUSDT", 120);
+            perSymbol.put("XRPUSDT", 120);
         }
     }
     
@@ -111,4 +115,3 @@ public class AppGatewayProperties {
         private Map<String, Boolean> closeOnlySymbols = new HashMap<>();
     }
 }
-

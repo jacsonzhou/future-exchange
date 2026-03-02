@@ -32,6 +32,9 @@ import java.util.concurrent.TimeUnit;
 @Service
 @RequiredArgsConstructor
 public class LiquidationServiceImpl implements LiquidationService {
+
+    private static final String MODE_MATCH_ENGINE = "MATCH_ENGINE";
+    private static final String MODE_CFD_DEALER = "CFD_DEALER";
     
     private final LiquidationExecutionMapper executionMapper;
     private final LiquidationEventProducer eventProducer;
@@ -50,6 +53,9 @@ public class LiquidationServiceImpl implements LiquidationService {
     
     @Value("${liquidation.execution.max-retry:3}")
     private int maxRetry;
+
+    @Value("${liquidation.order.execution-mode:CFD_DEALER}")
+    private String liquidationOrderExecutionMode;
     
     @Override
     @Transactional(rollbackFor = Exception.class)
@@ -194,6 +200,14 @@ public class LiquidationServiceImpl implements LiquidationService {
                 execution.setAdlRequired(execution.getRemainingLoss() > 0 ? 1 : 0);
 
                 executionMapper.updateById(execution);
+            }
+
+            // 2.5 强平盈余注资保险基金（幂等由 insurance-fund bizSeq 保证）
+            Long surplusInjected = insuranceFundService.injectLiquidationSurplus(execution);
+            if (surplusInjected != null && surplusInjected > 0) {
+                log.info("💸 [LiquidationService] Liquidation surplus injected to insurance fund, " +
+                                "liquidationId={}, injected={}",
+                        liquidationId, surplusInjected);
             }
             
             // 3. 更新状态为完成
@@ -341,6 +355,7 @@ public class LiquidationServiceImpl implements LiquidationService {
         req.setOrderSource("LIQUIDATION");
         req.setPositionId(event.getPositionId());
         req.setLiquidationId(liquidationId);
+        req.setExecutionMode(resolveExecutionMode(liquidationOrderExecutionMode));
 
         Object raw = omsClient.createOrder(req);
         Long orderId = OmsResponseUtil.extractOrderId(raw);
@@ -351,6 +366,19 @@ public class LiquidationServiceImpl implements LiquidationService {
             );
         }
         return orderId;
+    }
+
+    private String resolveExecutionMode(String rawMode) {
+        if (rawMode == null || rawMode.isBlank()) {
+            return MODE_CFD_DEALER;
+        }
+        String normalized = rawMode.trim().toUpperCase();
+        if (MODE_CFD_DEALER.equals(normalized) || MODE_MATCH_ENGINE.equals(normalized)) {
+            return normalized;
+        }
+        log.warn("[LiquidationService] invalid liquidation.order.execution-mode={}, fallback {}",
+            rawMode, MODE_CFD_DEALER);
+        return MODE_CFD_DEALER;
     }
 
     private void handleFailure(String liquidationId, String error) {

@@ -1,0 +1,16 @@
+{
+  "generatedAt": 1772420299111,
+  "durationSec": 0.12,
+  "passed": 0,
+  "failed": 1,
+  "steps": [
+    {
+      "name": "runtime_schema_fix",
+      "ok": false,
+      "message": "Runtime schema fix failed",
+      "details": {
+        "error": "MySQL command failed (exit=1), container=web3-mysql, stdout=, stderr=permission denied while trying to connect to the docker API at unix:///Users/zhoufan/.docker/run/docker.sock\n"
+      }
+    }
+  ]
+}

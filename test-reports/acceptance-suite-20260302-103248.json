@@ -1,0 +1,140 @@
+{
+  "generatedAt": 1772418768899,
+  "durationSec": 92.06,
+  "passed": 8,
+  "failed": 2,
+  "steps": [
+    {
+      "name": "runtime_schema_fix",
+      "ok": true,
+      "message": "Liquidation runtime schema aligned",
+      "details": {
+        "mysqlContainer": "web3-mysql",
+        "completedAtBefore": true,
+        "validatedAtBefore": true,
+        "completedAtAfter": true,
+        "validatedAtAfter": true
+      }
+    },
+    {
+      "name": "service_check",
+      "ok": true,
+      "message": "Required services are listening",
+      "details": {
+        "apiGateway": "http://127.0.0.1:8082",
+        "omsBase": "http://127.0.0.1:8081",
+        "matchBase": "http://127.0.0.1:8083",
+        "positionInternalBase": "http://127.0.0.1:8086",
+        "liquidationBase": "http://127.0.0.1:8102"
+      }
+    },
+    {
+      "name": "login",
+      "ok": true,
+      "message": "Login success",
+      "details": {
+        "userId": 102,
+        "tokenLen": 193
+      }
+    },
+    {
+      "name": "maker_login",
+      "ok": true,
+      "message": "Maker account login success",
+      "details": {
+        "makerUsername": "cfd_maker_1772418608",
+        "makerUserId": 103,
+        "tokenLen": 193
+      }
+    },
+    {
+      "name": "context_snapshot",
+      "ok": true,
+      "message": "Depth empty, fallback bid/ask from ticker24h",
+      "details": {
+        "bestBid": "66097.83600000",
+        "bestAsk": "66230.16400000",
+        "depthHasLevels": false,
+        "fallbackSource": "ticker24h",
+        "activePosition": {
+          "symbol": "BTCUSDT",
+          "side": "LONG",
+          "positionSide": 1,
+          "size": "0.0010000000000000",
+          "entryPrice": "66164.0000000000000000",
+          "unrealizedPnl": "-0.00335",
+          "realizedPnl": "0.0",
+          "marginRatio": "19.99088582",
+          "liquidationPrice": "59846.8341708500000000"
+        },
+        "positionCount": 1
+      }
+    },
+    {
+      "name": "cancel_flow",
+      "ok": true,
+      "message": "Passive order canceled successfully",
+      "details": {
+        "orderId": "286686906664620032",
+        "side": "SELL",
+        "price": "72853.18040000",
+        "cancelResponse": {
+          "orderId": "286686906664620032",
+          "status": "CANCELED",
+          "success": true,
+          "errorCode": null,
+          "errorMessage": null
+        },
+        "finalStatus": "CANCELED"
+      }
+    },
+    {
+      "name": "fill_flow",
+      "ok": false,
+      "message": "Fill flow failed",
+      "details": {
+        "error": "Aggressive open order not FILLED, status=FROZEN, query={'orderId': '286686937907990528', 'clientOrderId': 'acc-open-1772418692283', 'symbol': 'BTCUSDT', 'side': 'BUY', 'type': 'LIMIT', 'price': '79476.1968', 'quantity': '0.001', 'filledQuantity': '0', 'status': 'FROZEN', 'reasonCode': 'FROZEN', 'reasonMsg': 'Fund frozen', 'executionMode': 'CFD_DEALER', 'liquiditySource': None, 'referenceTopic': None, 'referenceOffset': None, 'referenceEventTime': None, 'referenceBestBid': None, 'referenceBestAsk': None, 'referenceVwapPrice': None, 'slippageBps': None, 'createTime': 1772418692383}"
+      }
+    },
+    {
+      "name": "manual_close_flow",
+      "ok": true,
+      "message": "Manual close order filled and position reduced",
+      "details": {
+        "orderId": "286687143806373888",
+        "closeSide": "SELL",
+        "closePrice": "52878.26880000",
+        "sizeAfterFill": "0.0020000000000000",
+        "sizeAfterClose": "0.0015000000000000",
+        "submitMode": "reduceOnly=true",
+        "orderStatusObserved": "FILLED",
+        "seedOrderId": "286687137389088768",
+        "seedOrderSide": "BUY",
+        "seedOrderStatus": "CANCELED",
+        "seedFilledQuantity": "0"
+      }
+    },
+    {
+      "name": "liquidation_price_formula",
+      "ok": true,
+      "message": "Liquidation price formula matched",
+      "details": {
+        "side": "LONG",
+        "entryPrice": "66164.0000000000000000",
+        "leverage": "10",
+        "actualLiquidationPrice": "59846.8341708500000000",
+        "expectedLiquidationPrice": "59846.83417085",
+        "diff": "0E-16",
+        "tolerance": "59.84683417085"
+      }
+    },
+    {
+      "name": "liquidation_trigger_execution",
+      "ok": false,
+      "message": "Liquidation trigger stage failed",
+      "details": {
+        "error": "Seeded counterparty depth not enough for single-shot liquidation, required=0.0005, observed=0, takerSide=SELL, seedPrice=66097.83600001"
+      }
+    }
+  ]
+}

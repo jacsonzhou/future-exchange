@@ -1,0 +1,40 @@
+{
+  "generatedAt": 1772419335609,
+  "durationSec": 3.77,
+  "passed": 2,
+  "failed": 1,
+  "steps": [
+    {
+      "name": "runtime_schema_fix",
+      "ok": true,
+      "message": "Liquidation runtime schema aligned",
+      "details": {
+        "mysqlContainer": "web3-mysql",
+        "completedAtBefore": true,
+        "validatedAtBefore": true,
+        "completedAtAfter": true,
+        "validatedAtAfter": true
+      }
+    },
+    {
+      "name": "service_check",
+      "ok": true,
+      "message": "Required services are listening",
+      "details": {
+        "apiGateway": "http://127.0.0.1:8082",
+        "omsBase": "http://127.0.0.1:8081",
+        "matchBase": "http://127.0.0.1:8083",
+        "positionInternalBase": "http://127.0.0.1:8086",
+        "liquidationBase": "http://127.0.0.1:8102"
+      }
+    },
+    {
+      "name": "login",
+      "ok": false,
+      "message": "Login failed",
+      "details": {
+        "error": "Login failed: {'code': 401, 'message': '用户名或密码错误', 'data': None, 'timestamp': 1772419335600}"
+      }
+    }
+  ]
+}

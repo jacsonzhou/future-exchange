@@ -9,11 +9,16 @@ import org.springframework.kafka.config.TopicBuilder;
 import org.springframework.kafka.core.KafkaTemplate;
 import org.springframework.kafka.core.ProducerFactory;
 import org.springframework.kafka.core.DefaultKafkaProducerFactory;
+import org.springframework.kafka.core.KafkaAdmin;
 import org.apache.kafka.clients.producer.ProducerConfig;
 import org.apache.kafka.common.serialization.StringSerializer;
 
+import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.LinkedHashSet;
+import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 /**
  * Kafka配置类
@@ -26,6 +31,12 @@ public class KafkaConfig {
 
     @Value("${spring.kafka.bootstrap-servers:localhost:9092}")
     private String bootstrapServers;
+
+    private final BinanceDataSourceConfig dataSourceConfig;
+
+    public KafkaConfig(BinanceDataSourceConfig dataSourceConfig) {
+        this.dataSourceConfig = dataSourceConfig;
+    }
 
     /**
      * Kafka Producer配置
@@ -51,40 +62,48 @@ public class KafkaConfig {
     }
 
     /**
-     * 币安深度数据Topic
-     * 
-     * 注意：实际使用时，每个symbol应该动态创建topic
-     * 这里只是示例配置
+     * 按配置的交易对动态创建外部行情 Topic。
      */
     @Bean
-    public NewTopic binanceDepthTopic() {
-        return TopicBuilder.name("market.ext.binance.depth.BTCUSDT")
-                .partitions(1)
-                .replicas(1)
-                .build();
-    }
+    public KafkaAdmin.NewTopics binanceMarketTopics() {
+        String source = dataSourceConfig.getSource();
+        List<String> symbols = dataSourceConfig.getSymbols();
+        List<String> intervals = dataSourceConfig.getKlineIntervals();
 
-    @Bean
-    public NewTopic binanceTradeTopic() {
-        return TopicBuilder.name("market.ext.binance.trade.BTCUSDT")
-                .partitions(1)
-                .replicas(1)
-                .build();
-    }
+        Set<String> names = new LinkedHashSet<>();
+        if (symbols != null) {
+            for (String symbol : symbols) {
+                if (symbol == null || symbol.isBlank()) {
+                    continue;
+                }
+                String normalized = symbol.trim().toUpperCase();
+                names.add(String.format(dataSourceConfig.getKafka().getDepthTopicFormat(), source, normalized));
+                names.add(String.format(dataSourceConfig.getKafka().getTradeTopicFormat(), source, normalized));
+                names.add(String.format(dataSourceConfig.getKafka().getTickerTopicFormat(), source, normalized));
 
-    @Bean
-    public NewTopic binanceTickerTopic() {
-        return TopicBuilder.name("market.ext.binance.ticker.BTCUSDT")
-                .partitions(1)
-                .replicas(1)
-                .build();
-    }
+                if (intervals != null) {
+                    for (String interval : intervals) {
+                        if (interval == null || interval.isBlank()) {
+                            continue;
+                        }
+                        names.add(String.format(
+                                dataSourceConfig.getKafka().getKlineTopicFormat(),
+                                source,
+                                normalized,
+                                interval.trim()
+                        ));
+                    }
+                }
+            }
+        }
 
-    @Bean
-    public NewTopic binanceKlineTopic() {
-        return TopicBuilder.name("market.ext.binance.kline.BTCUSDT.1m")
-                .partitions(1)
-                .replicas(1)
-                .build();
+        List<NewTopic> topics = new ArrayList<>(names.size());
+        for (String name : names) {
+            topics.add(TopicBuilder.name(name)
+                    .partitions(1)
+                    .replicas(1)
+                    .build());
+        }
+        return new KafkaAdmin.NewTopics(topics.toArray(NewTopic[]::new));
     }
 }

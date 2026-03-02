@@ -69,7 +69,7 @@ cfd:
     reference-consumer-group: cfd-dealer-reference
     order-state-topic-prefix: order-state-
     trade-topic-prefix: trade-event-
-    symbols: [BTCUSDT]
+    symbols: [BTCUSDT, ETHUSDT, SOLUSDT, BNBUSDT, XRPUSDT]
     trigger-batch-size: 200
     limit-trigger-interval-ms: 100
     polling-enabled: false

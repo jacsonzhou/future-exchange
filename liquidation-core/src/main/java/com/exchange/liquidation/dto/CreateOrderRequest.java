@@ -18,4 +18,5 @@ public class CreateOrderRequest {
     private String orderSource;
     private Long positionId;
     private String liquidationId;
+    private String executionMode;
 }

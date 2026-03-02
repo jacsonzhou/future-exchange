@@ -73,8 +73,13 @@ public class CreateOrderRequest implements Serializable {
      * 持仓ID (强平/ADL订单使用)
      */
     private Long positionId;
-}
 
+    /**
+     * 执行模式（MATCH_ENGINE / CFD_DEALER）
+     * 内部订单（强平/ADL）可显式指定，未指定时由OMS路由配置决定
+     */
+    private String executionMode;
+}
 
 
 

@@ -50,8 +50,16 @@ public class TradeEntryEventConsumer {
     /**
      * 支持的Symbol列表，用于构建Topic
      */
-    @Value("${position.kafka.trade-entry-symbols:BTCUSDT,ETHUSDT}")
+    @Value("${position.kafka.trade-entry-symbols:}")
     private String tradeEntrySymbols;
+
+    /**
+     * 是否启用交易对过滤白名单：
+     * - false（默认）：消费所有 trade-entry-{symbol}，新增币对无需改代码
+     * - true：仅消费 trade-entry-symbols 列表内交易对
+     */
+    @Value("${position.kafka.trade-entry-enforce-whitelist:false}")
+    private boolean enforceSymbolWhitelist;
     
     private volatile List<String> symbolList;
     
@@ -67,7 +75,9 @@ public class TradeEntryEventConsumer {
                         .filter(s -> !s.isEmpty())
                         .collect(Collectors.toList());
                     symbolList = configuredSymbols.isEmpty() ? Collections.emptyList() : configuredSymbols;
-                    if (symbolList.isEmpty()) {
+                    if (!enforceSymbolWhitelist) {
+                        log.info("[TradeEntryConsumer] Symbol whitelist disabled, consume all trade-entry-* topics");
+                    } else if (symbolList.isEmpty()) {
                         log.warn("[TradeEntryConsumer] trade-entry-symbols is empty, consume all trade-entry-* symbols");
                     } else {
                         log.info("[TradeEntryConsumer] Initialized with symbols: {}", symbolList);
@@ -169,6 +179,9 @@ public class TradeEntryEventConsumer {
     }
 
     private boolean isSymbolAllowed(String symbol) {
+        if (!enforceSymbolWhitelist) {
+            return true;
+        }
         List<String> configured = getSymbolList();
         if (configured.isEmpty()) {
             return true;

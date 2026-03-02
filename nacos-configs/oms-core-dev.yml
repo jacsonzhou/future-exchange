@@ -102,3 +102,6 @@ oms:
   kafka:
     cfd-order-command:
       topic-prefix: cfd-order-command-
+    order-state:
+      topic-pattern: order-state-.*
+      concurrency: 3
