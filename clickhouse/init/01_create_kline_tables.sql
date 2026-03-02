@@ -58,8 +58,9 @@ CREATE TABLE IF NOT EXISTS exchange_kline.kline_realtime
     trade_count UInt32,
     taker_buy_volume Decimal(32, 8),
     taker_buy_quote_volume Decimal(32, 8),
-    -- 版本号，用于 ReplacingMergeTree
-    version UInt64 DEFAULT toUInt64(now() * 1000),
+    -- 版本号（毫秒时间戳），用于 ReplacingMergeTree 去重
+    -- ClickHouse 24.x 中 now() 为 DateTime，不能直接参与乘法
+    version UInt64 DEFAULT toUInt64(toUnixTimestamp64Milli(now64(3))),
     event_date Date DEFAULT toDate(open_time)
 )
 ENGINE = ReplacingMergeTree(version)

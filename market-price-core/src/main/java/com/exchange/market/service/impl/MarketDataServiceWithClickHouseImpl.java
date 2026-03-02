@@ -6,6 +6,7 @@ import com.exchange.market.engine.TradeEngine;
 import com.exchange.market.entity.Kline;
 import com.exchange.market.entity.Ticker24h;
 import com.exchange.market.model.Trade;
+import com.exchange.market.config.ExternalMarketProperties;
 import com.exchange.market.service.MarketDataEngineService;
 import com.exchange.market.service.MarketDataService;
 import com.exchange.market.cache.MarketDataCache;
@@ -16,7 +17,10 @@ import org.springframework.stereotype.Service;
 
 import jakarta.annotation.PostConstruct;
 import java.util.ArrayList;
+import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Locale;
+import java.util.Set;
 import java.util.stream.Collectors;
 
 /**
@@ -45,6 +49,9 @@ public class MarketDataServiceWithClickHouseImpl implements MarketDataService {
     
     @Autowired
     private KlineEngineWithStorage klineEngine;
+
+    @Autowired(required = false)
+    private ExternalMarketProperties externalMarketProperties;
 
     @PostConstruct
     public void init() {
@@ -124,7 +131,16 @@ public class MarketDataServiceWithClickHouseImpl implements MarketDataService {
 
     @Override
     public List<Ticker24h> getAllTickers24h() {
-        List<String> symbols = engineService.getSymbols();
+        Set<String> symbols = new LinkedHashSet<>(engineService.getSymbols());
+        if (externalMarketProperties != null
+                && externalMarketProperties.isEnabled()
+                && externalMarketProperties.getSymbols() != null) {
+            externalMarketProperties.getSymbols().stream()
+                    .filter(s -> s != null && !s.isBlank())
+                    .map(s -> s.trim().toUpperCase(Locale.ROOT))
+                    .forEach(symbols::add);
+        }
+
         return symbols.stream()
                 .map(this::getTicker24h)
                 .filter(t -> t != null)

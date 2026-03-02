@@ -56,6 +56,22 @@ market-data:
   kafka:
     enabled: true
   
+  external:
+    enabled: true
+    source: binance
+    rest-base-url: https://fapi.binance.com
+    symbols: BTCUSDT,ETHUSDT,BNBUSDT,SOLUSDT,XRPUSDT
+    backfill:
+      enabled: true
+      startup-delay-ms: 5000
+      interval: 1m
+      initial-days: 365
+      batch-limit: 1500
+      request-delay-ms: 50
+    ticker:
+      external-fresh-ms: 15000
+      fallback-refresh-ms: 1000
+  
   # K线配置
   kline:
     # 支持的周期

@@ -225,6 +225,9 @@ public class MarketDataEngineService {
         symbolEnginesMap.forEach((symbol, engines) -> {
             try {
                 TradeEngine.TradeStats24h stats = engines.getTradeEngine().getTradeStats24h();
+                if (!isMeaningfulTicker(stats)) {
+                    return;
+                }
                 publisher.publishTicker(symbol, stats);
             } catch (Exception e) {
                 log.error("[EngineService] Failed to publish ticker for {}: {}", symbol, e.getMessage());
@@ -243,6 +246,21 @@ public class MarketDataEngineService {
         String signature = buildDepthSignature(bids, asks);
         String previous = lastDepthSignatureMap.put(symbol, signature);
         return !signature.equals(previous);
+    }
+
+    /**
+     * 防止空 TradeEngine 统计覆盖外部 24h 数据（0 值抖动）。
+     */
+    private boolean isMeaningfulTicker(TradeEngine.TradeStats24h stats) {
+        if (stats == null) {
+            return false;
+        }
+        return stats.getOpenPrice() > 0
+                || stats.getHighPrice() > 0
+                || stats.getLowPrice() > 0
+                || stats.getVolume() > 0
+                || stats.getQuoteVolume() > 0
+                || stats.getCount() > 0;
     }
 
     private String buildDepthSignature(List<long[]> bids, List<long[]> asks) {

@@ -9,6 +9,8 @@ import javax.sql.DataSource;
 import java.sql.*;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Locale;
+import java.util.Map;
 
 /**
  * K 线数据 ClickHouse 存储仓库
@@ -24,6 +26,74 @@ public class KlineRepository {
 
     // 批量插入大小
     private static final int BATCH_SIZE = 1000;
+
+    private static final Map<String, IntervalAggregationSpec> AGGREGATION_SPECS = Map.ofEntries(
+            Map.entry("5m", new IntervalAggregationSpec(
+                    "toStartOfInterval(open_time, INTERVAL 5 MINUTE)",
+                    "addMilliseconds(addMinutes(bucket_open, 5), -1)",
+                    5L * 60_000L
+            )),
+            Map.entry("15m", new IntervalAggregationSpec(
+                    "toStartOfInterval(open_time, INTERVAL 15 MINUTE)",
+                    "addMilliseconds(addMinutes(bucket_open, 15), -1)",
+                    15L * 60_000L
+            )),
+            Map.entry("30m", new IntervalAggregationSpec(
+                    "toStartOfInterval(open_time, INTERVAL 30 MINUTE)",
+                    "addMilliseconds(addMinutes(bucket_open, 30), -1)",
+                    30L * 60_000L
+            )),
+            Map.entry("1h", new IntervalAggregationSpec(
+                    "toStartOfInterval(open_time, INTERVAL 1 HOUR)",
+                    "addMilliseconds(addHours(bucket_open, 1), -1)",
+                    3_600_000L
+            )),
+            Map.entry("2h", new IntervalAggregationSpec(
+                    "toStartOfInterval(open_time, INTERVAL 2 HOUR)",
+                    "addMilliseconds(addHours(bucket_open, 2), -1)",
+                    2L * 3_600_000L
+            )),
+            Map.entry("4h", new IntervalAggregationSpec(
+                    "toStartOfInterval(open_time, INTERVAL 4 HOUR)",
+                    "addMilliseconds(addHours(bucket_open, 4), -1)",
+                    4L * 3_600_000L
+            )),
+            Map.entry("6h", new IntervalAggregationSpec(
+                    "toStartOfInterval(open_time, INTERVAL 6 HOUR)",
+                    "addMilliseconds(addHours(bucket_open, 6), -1)",
+                    6L * 3_600_000L
+            )),
+            Map.entry("8h", new IntervalAggregationSpec(
+                    "toStartOfInterval(open_time, INTERVAL 8 HOUR)",
+                    "addMilliseconds(addHours(bucket_open, 8), -1)",
+                    8L * 3_600_000L
+            )),
+            Map.entry("12h", new IntervalAggregationSpec(
+                    "toStartOfInterval(open_time, INTERVAL 12 HOUR)",
+                    "addMilliseconds(addHours(bucket_open, 12), -1)",
+                    12L * 3_600_000L
+            )),
+            Map.entry("1d", new IntervalAggregationSpec(
+                    "toStartOfInterval(open_time, INTERVAL 1 DAY)",
+                    "addMilliseconds(addDays(bucket_open, 1), -1)",
+                    86_400_000L
+            )),
+            Map.entry("3d", new IntervalAggregationSpec(
+                    "toStartOfInterval(open_time, INTERVAL 3 DAY)",
+                    "addMilliseconds(addDays(bucket_open, 3), -1)",
+                    3L * 86_400_000L
+            )),
+            Map.entry("1w", new IntervalAggregationSpec(
+                    "toStartOfInterval(open_time, INTERVAL 1 WEEK)",
+                    "addMilliseconds(addWeeks(bucket_open, 1), -1)",
+                    7L * 86_400_000L
+            )),
+            Map.entry("1M", new IntervalAggregationSpec(
+                    "toStartOfInterval(open_time, INTERVAL 1 MONTH)",
+                    "addMilliseconds(addMonths(bucket_open, 1), -1)",
+                    30L * 86_400_000L
+            ))
+    );
 
     /**
      * 保存 K 线数据（单条）
@@ -46,6 +116,32 @@ public class KlineRepository {
         } catch (SQLException e) {
             log.error("[KlineRepository] Failed to save kline: {}", kline, e);
             throw new RuntimeException("Failed to save kline", e);
+        }
+    }
+
+    /**
+     * 幂等保存 K 线（同 symbol + interval + open_time 仅插入一次）。
+     */
+    public void saveIfAbsent(Kline kline) {
+        String sql = "INSERT INTO kline_data (symbol, interval, open_time, close_time, " +
+                "open_price, high_price, low_price, close_price, volume, quote_volume, " +
+                "trade_count, taker_buy_volume, taker_buy_quote_volume) " +
+                "SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ? " +
+                "WHERE NOT EXISTS (" +
+                "  SELECT 1 FROM kline_data WHERE symbol = ? AND interval = ? " +
+                "  AND open_time = toDateTime64(?, 3) LIMIT 1" +
+                ")";
+
+        try (Connection conn = clickHouseDataSource.getConnection();
+             PreparedStatement ps = conn.prepareStatement(sql)) {
+            setKlineParams(ps, kline);
+            ps.setString(14, kline.getSymbol());
+            ps.setString(15, kline.getInterval());
+            ps.setDouble(16, kline.getOpenTime() / 1000.0);
+            ps.executeUpdate();
+        } catch (SQLException e) {
+            log.error("[KlineRepository] Failed to save-if-absent kline: {}", kline, e);
+            throw new RuntimeException("Failed to save-if-absent kline", e);
         }
     }
 
@@ -172,6 +268,86 @@ public class KlineRepository {
     }
 
     /**
+     * 从 1m K 线聚合生成更大周期 K 线。
+     */
+    public List<Kline> queryAggregatedFrom1m(String symbol, String interval,
+                                             Long startTime, Long endTime, Integer limit) {
+        IntervalAggregationSpec spec = resolveAggregationSpec(interval);
+        if (spec == null) {
+            return List.of();
+        }
+
+        long safeEndTime = endTime != null ? endTime : System.currentTimeMillis();
+        Long safeStartTime = startTime;
+        if (safeStartTime == null && limit != null && limit > 0) {
+            long lookback = spec.approxIntervalMs * (long) (limit + 5);
+            safeStartTime = Math.max(0L, safeEndTime - lookback);
+        }
+
+        StringBuilder sql = new StringBuilder(
+                "SELECT symbol, ? AS interval, bucket_open AS open_time, " +
+                        spec.closeTimeExpr + " AS close_time, " +
+                        "argMin(open_price, open_time) AS open_price, " +
+                        "max(high_price) AS high_price, " +
+                        "min(low_price) AS low_price, " +
+                        "argMax(close_price, open_time) AS close_price, " +
+                        "sum(volume) AS volume, " +
+                        "sum(quote_volume) AS quote_volume, " +
+                        "toUInt32(sum(trade_count)) AS trade_count, " +
+                        "sum(taker_buy_volume) AS taker_buy_volume, " +
+                        "sum(taker_buy_quote_volume) AS taker_buy_quote_volume " +
+                        "FROM (" +
+                        "SELECT symbol, open_time, open_price, high_price, low_price, close_price, " +
+                        "volume, quote_volume, trade_count, taker_buy_volume, taker_buy_quote_volume, " +
+                        spec.bucketExpr + " AS bucket_open " +
+                        "FROM kline_data WHERE symbol = ? AND interval = '1m' "
+        );
+
+        List<Object> params = new ArrayList<>();
+        params.add(interval);
+        params.add(symbol);
+
+        if (safeStartTime != null) {
+            sql.append("AND open_time >= toDateTime64(?, 3) ");
+            params.add(safeStartTime / 1000.0);
+        }
+        sql.append("AND open_time <= toDateTime64(?, 3) ");
+        params.add(safeEndTime / 1000.0);
+
+        sql.append(") t GROUP BY symbol, bucket_open ORDER BY bucket_open DESC ");
+        if (limit != null && limit > 0) {
+            sql.append("LIMIT ?");
+            params.add(limit);
+        }
+
+        List<Kline> result = new ArrayList<>();
+        try (Connection conn = clickHouseDataSource.getConnection();
+             PreparedStatement ps = conn.prepareStatement(sql.toString())) {
+
+            for (int i = 0; i < params.size(); i++) {
+                ps.setObject(i + 1, params.get(i));
+            }
+
+            ResultSet rs = ps.executeQuery();
+            while (rs.next()) {
+                result.add(mapResultSetToKline(rs));
+            }
+
+            log.debug("[KlineRepository] Aggregated {} klines from 1m for {} {}",
+                    result.size(), symbol, interval);
+            return result;
+        } catch (SQLException e) {
+            log.error("[KlineRepository] Failed to aggregate klines from 1m, symbol={}, interval={}",
+                    symbol, interval, e);
+            throw new RuntimeException("Failed to aggregate klines from 1m", e);
+        }
+    }
+
+    public boolean supports1mAggregation(String interval) {
+        return resolveAggregationSpec(interval) != null;
+    }
+
+    /**
      * 获取最新 K 线
      */
     public Kline getLatest(String symbol, String interval) {
@@ -202,6 +378,52 @@ public class KlineRepository {
      */
     public List<Kline> getRecent(String symbol, String interval, int limit) {
         return query(symbol, interval, null, null, limit);
+    }
+
+    /**
+     * 查询历史表最新 open_time（毫秒）。
+     */
+    public Long getLatestOpenTime(String symbol, String interval) {
+        String sql = "SELECT max(open_time) AS latest_open_time " +
+                "FROM kline_data WHERE symbol = ? AND interval = ?";
+        try (Connection conn = clickHouseDataSource.getConnection();
+             PreparedStatement ps = conn.prepareStatement(sql)) {
+            ps.setString(1, symbol);
+            ps.setString(2, interval);
+            ResultSet rs = ps.executeQuery();
+            if (rs.next()) {
+                Timestamp ts = rs.getTimestamp("latest_open_time");
+                return ts != null ? ts.getTime() : null;
+            }
+            return null;
+        } catch (SQLException e) {
+            log.error("[KlineRepository] Failed to query latest open time, symbol={}, interval={}",
+                    symbol, interval, e);
+            throw new RuntimeException("Failed to query latest open time", e);
+        }
+    }
+
+    /**
+     * 查询历史表最早 open_time（毫秒）。
+     */
+    public Long getEarliestOpenTime(String symbol, String interval) {
+        String sql = "SELECT min(open_time) AS earliest_open_time " +
+                "FROM kline_data WHERE symbol = ? AND interval = ?";
+        try (Connection conn = clickHouseDataSource.getConnection();
+             PreparedStatement ps = conn.prepareStatement(sql)) {
+            ps.setString(1, symbol);
+            ps.setString(2, interval);
+            ResultSet rs = ps.executeQuery();
+            if (rs.next()) {
+                Timestamp ts = rs.getTimestamp("earliest_open_time");
+                return ts != null ? ts.getTime() : null;
+            }
+            return null;
+        } catch (SQLException e) {
+            log.error("[KlineRepository] Failed to query earliest open time, symbol={}, interval={}",
+                    symbol, interval, e);
+            throw new RuntimeException("Failed to query earliest open time", e);
+        }
     }
 
     /**
@@ -242,5 +464,32 @@ public class KlineRepository {
         kline.setTakerBuyVolume(rs.getBigDecimal("taker_buy_volume").longValue());
         kline.setTakerBuyQuoteVolume(rs.getBigDecimal("taker_buy_quote_volume").longValue());
         return kline;
+    }
+
+    private IntervalAggregationSpec resolveAggregationSpec(String interval) {
+        if (interval == null || interval.isBlank()) {
+            return null;
+        }
+        String raw = interval.trim();
+        IntervalAggregationSpec direct = AGGREGATION_SPECS.get(raw);
+        if (direct != null) {
+            return direct;
+        }
+        if (raw.endsWith("M")) {
+            return null;
+        }
+        return AGGREGATION_SPECS.get(raw.toLowerCase(Locale.ROOT));
+    }
+
+    private static class IntervalAggregationSpec {
+        private final String bucketExpr;
+        private final String closeTimeExpr;
+        private final long approxIntervalMs;
+
+        private IntervalAggregationSpec(String bucketExpr, String closeTimeExpr, long approxIntervalMs) {
+            this.bucketExpr = bucketExpr;
+            this.closeTimeExpr = closeTimeExpr;
+            this.approxIntervalMs = approxIntervalMs;
+        }
     }
 }

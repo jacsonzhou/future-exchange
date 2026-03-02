@@ -52,6 +52,13 @@ public class KlineService {
      */
     public List<Kline> getKlines(String symbol, String interval, 
                                   Long startTime, Long endTime, Integer limit) {
+        if (klineRepository.supports1mAggregation(interval)) {
+            List<Kline> aggregated = klineRepository.queryAggregatedFrom1m(symbol, interval, startTime, endTime, limit);
+            if (!aggregated.isEmpty()) {
+                return aggregated;
+            }
+            log.debug("[KlineService] Aggregated result empty, fallback to raw interval query: {} {}", symbol, interval);
+        }
         return klineRepository.query(symbol, interval, startTime, endTime, limit);
     }
 
@@ -59,7 +66,7 @@ public class KlineService {
      * 获取最近 N 条 K 线
      */
     public List<Kline> getRecentKlines(String symbol, String interval, int limit) {
-        return klineRepository.getRecent(symbol, interval, limit);
+        return getKlines(symbol, interval, null, null, limit);
     }
 
     /**
@@ -70,11 +77,25 @@ public class KlineService {
     }
 
     /**
+     * 查询历史表最新开盘时间。
+     */
+    public Long getLatestOpenTime(String symbol, String interval) {
+        return klineRepository.getLatestOpenTime(symbol, interval);
+    }
+
+    /**
+     * 查询历史表最早开盘时间。
+     */
+    public Long getEarliestOpenTime(String symbol, String interval) {
+        return klineRepository.getEarliestOpenTime(symbol, interval);
+    }
+
+    /**
      * 关闭 K 线（将实时表数据写入历史表）
      */
     public void closeKline(Kline kline) {
-        // 保存到历史表
-        saveKline(kline);
+        // 幂等保存到历史表（避免回补/实时边界重复插入）
+        klineRepository.saveIfAbsent(kline);
         log.info("[KlineService] Closed kline: {} {} @ {}", 
             kline.getSymbol(), kline.getInterval(), kline.getOpenTime());
     }
