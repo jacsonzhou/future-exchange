@@ -72,6 +72,11 @@ public class PreHoldRecoveryService {
                 try {
                     // 计算订单所需保证金
                     long margin = calculateRequiredMargin(order);
+                    if (margin <= 0) {
+                        skipCount++;
+                        logSkipInvalidMargin(order, "startup recovery");
+                        continue;
+                    }
                     
                     // 检查是否已存在预扣
                     long existingHold = marginPreHoldService.getOrderPreHold(order.getUserId(), order.getId());
@@ -120,6 +125,18 @@ public class PreHoldRecoveryService {
      * @return 保证金（单位：分）
      */
     private long calculateRequiredMargin(OmsOrder order) {
+        if (order == null) {
+            return 0L;
+        }
+        if (order.getPrice() == null || order.getQuantity() == null) {
+            return 0L;
+        }
+        if (order.getPrice().compareTo(BigDecimal.ZERO) <= 0
+            || order.getQuantity().compareTo(BigDecimal.ZERO) <= 0) {
+            return 0L;
+        }
+        int leverage = resolveLeverage(order.getLeverage());
+
         // 名义价值 = 价格 × 数量
         BigDecimal notional = order.getPrice()
             .multiply(order.getQuantity())
@@ -127,10 +144,13 @@ public class PreHoldRecoveryService {
         
         // 所需保证金 = 名义价值 / 杠杆
         BigDecimal margin = notional.divide(
-            BigDecimal.valueOf(DEFAULT_LEVERAGE),
+            BigDecimal.valueOf(leverage),
             8, 
             RoundingMode.HALF_UP
         );
+        if (margin.compareTo(BigDecimal.ZERO) <= 0) {
+            return 0L;
+        }
         
         // 转换为内部存储单位（分）
         return margin.multiply(BigDecimal.valueOf(Money.SCALE)).longValue();
@@ -151,6 +171,10 @@ public class PreHoldRecoveryService {
             long existingHold = marginPreHoldService.getOrderPreHold(order.getUserId(), order.getId());
             if (existingHold == 0) {
                 long margin = calculateRequiredMargin(order);
+                if (margin <= 0) {
+                    logSkipInvalidMargin(order, "manual recovery");
+                    continue;
+                }
                 MarginPreHoldService.PreHoldResult result = marginPreHoldService.recoverPreHold(
                     order.getUserId(), 
                     order.getId(), 
@@ -179,6 +203,32 @@ public class PreHoldRecoveryService {
         // 简化实现：依赖 Redis TTL 自动过期
         log.info("[PreHoldRecovery] ✅ Cleanup completed (relying on Redis TTL)");
         return 0;
+    }
+
+    private int resolveLeverage(Integer leverage) {
+        if (leverage == null || leverage <= 0) {
+            return DEFAULT_LEVERAGE;
+        }
+        return leverage;
+    }
+
+    private void logSkipInvalidMargin(OmsOrder order, String scene) {
+        if (order == null) {
+            log.warn("[PreHoldRecovery] Skip {} due to invalid order: order is null", scene);
+            return;
+        }
+        log.warn(
+            "[PreHoldRecovery] Skip {} due to invalid margin params, orderId={}, userId={}, status={}, type={}, symbol={}, price={}, quantity={}, leverage={}",
+            scene,
+            order.getId(),
+            order.getUserId(),
+            order.getStatus(),
+            order.getType(),
+            order.getSymbol(),
+            order.getPrice(),
+            order.getQuantity(),
+            order.getLeverage()
+        );
     }
     
     // ==================== 内部类 ====================
