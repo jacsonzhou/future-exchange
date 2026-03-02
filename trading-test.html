@@ -28,6 +28,7 @@
             --radius-xl: 20px;
             --radius-lg: 14px;
             --radius-sm: 10px;
+            --max-width: 1420px;
             --mono: "IBM Plex Mono", Consolas, monospace;
         }
 
@@ -47,6 +48,11 @@
                 radial-gradient(1200px 700px at 50% 120%, rgba(80, 123, 255, 0.12), transparent 78%),
                 linear-gradient(150deg, #04060b 0%, #080b14 50%, #05070c 100%);
             overflow-x: hidden;
+        }
+
+        a {
+            color: inherit;
+            text-decoration: none;
         }
 
         .ambient-strip {
@@ -78,38 +84,64 @@
             background: radial-gradient(circle, rgba(0, 224, 182, 0.34) 0%, transparent 72%);
         }
 
-        .header {
-            width: min(1420px, calc(100vw - 28px));
-            margin: 14px auto 0;
-            display: grid;
-            gap: 8px;
-        }
-
-        .top-nav {
-            border: 1px solid var(--line-soft);
-            border-radius: 18px;
-            background:
-                radial-gradient(460px 200px at 16% 50%, rgba(0, 194, 255, 0.11), transparent 74%),
-                linear-gradient(160deg, rgba(8, 15, 28, 0.95), rgba(6, 11, 20, 0.98));
+        .announcement {
+            display: block;
+            width: min(var(--max-width), calc(100vw - 28px));
+            margin: 16px auto 10px;
+            padding: 12px 18px;
+            border: 1px solid rgba(0, 194, 255, 0.38);
+            border-radius: 999px;
+            background: linear-gradient(90deg, rgba(0, 194, 255, 0.12), rgba(0, 224, 182, 0.08));
+            color: #def7ff;
+            font-size: 13px;
+            letter-spacing: 0.1px;
             display: flex;
             align-items: center;
             justify-content: space-between;
-            gap: 14px;
-            padding: 10px 14px;
+            gap: 10px;
+            transition: transform 0.22s ease, border-color 0.22s ease;
+            backdrop-filter: blur(8px);
         }
 
-        .top-left {
+        .announcement:hover {
+            transform: translateY(-1px);
+            border-color: rgba(0, 224, 182, 0.5);
+        }
+
+        .announcement strong {
+            color: #ffffff;
+            font-weight: 600;
+        }
+
+        .announcement .cta {
+            color: var(--accent-2);
+            font-weight: 700;
+            white-space: nowrap;
+        }
+
+        .header {
+            width: min(var(--max-width), calc(100vw - 28px));
+            margin: 0 auto 0;
+            display: grid;
+            gap: 10px;
+        }
+
+        .topbar {
             display: flex;
             align-items: center;
+            justify-content: space-between;
             gap: 18px;
-            min-width: 0;
+            padding: 10px 2px 2px;
         }
 
         .brand {
             display: inline-flex;
             align-items: center;
             gap: 10px;
-            min-width: 0;
+            font-family: "Space Grotesk", sans-serif;
+            font-weight: 700;
+            letter-spacing: 0.2px;
+            white-space: nowrap;
         }
 
         .brand-mark {
@@ -126,55 +158,24 @@
             flex: 0 0 auto;
         }
 
-        .brand-text {
+        .topnav {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            flex-wrap: wrap;
+            color: var(--text-sub);
+            font-size: 12px;
             min-width: 0;
         }
 
-        .brand-title {
-            font-family: "Space Grotesk", sans-serif;
-            font-size: 16px;
-            font-weight: 700;
-            letter-spacing: 0.24px;
-            color: #e8f5ff;
+        .topnav span {
+            transition: color 0.2s ease;
+            cursor: default;
             white-space: nowrap;
         }
 
-        .brand-sub {
-            font-size: 11px;
-            color: var(--text-sub);
-            margin-top: 1px;
-        }
-
-        .nav-menu {
-            display: flex;
-            align-items: center;
-            gap: 2px;
-            flex-wrap: wrap;
-        }
-
-        .nav-link {
-            border: 1px solid transparent;
-            border-radius: 9px;
-            background: transparent;
-            color: #d2e3fd;
-            font-size: 14px;
-            padding: 7px 12px;
-            cursor: pointer;
-            transition: background-color 0.15s ease, border-color 0.15s ease, color 0.15s ease;
-        }
-
-        .nav-link:hover {
-            border-color: rgba(96, 132, 190, 0.44);
-            background: rgba(12, 24, 46, 0.68);
-            color: #eef6ff;
-        }
-
-        .nav-link.hot {
-            color: #9ff3df;
-        }
-
-        .nav-link.docs {
-            color: #9ecbff;
+        .topnav span:hover {
+            color: #d5e6ff;
         }
 
         .market-banner {
@@ -186,15 +187,16 @@
             display: grid;
             grid-template-columns: minmax(0, 1fr) auto;
             align-items: center;
-            gap: 14px;
-            padding: 12px 14px;
+            gap: 16px;
+            padding: 10px 14px;
         }
 
         .market-controls {
-            display: grid;
-            grid-template-columns: minmax(260px, 1fr) minmax(140px, 210px);
-            gap: 10px;
-            min-width: 0;
+            display: flex;
+            align-items: center;
+            min-width: 260px;
+            max-width: 460px;
+            width: 100%;
         }
 
         .banner-field {
@@ -232,12 +234,12 @@
             min-width: 0;
             appearance: none;
             border: 1px solid rgba(89, 122, 175, 0.48);
-            border-radius: 14px;
+            border-radius: 12px;
             background: rgba(5, 13, 26, 0.95);
             color: #d7e9ff;
             font-family: var(--mono);
-            font-size: 16px;
-            padding: 14px 44px 14px 14px;
+            font-size: 15px;
+            padding: 11px 40px 11px 12px;
             outline: none;
             transition: border-color 0.15s ease, box-shadow 0.15s ease;
         }
@@ -250,7 +252,7 @@
         .market-stats {
             display: flex;
             align-items: center;
-            gap: 16px;
+            gap: 18px;
             flex-wrap: wrap;
             justify-content: flex-end;
         }
@@ -268,7 +270,7 @@
 
         .market-stat-value {
             font-family: var(--mono);
-            font-size: 24px;
+            font-size: 22px;
             color: #dcf0ff;
             line-height: 1.1;
             font-weight: 600;
@@ -285,7 +287,7 @@
             align-items: center;
             gap: 10px;
             min-width: 0;
-            justify-content: flex-end;
+            margin-left: auto;
         }
 
         .status-strip {
@@ -305,6 +307,24 @@
             font-size: 11px;
             white-space: nowrap;
             padding: 6px 10px;
+        }
+
+        .profile-entry {
+            border-radius: 999px;
+            border: 1px solid rgba(0, 194, 255, 0.46);
+            background: linear-gradient(120deg, rgba(0, 194, 255, 0.18), rgba(0, 224, 182, 0.18));
+            color: #e9fbff;
+            font-size: 12px;
+            font-weight: 600;
+            white-space: nowrap;
+            padding: 6px 12px;
+            text-decoration: none;
+            transition: border-color 0.18s ease, transform 0.18s ease;
+        }
+
+        .profile-entry:hover {
+            border-color: rgba(0, 224, 182, 0.58);
+            transform: translateY(-1px);
         }
 
         .ws-pill.connected {
@@ -377,8 +397,15 @@
         }
 
         .interval-tabs {
-            display: inline-flex;
+            display: flex;
             gap: 6px;
+            flex-wrap: nowrap;
+            align-items: center;
+            justify-content: flex-end;
+            max-width: min(100%, 760px);
+            min-width: 0;
+            overflow-x: auto;
+            padding-bottom: 2px;
         }
 
         .interval-btn {
@@ -400,12 +427,38 @@
             border-color: rgba(0, 194, 255, 0.52);
         }
 
+        .interval-more-select {
+            appearance: none;
+            border: 1px solid rgba(73, 112, 174, 0.5);
+            background: rgba(12, 24, 46, 0.82);
+            color: #9fb5d8;
+            border-radius: 8px;
+            padding: 5px 26px 5px 10px;
+            cursor: pointer;
+            font-family: var(--mono);
+            font-size: 12px;
+            font-weight: 600;
+            transition: border-color 0.16s ease, color 0.16s ease, background-color 0.16s ease;
+        }
+
+        .interval-more-select:focus {
+            outline: none;
+            border-color: rgba(0, 194, 255, 0.52);
+            box-shadow: 0 0 0 2px rgba(0, 194, 255, 0.12);
+        }
+
+        .interval-more-select.active {
+            background: rgba(0, 194, 255, 0.2);
+            color: #c7f3ff;
+            border-color: rgba(0, 194, 255, 0.52);
+        }
+
         .price-line {
             display: flex;
-            align-items: baseline;
+            align-items: center;
             justify-content: space-between;
             gap: 10px;
-            margin-bottom: 10px;
+            margin-bottom: 8px;
             min-height: 25px;
         }
 
@@ -431,12 +484,99 @@
             font-family: var(--mono);
         }
 
-        .chart-host {
-            height: 350px;
+        .chart-metrics {
+            display: grid;
+            grid-template-columns: repeat(4, minmax(0, 1fr));
+            gap: 8px;
+            margin-bottom: 10px;
+        }
+
+        .metric-chip {
+            border: 1px solid rgba(86, 120, 176, 0.28);
+            border-radius: 10px;
+            background: linear-gradient(160deg, rgba(8, 18, 36, 0.88), rgba(6, 13, 26, 0.9));
+            padding: 6px 8px;
+            display: grid;
+            gap: 3px;
+            min-width: 0;
+        }
+
+        .metric-key {
+            font-size: 11px;
+            color: var(--text-sub);
+            line-height: 1;
+        }
+
+        .metric-value {
+            font-family: var(--mono);
+            font-size: 13px;
+            color: #d9eaff;
+            font-weight: 600;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+
+        .chart-ohlc {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            flex-wrap: wrap;
+            margin-bottom: 10px;
+            padding: 7px 10px;
+            border: 1px solid rgba(86, 120, 176, 0.26);
+            border-radius: 10px;
+            background: linear-gradient(160deg, rgba(8, 18, 36, 0.78), rgba(5, 12, 24, 0.82));
+            font-family: var(--mono);
+            font-size: 12px;
+            color: #cde3ff;
+        }
+
+        .ohlc-item {
+            display: inline-flex;
+            align-items: center;
+            gap: 4px;
+            white-space: nowrap;
+        }
+
+        .ohlc-key {
+            color: var(--text-sub);
+        }
+
+        .ohlc-value {
+            color: #e6f3ff;
+            font-weight: 600;
+        }
+
+        .ohlc-value.positive {
+            color: var(--buy);
+        }
+
+        .ohlc-value.negative {
+            color: var(--sell);
+        }
+
+        .chart-stack {
+            height: 430px;
             border-radius: 12px;
             overflow: hidden;
-            border: 1px solid rgba(64, 95, 145, 0.34);
-            background: rgba(3, 9, 20, 0.85);
+            border: 1px solid rgba(78, 112, 166, 0.34);
+            background:
+                radial-gradient(620px 280px at 20% 10%, rgba(0, 194, 255, 0.08), transparent 74%),
+                rgba(3, 9, 20, 0.86);
+            box-shadow: inset 0 0 0 1px rgba(75, 112, 173, 0.14), inset 0 -80px 110px rgba(0, 0, 0, 0.16);
+            display: grid;
+            grid-template-rows: 1fr 96px;
+        }
+
+        .chart-host {
+            min-height: 0;
+            border-bottom: 1px solid rgba(78, 112, 166, 0.24);
+        }
+
+        .volume-host {
+            min-height: 0;
+            background: rgba(2, 9, 18, 0.6);
         }
 
         .depth-grid {
@@ -450,7 +590,7 @@
             border-radius: 12px;
             overflow: hidden;
             background: rgba(5, 13, 27, 0.7);
-            min-height: 304px;
+            min-height: 372px;
         }
 
         .slot-head {
@@ -470,9 +610,16 @@
             grid-template-columns: 1.2fr 1fr 1fr;
         }
 
-        .ob-list,
+        .ob-list {
+            height: 156px;
+            overflow: auto;
+            font-family: var(--mono);
+            scrollbar-width: thin;
+            scrollbar-color: rgba(90, 130, 188, 0.6) transparent;
+        }
+
         .trade-list {
-            height: 122px;
+            height: 332px;
             overflow: auto;
             font-family: var(--mono);
             scrollbar-width: thin;
@@ -512,6 +659,21 @@
             background: rgba(8, 18, 36, 0.85);
         }
 
+        .order-card {
+            border-color: rgba(103, 139, 196, 0.34);
+            background: linear-gradient(165deg, rgba(7, 15, 30, 0.95), rgba(6, 12, 24, 0.96));
+        }
+
+        .order-card .card-head {
+            margin-bottom: 10px;
+        }
+
+        .order-card .card-title {
+            font-size: 22px;
+            color: #e5f2ff;
+            letter-spacing: 0.12px;
+        }
+
         .side-switch {
             display: grid;
             grid-template-columns: 1fr 1fr;
@@ -546,7 +708,7 @@
             border: 1px dashed rgba(108, 146, 204, 0.5);
             border-radius: 10px;
             color: var(--text-sub);
-            font-size: 12px;
+            font-size: 13px;
             padding: 8px 10px;
             margin-bottom: 10px;
         }
@@ -568,20 +730,38 @@
 
         .field label {
             color: var(--text-sub);
-            font-size: 12px;
+            font-size: 11px;
+            letter-spacing: 0.18px;
         }
 
         .field input,
         .field select {
             width: 100%;
             border: 1px solid var(--line-soft);
-            border-radius: 10px;
-            background: rgba(5, 12, 23, 0.9);
+            border-radius: 11px;
+            background: rgba(6, 13, 25, 0.96);
             color: var(--text-main);
             font-size: 14px;
-            padding: 10px 11px;
+            padding: 11px 12px;
             outline: none;
             transition: border-color 0.16s ease, box-shadow 0.16s ease;
+        }
+
+        .field select {
+            appearance: none;
+            padding-right: 34px;
+            background-image:
+                linear-gradient(45deg, transparent 50%, #87a2c9 50%),
+                linear-gradient(135deg, #87a2c9 50%, transparent 50%);
+            background-position:
+                calc(100% - 16px) calc(50% - 2px),
+                calc(100% - 11px) calc(50% - 2px);
+            background-size: 5px 5px, 5px 5px;
+            background-repeat: no-repeat;
+        }
+
+        .field select::-ms-expand {
+            display: none;
         }
 
         .field input:focus,
@@ -623,27 +803,55 @@
             display: grid;
             grid-template-columns: repeat(2, minmax(0, 1fr));
             gap: 8px;
-            margin-top: 10px;
+            margin-top: 12px;
         }
 
         .quote-card {
             border: 1px solid rgba(86, 120, 176, 0.24);
             border-radius: 10px;
-            background: rgba(7, 15, 30, 0.74);
-            padding: 8px 10px;
+            background: rgba(6, 14, 27, 0.88);
+            padding: 10px 11px;
+            min-height: 74px;
+            display: flex;
+            flex-direction: column;
+            justify-content: space-between;
+        }
+
+        .quote-card.buy-card {
+            border-color: rgba(28, 203, 146, 0.34);
+            background: linear-gradient(155deg, rgba(9, 24, 22, 0.96), rgba(6, 16, 22, 0.92));
+        }
+
+        .quote-card.sell-card {
+            border-color: rgba(255, 122, 122, 0.34);
+            background: linear-gradient(155deg, rgba(28, 15, 20, 0.96), rgba(18, 11, 18, 0.92));
+        }
+
+        .quote-card.mode-card {
+            min-height: 64px;
         }
 
         .quote-label {
-            color: var(--text-sub);
-            font-size: 11px;
+            color: #8ea5c9;
+            font-size: 10px;
+            letter-spacing: 0.2px;
+            text-transform: none;
+            font-weight: 600;
         }
 
         .quote-value {
             margin-top: 4px;
             font-family: var(--mono);
-            color: #dce9ff;
+            color: #d7e7ff;
             font-size: 18px;
-            line-height: 1.1;
+            line-height: 1.22;
+            font-weight: 400;
+            font-variant-numeric: tabular-nums;
+            font-feature-settings: "tnum" 1, "lnum" 1;
+            letter-spacing: 0;
+            white-space: nowrap;
+            -webkit-font-smoothing: antialiased;
+            -moz-osx-font-smoothing: grayscale;
         }
 
         .quote-value.buy {
@@ -654,11 +862,32 @@
             color: var(--sell);
         }
 
+        .quote-value.mode {
+            margin-top: 4px;
+            font-size: 18px;
+            font-family: var(--mono);
+            color: #d7e7ff;
+            letter-spacing: 0.02em;
+            padding: 0;
+            border-radius: 0;
+            border: 0;
+            background: transparent;
+            width: auto;
+            font-weight: 400;
+        }
+
         .order-hint {
             min-height: 18px;
             margin-top: 8px;
             font-size: 12px;
             color: var(--text-sub);
+        }
+
+        .account-card,
+        .positions-card,
+        .orders-card {
+            border-color: rgba(98, 133, 191, 0.32);
+            background: linear-gradient(160deg, rgba(8, 16, 31, 0.95), rgba(7, 13, 24, 0.96));
         }
 
         .account-grid {
@@ -670,45 +899,66 @@
         .stat-card {
             border: 1px solid rgba(86, 120, 176, 0.26);
             border-radius: 10px;
-            background: rgba(7, 15, 30, 0.74);
+            background: rgba(6, 14, 28, 0.86);
             padding: 9px 10px;
+            min-height: 72px;
+            display: grid;
+            align-content: center;
         }
 
         .stat-label {
             color: var(--text-sub);
             font-size: 11px;
+            letter-spacing: 0.14px;
+            font-weight: 600;
         }
 
         .stat-value {
             margin-top: 4px;
             font-family: var(--mono);
-            font-size: 24px;
-            line-height: 1.1;
-            color: #dbe9ff;
+            font-size: 18px;
+            line-height: 1.22;
+            color: #d7e7ff;
+            font-weight: 400;
+            font-variant-numeric: tabular-nums;
+            letter-spacing: 0;
+            display: inline-flex;
+            align-items: baseline;
+            gap: 4px;
+            white-space: nowrap;
+            -webkit-font-smoothing: antialiased;
+            -moz-osx-font-smoothing: grayscale;
         }
 
         .stat-unit {
-            font-size: 12px;
-            color: var(--text-sub);
-            margin-left: 2px;
+            font-size: 11px;
+            color: #d7e7ff;
+            margin-left: 1px;
+            font-family: var(--mono);
+            font-weight: 400;
+            letter-spacing: 0;
+            opacity: 0.9;
+            -webkit-font-smoothing: antialiased;
+            -moz-osx-font-smoothing: grayscale;
         }
 
         .table-shell {
             border: 1px solid rgba(86, 120, 176, 0.26);
-            border-radius: 12px;
-            background: rgba(7, 15, 30, 0.72);
+            border-radius: 10px;
+            background: rgba(7, 15, 28, 0.86);
             overflow: hidden;
         }
 
         .table-head {
             display: grid;
             gap: 8px;
-            padding: 8px 10px;
-            font-size: 11px;
+            padding: 9px 10px;
+            font-size: 10px;
             color: var(--text-sub);
             text-transform: uppercase;
-            letter-spacing: 0.24px;
+            letter-spacing: 0.22px;
             border-bottom: 1px solid rgba(86, 120, 176, 0.24);
+            background: rgba(10, 21, 40, 0.86);
         }
 
         .table-row {
@@ -718,8 +968,10 @@
             border-bottom: 1px solid rgba(86, 120, 176, 0.12);
             font-family: var(--mono);
             font-size: 12px;
-            line-height: 1.35;
+            line-height: 1.45;
             min-width: 0;
+            align-items: center;
+            color: #d7e7ff;
         }
 
         .table-head span,
@@ -731,30 +983,42 @@
         }
 
         .table-body {
-            max-height: 158px;
+            max-height: 194px;
             overflow: auto;
             scrollbar-width: thin;
             scrollbar-color: rgba(90, 130, 188, 0.6) transparent;
         }
 
+        .positions-body {
+            min-height: 220px;
+            max-height: 220px;
+            overflow-y: auto;
+        }
+
         .positions-head,
         .positions-row {
-            grid-template-columns: 1.2fr 0.9fr 0.7fr 1fr 1fr;
+            grid-template-columns: 0.92fr 0.62fr 0.72fr 0.9fr 0.84fr 0.68fr;
         }
 
         .orders-head,
         .orders-row {
-            grid-template-columns: 1.1fr 0.9fr 1fr 0.9fr 0.9fr;
+            grid-template-columns: minmax(110px, 1.22fr) minmax(56px, 0.6fr) minmax(82px, 0.86fr) minmax(64px, 0.68fr) minmax(74px, 0.8fr) minmax(74px, 0.74fr);
+            min-width: 560px;
+        }
+
+        .orders-card .table-shell {
+            overflow-x: auto;
+            overflow-y: hidden;
         }
 
         .side-tag {
             display: inline-flex;
             align-items: center;
             justify-content: center;
-            min-width: 48px;
-            height: 22px;
+            min-width: 40px;
+            height: 18px;
             border-radius: 999px;
-            font-size: 11px;
+            font-size: 10px;
             font-weight: 700;
         }
 
@@ -778,6 +1042,280 @@
 
         .pnl-neg {
             color: var(--sell);
+        }
+
+        .symbol-cell {
+            color: #e6f2ff;
+            font-weight: 600;
+            letter-spacing: 0.08px;
+        }
+
+        .close-btn {
+            border: 1px solid rgba(0, 194, 255, 0.35);
+            border-radius: 8px;
+            background: rgba(7, 50, 76, 0.5);
+            color: #bceeff;
+            font-size: 11px;
+            height: 24px;
+            min-width: 52px;
+            cursor: pointer;
+            transition: border-color 0.16s ease, background-color 0.16s ease;
+        }
+
+        .close-btn:hover {
+            border-color: rgba(0, 194, 255, 0.6);
+            background: rgba(7, 64, 98, 0.66);
+        }
+
+        .positions-close-panel {
+            border: 1px solid rgba(86, 120, 176, 0.24);
+            border-radius: 10px;
+            background: rgba(7, 14, 28, 0.82);
+            padding: 18px 16px;
+            display: grid;
+            gap: 12px;
+            align-content: start;
+            grid-auto-rows: max-content;
+        }
+
+        .close-modal-mask {
+            position: fixed;
+            inset: 0;
+            background: rgba(2, 8, 20, 0.74);
+            backdrop-filter: blur(2px);
+            z-index: 160;
+            display: none;
+            align-items: stretch;
+            justify-content: flex-end;
+            padding: 0;
+        }
+
+        .close-modal-mask.open {
+            display: flex;
+        }
+
+        .close-modal-card {
+            width: min(520px, calc(100vw - 20px));
+            height: 100%;
+            max-height: 100%;
+            overflow-y: auto;
+            border-radius: 16px 0 0 16px;
+            border-color: rgba(96, 132, 190, 0.4);
+            background: linear-gradient(165deg, rgba(8, 16, 31, 0.98), rgba(8, 14, 26, 0.98));
+            box-shadow: 0 14px 44px rgba(1, 6, 15, 0.62);
+            transform: translateX(24px);
+            opacity: 0.72;
+            transition: transform 0.2s ease, opacity 0.2s ease;
+        }
+
+        .close-modal-mask.open .close-modal-card {
+            transform: translateX(0);
+            opacity: 1;
+        }
+
+        .close-modal-head {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 12px;
+            padding-bottom: 8px;
+            border-bottom: 1px solid rgba(90, 128, 186, 0.24);
+        }
+
+        .close-modal-title {
+            font-size: 17px;
+            color: #e7f3ff;
+            font-weight: 700;
+            letter-spacing: 0.12px;
+        }
+
+        .close-modal-close {
+            border: 1px solid rgba(86, 121, 177, 0.42);
+            border-radius: 8px;
+            width: 30px;
+            height: 30px;
+            background: rgba(12, 27, 46, 0.74);
+            color: #bdd8ff;
+            font-size: 15px;
+            cursor: pointer;
+            line-height: 1;
+            transition: border-color 0.16s ease, background-color 0.16s ease;
+        }
+
+        .close-modal-close:hover {
+            border-color: rgba(0, 194, 255, 0.6);
+            background: rgba(9, 46, 74, 0.7);
+        }
+
+        .close-top {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 10px;
+            color: #cfe2ff;
+            font-size: 12px;
+            border: 1px solid rgba(90, 128, 186, 0.24);
+            border-radius: 11px;
+            background: rgba(10, 22, 40, 0.62);
+            padding: 10px 12px;
+        }
+
+        .close-max {
+            color: #9ec7ff;
+            font-family: var(--mono);
+            font-size: 11px;
+            white-space: nowrap;
+        }
+
+        .close-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr 1fr;
+            gap: 8px;
+        }
+
+        .close-grid .field label {
+            font-size: 10px;
+        }
+
+        .ratio-row {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 6px;
+        }
+
+        .ratio-btn {
+            border: 1px solid rgba(96, 133, 189, 0.4);
+            border-radius: 999px;
+            background: rgba(14, 32, 56, 0.66);
+            color: #cae1ff;
+            font-size: 11px;
+            min-width: 50px;
+            height: 24px;
+            padding: 0 10px;
+            cursor: pointer;
+            transition: border-color 0.16s ease, background-color 0.16s ease, color 0.16s ease;
+        }
+
+        .ratio-btn:hover {
+            border-color: rgba(0, 194, 255, 0.56);
+            background: rgba(7, 58, 88, 0.52);
+            color: #dff4ff;
+        }
+
+        .close-actions {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 8px;
+            margin-top: 6px;
+        }
+
+        .close-submit-btn {
+            border: 0;
+            border-radius: 10px;
+            background: linear-gradient(120deg, rgba(255, 122, 122, 0.94), rgba(255, 166, 92, 0.94));
+            color: #1f0904;
+            font-size: 14px;
+            font-weight: 700;
+            height: 42px;
+            width: 100%;
+            padding: 0 14px;
+            cursor: pointer;
+            transition: filter 0.16s ease, transform 0.16s ease;
+        }
+
+        .close-submit-btn:hover {
+            filter: brightness(1.04);
+            transform: translateY(-1px);
+        }
+
+        .close-submit-btn:disabled {
+            cursor: not-allowed;
+            opacity: 0.6;
+            transform: none;
+        }
+
+        .close-cancel-btn {
+            min-width: 0;
+            height: 42px;
+            flex: initial;
+        }
+
+        .close-hint {
+            min-height: 20px;
+            color: var(--text-sub);
+            font-size: 12px;
+            padding-left: 2px;
+        }
+
+        .order-id {
+            color: #cfe1ff;
+            max-width: 150px;
+            display: inline-block;
+        }
+
+        .order-action-cell {
+            display: flex;
+            align-items: center;
+            justify-content: flex-start;
+        }
+
+        .cancel-order-btn {
+            border: 1px solid rgba(255, 122, 122, 0.38);
+            border-radius: 8px;
+            background: rgba(76, 24, 24, 0.4);
+            color: #ffcece;
+            font-size: 11px;
+            font-family: var(--mono);
+            height: 24px;
+            min-width: 52px;
+            padding: 0 9px;
+            cursor: pointer;
+            transition: border-color 0.16s ease, background-color 0.16s ease, color 0.16s ease;
+        }
+
+        .cancel-order-btn:hover {
+            border-color: rgba(255, 138, 138, 0.65);
+            background: rgba(98, 26, 26, 0.62);
+            color: #ffe5e5;
+        }
+
+        .cancel-order-btn:disabled {
+            border-color: rgba(110, 129, 157, 0.34);
+            background: rgba(26, 37, 55, 0.56);
+            color: #8fa5c6;
+            opacity: 0.8;
+            cursor: not-allowed;
+        }
+
+        .status-tag {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            min-width: 52px;
+            height: 18px;
+            border-radius: 999px;
+            font-size: 10px;
+            border: 1px solid rgba(90, 128, 186, 0.36);
+            color: #bfd8ff;
+            background: rgba(15, 29, 53, 0.66);
+        }
+
+        .status-tag.open {
+            border-color: rgba(0, 194, 255, 0.42);
+            color: #bdefff;
+            background: rgba(7, 59, 90, 0.44);
+        }
+
+        .status-tag.partial {
+            border-color: rgba(255, 179, 71, 0.4);
+            color: #ffe2b2;
+            background: rgba(76, 53, 17, 0.54);
+        }
+
+        .status-tag.pending {
+            border-color: rgba(160, 188, 226, 0.36);
+            color: #d3e7ff;
+            background: rgba(26, 40, 62, 0.6);
         }
 
         .log-meta {
@@ -888,20 +1426,28 @@
         }
 
         @media (max-width: 980px) {
-            .top-nav {
-                flex-direction: column;
-                align-items: stretch;
+            .announcement {
+                width: calc(100vw - 20px);
+                padding: 11px 14px;
+                font-size: 12px;
+            }
+
+            .topbar {
+                flex-wrap: wrap;
+                justify-content: flex-start;
                 gap: 10px;
             }
 
-            .top-left {
-                flex-direction: column;
-                align-items: flex-start;
+            .topnav {
+                order: 3;
+                width: 100%;
                 gap: 10px;
             }
 
             .header-right {
+                width: 100%;
                 justify-content: flex-start;
+                margin-left: 0;
             }
 
             .status-strip {
@@ -914,6 +1460,21 @@
             }
 
             .market-controls {
+                min-width: 0;
+                max-width: none;
+            }
+
+            .close-grid {
+                grid-template-columns: 1fr;
+            }
+
+            .close-modal-card {
+                width: min(520px, calc(100vw - 10px));
+                max-height: 100vh;
+                overflow: auto;
+            }
+
+            .close-actions {
                 grid-template-columns: 1fr;
             }
 
@@ -933,8 +1494,18 @@
                 grid-template-columns: 1fr;
             }
 
-            .chart-host {
-                height: 300px;
+            .chart-metrics {
+                grid-template-columns: repeat(2, minmax(0, 1fr));
+            }
+
+            .chart-ohlc {
+                gap: 8px;
+                padding: 6px 8px;
+            }
+
+            .chart-stack {
+                height: 340px;
+                grid-template-rows: 1fr 78px;
             }
 
             .account-grid {
@@ -946,32 +1517,33 @@
 <body>
     <div class="ambient-strip"></div>
 
-    <header class="header">
-        <div class="top-nav">
-            <div class="top-left">
-                <div class="brand">
-                    <div class="brand-mark">N</div>
-                    <div class="brand-text">
-                        <div class="brand-title">NovaX Pro 合约交易</div>
-                        <div class="brand-sub">轻量实时交易页</div>
-                    </div>
-                </div>
-                <nav class="nav-menu" aria-label="顶部导航">
-                    <button class="nav-link hot" type="button">合约</button>
-                    <button class="nav-link" type="button">行情</button>
-                    <button class="nav-link" type="button">交易指南</button>
-                    <button class="nav-link docs" type="button">文档中心</button>
-                    <button class="nav-link" type="button">Web3 学院</button>
-                    <button class="nav-link" type="button">机构服务</button>
-                    <button class="nav-link" type="button">更多</button>
-                </nav>
-            </div>
+    <a class="announcement" href="trading-test.html">
+        <span><strong>新版本交易终端已上线</strong> ｜ 更流畅盘口、登录态隔离、可切换交易币对</span>
+        <span class="cta">点击进入交易</span>
+    </a>
 
+    <header class="header">
+        <div class="topbar">
+            <a class="brand" href="index.html">
+                <span class="brand-mark">N</span>
+                <span>NovaX Futures</span>
+            </a>
+            <nav class="topnav" aria-label="主导航">
+                <span>市场</span>
+                <span>合约</span>
+                <span>跟单</span>
+                <span>机构 API 合约</span>
+                <span>行情</span>
+                <span>交易指南</span>
+                <span>文档中心</span>
+                <span>Web3 学院</span>
+                <span>机构服务</span>
+                <span>更多</span>
+            </nav>
             <div class="header-right">
                 <div class="status-strip">
-                    <span id="publicWsStatus" class="ws-pill disconnected">公有推送 · 离线</span>
-                    <span id="privateWsStatus" class="ws-pill disconnected">私有推送 · 离线</span>
-                    <span id="userLabel" class="user-pill">用户 · 游客</span>
+                    <span id="userLabel" class="user-pill">状态: 未登录</span>
+                    <a id="profileCenterEntry" class="profile-entry" href="profile-center.html">个人中心</a>
                 </div>
             </div>
         </div>
@@ -987,18 +1559,6 @@
                             <option value="SOLUSDT">SOLUSDT</option>
                             <option value="BNBUSDT">BNBUSDT</option>
                             <option value="XRPUSDT">XRPUSDT</option>
-                        </select>
-                    </div>
-                </div>
-                <div class="banner-field">
-                    <span class="banner-label">周期</span>
-                    <div class="select-wrap">
-                        <select id="headerIntervalSelect" class="banner-select">
-                            <option value="1m">1m</option>
-                            <option value="5m">5m</option>
-                            <option value="15m">15m</option>
-                            <option value="1h">1h</option>
-                            <option value="4h">4h</option>
                         </select>
                     </div>
                 </div>
@@ -1036,13 +1596,57 @@
                         <button class="interval-btn" data-interval="15m">15m</button>
                         <button class="interval-btn" data-interval="1h">1h</button>
                         <button class="interval-btn" data-interval="4h">4h</button>
+                        <button class="interval-btn" data-interval="1d">1day</button>
+                        <button class="interval-btn" data-interval="1w">1week</button>
+                        <button class="interval-btn" data-interval="1M">1month</button>
+                        <select id="intervalMoreSelect" class="interval-more-select" aria-label="更多周期">
+                            <option value="">更多</option>
+                            <option value="3m">3m</option>
+                            <option value="30m">30m</option>
+                            <option value="2h">2h</option>
+                            <option value="6h">6h</option>
+                            <option value="8h">8h</option>
+                            <option value="12h">12h</option>
+                            <option value="3d">3day</option>
+                        </select>
                     </div>
                 </div>
                 <div class="price-line">
                     <div id="lastPrice" class="price-main">--</div>
                     <div id="chartMeta" class="price-sub">BTCUSDT · 1h</div>
                 </div>
-                <div id="klineChart" class="chart-host"></div>
+                <div class="chart-metrics" aria-label="图表统计">
+                    <div class="metric-chip">
+                        <span class="metric-key">24h成交量</span>
+                        <span id="metricVolume24h" class="metric-value">--</span>
+                    </div>
+                    <div class="metric-chip">
+                        <span class="metric-key">24h成交额</span>
+                        <span id="metricTurnover24h" class="metric-value">--</span>
+                    </div>
+                    <div class="metric-chip">
+                        <span class="metric-key">当前K量</span>
+                        <span id="metricCandleVolume" class="metric-value">--</span>
+                    </div>
+                    <div class="metric-chip">
+                        <span class="metric-key">当前K额</span>
+                        <span id="metricCandleTurnover" class="metric-value">--</span>
+                    </div>
+                </div>
+                <div id="chartOhlcBar" class="chart-ohlc" aria-label="K线明细">
+                    <span class="ohlc-item"><span class="ohlc-key">时间</span><span id="ohlcTime" class="ohlc-value">--</span></span>
+                    <span class="ohlc-item"><span class="ohlc-key">开</span><span id="ohlcOpen" class="ohlc-value">--</span></span>
+                    <span class="ohlc-item"><span class="ohlc-key">高</span><span id="ohlcHigh" class="ohlc-value">--</span></span>
+                    <span class="ohlc-item"><span class="ohlc-key">低</span><span id="ohlcLow" class="ohlc-value">--</span></span>
+                    <span class="ohlc-item"><span class="ohlc-key">收</span><span id="ohlcClose" class="ohlc-value">--</span></span>
+                    <span class="ohlc-item"><span class="ohlc-key">涨跌</span><span id="ohlcChange" class="ohlc-value">--</span></span>
+                    <span class="ohlc-item"><span class="ohlc-key">量</span><span id="ohlcVolume" class="ohlc-value">--</span></span>
+                    <span class="ohlc-item"><span class="ohlc-key">额</span><span id="ohlcTurnover" class="ohlc-value">--</span></span>
+                </div>
+                <div class="chart-stack">
+                    <div id="klineChart" class="chart-host"></div>
+                    <div id="volumeChart" class="volume-host"></div>
+                </div>
             </article>
 
             <article class="card depth-card">
@@ -1139,21 +1743,21 @@
                 </div>
 
                 <div class="quote-grid">
-                    <div class="quote-card">
+                    <div class="quote-card buy-card">
                         <div class="quote-label">买一</div>
                         <div id="bestBid" class="quote-value buy">--</div>
                     </div>
-                    <div class="quote-card">
+                    <div class="quote-card sell-card">
                         <div class="quote-label">卖一</div>
                         <div id="bestAsk" class="quote-value sell">--</div>
                     </div>
-                    <div class="quote-card">
+                    <div class="quote-card mid-card">
                         <div class="quote-label">中间价</div>
                         <div id="quoteMid" class="quote-value">--</div>
                     </div>
-                    <div class="quote-card">
+                    <div class="quote-card mode-card">
                         <div class="quote-label">当前模式</div>
-                        <div id="quoteMode" class="quote-value" style="font-size:15px;">游客</div>
+                        <div id="quoteMode" class="quote-value mode">游客</div>
                     </div>
                 </div>
 
@@ -1214,11 +1818,12 @@
                     <div class="table-head positions-head">
                         <span>交易对</span>
                         <span>方向</span>
-                        <span>数量</span>
-                        <span>开仓价</span>
-                        <span>未实现</span>
+                        <span>持仓量</span>
+                        <span>开仓均价</span>
+                        <span>未实现盈亏</span>
+                        <span>操作</span>
                     </div>
-                    <div id="positionsBody" class="table-body"></div>
+                    <div id="positionsBody" class="table-body positions-body"></div>
                 </div>
             </article>
 
@@ -1229,11 +1834,12 @@
                 </div>
                 <div class="table-shell">
                     <div class="table-head orders-head">
-                        <span>订单号</span>
+                        <span>委托号</span>
                         <span>方向</span>
                         <span>价格</span>
-                        <span>数量</span>
+                        <span>委托量</span>
                         <span>状态</span>
+                        <span>操作</span>
                     </div>
                     <div id="ordersBody" class="table-body"></div>
                 </div>
@@ -1241,13 +1847,100 @@
         </section>
     </main>
 
+    <div id="closeModalMask" class="close-modal-mask" aria-hidden="true">
+        <div id="positionsClosePanel" class="positions-close-panel close-modal-card" role="dialog" aria-modal="true" aria-label="平仓弹窗">
+            <div class="close-modal-head">
+                <div class="close-modal-title">平仓</div>
+                <button id="closeModalCloseBtn" type="button" class="close-modal-close" aria-label="关闭">×</button>
+            </div>
+            <div class="close-top">
+                <div id="closePositionLabel">选择持仓后可平仓，支持部分平仓。</div>
+                <div id="closeMaxQty" class="close-max">可平数量: --</div>
+            </div>
+            <div class="close-grid">
+                <div class="field">
+                    <label for="closeTypeSelect">平仓类型</label>
+                    <select id="closeTypeSelect">
+                        <option value="MARKET" selected>市价平仓</option>
+                        <option value="LIMIT">限价平仓</option>
+                    </select>
+                </div>
+                <div class="field">
+                    <label for="closePriceInput">平仓价格</label>
+                    <input id="closePriceInput" type="number" step="0.01" min="0" placeholder="市价单可留空" disabled>
+                </div>
+                <div class="field">
+                    <label for="closeQuantityInput">平仓数量</label>
+                    <input id="closeQuantityInput" type="number" step="0.001" min="0" placeholder="输入平仓数量">
+                </div>
+            </div>
+            <div id="closeRatioRow" class="ratio-row">
+                <button type="button" class="ratio-btn" data-close-ratio="0.25">25%</button>
+                <button type="button" class="ratio-btn" data-close-ratio="0.5">50%</button>
+                <button type="button" class="ratio-btn" data-close-ratio="0.75">75%</button>
+                <button type="button" class="ratio-btn" data-close-ratio="1">100%</button>
+            </div>
+            <div class="close-actions">
+                <button id="closeModalCancelBtn" class="ghost-btn close-cancel-btn" type="button">取消</button>
+                <button id="submitCloseBtn" class="close-submit-btn" type="button">选择持仓后平仓</button>
+            </div>
+            <div id="closeHint" class="close-hint"></div>
+        </div>
+    </div>
+
     <script>
         (() => {
             'use strict';
 
             const SUPPORTED_SYMBOLS = ['BTCUSDT', 'ETHUSDT', 'SOLUSDT', 'BNBUSDT', 'XRPUSDT'];
-            const SUPPORTED_INTERVALS = ['1m', '5m', '15m', '1h', '4h'];
-            const ACTIVE_ORDER_STATUSES = new Set(['NEW', 'PARTIALLY_FILLED', 'PENDING', 'OPEN']);
+            const SUPPORTED_INTERVALS = [
+                '1m', '3m', '5m', '15m', '30m',
+                '1h', '2h', '4h', '6h', '8h', '12h',
+                '1d', '3d', '1w', '1M'
+            ];
+            const PRIMARY_INTERVALS = new Set(['1m', '5m', '15m', '1h', '4h', '1d', '1w', '1M']);
+            const ACTIVE_ORDER_STATUSES = new Set([
+                'NEW',
+                'PARTIALLY_FILLED',
+                'PENDING',
+                'OPEN',
+                'PENDING_RISK',
+                'FROZEN'
+            ]);
+            const CANCELABLE_ORDER_STATUSES = new Set([
+                'NEW',
+                'PARTIALLY_FILLED',
+                'PENDING',
+                'OPEN',
+                'PENDING_RISK',
+                'FROZEN'
+            ]);
+            const INTERVAL_ALIAS_MAP = {
+                '1day': '1d',
+                '3day': '3d',
+                '1week': '1w',
+                '1month': '1M'
+            };
+            const KLINE_FALLBACK_INTERVAL_MAP = {
+                '3m': '1m'
+            };
+            const INTERVAL_SECONDS_MAP = {
+                '1m': 60,
+                '3m': 180,
+                '5m': 300,
+                '15m': 900,
+                '30m': 1800,
+                '1h': 3600,
+                '2h': 7200,
+                '4h': 14400,
+                '6h': 21600,
+                '8h': 28800,
+                '12h': 43200,
+                '1d': 86400,
+                '3d': 259200,
+                '1w': 604800,
+                '1M': 2592000
+            };
             const LOG_LEVEL = { info: 10, success: 20, warn: 30, error: 40 };
             const MILLIS = { wsReconnect: 3200, privateRefresh: 10000, requestTimeout: 3000 };
             const DEFAULT_DEPTH_ROWS = 18;
@@ -1256,11 +1949,11 @@
 
             const ui = {
                 headerSymbolSelect: document.getElementById('headerSymbolSelect'),
-                headerIntervalSelect: document.getElementById('headerIntervalSelect'),
                 bannerPrice: document.getElementById('bannerPrice'),
                 bannerHigh24: document.getElementById('bannerHigh24'),
                 bannerLow24: document.getElementById('bannerLow24'),
                 intervalTabs: document.getElementById('intervalTabs'),
+                intervalMoreSelect: document.getElementById('intervalMoreSelect'),
                 symbolSelect: document.getElementById('symbolSelect'),
                 orderType: document.getElementById('orderType'),
                 priceInput: document.getElementById('priceInput'),
@@ -1271,6 +1964,18 @@
                 sellSideBtn: document.getElementById('sellSideBtn'),
                 lastPrice: document.getElementById('lastPrice'),
                 chartMeta: document.getElementById('chartMeta'),
+                metricVolume24h: document.getElementById('metricVolume24h'),
+                metricTurnover24h: document.getElementById('metricTurnover24h'),
+                metricCandleVolume: document.getElementById('metricCandleVolume'),
+                metricCandleTurnover: document.getElementById('metricCandleTurnover'),
+                ohlcTime: document.getElementById('ohlcTime'),
+                ohlcOpen: document.getElementById('ohlcOpen'),
+                ohlcHigh: document.getElementById('ohlcHigh'),
+                ohlcLow: document.getElementById('ohlcLow'),
+                ohlcClose: document.getElementById('ohlcClose'),
+                ohlcChange: document.getElementById('ohlcChange'),
+                ohlcVolume: document.getElementById('ohlcVolume'),
+                ohlcTurnover: document.getElementById('ohlcTurnover'),
                 depthMeta: document.getElementById('depthMeta'),
                 asksList: document.getElementById('asksList'),
                 bidsList: document.getElementById('bidsList'),
@@ -1286,6 +1991,7 @@
                 publicWsStatus: document.getElementById('publicWsStatus'),
                 privateWsStatus: document.getElementById('privateWsStatus'),
                 userLabel: document.getElementById('userLabel'),
+                profileCenterEntry: document.getElementById('profileCenterEntry'),
                 gatewayEndpoint: document.getElementById('gatewayEndpoint'),
                 publicWsEndpoint: document.getElementById('publicWsEndpoint'),
                 logList: document.getElementById('logList'),
@@ -1298,9 +2004,22 @@
                 equityBalance: document.getElementById('equityBalance'),
                 positionsBody: document.getElementById('positionsBody'),
                 positionsMeta: document.getElementById('positionsMeta'),
+                closeModalMask: document.getElementById('closeModalMask'),
+                closeModalCloseBtn: document.getElementById('closeModalCloseBtn'),
+                closeModalCancelBtn: document.getElementById('closeModalCancelBtn'),
+                positionsClosePanel: document.getElementById('positionsClosePanel'),
+                closePositionLabel: document.getElementById('closePositionLabel'),
+                closeMaxQty: document.getElementById('closeMaxQty'),
+                closeTypeSelect: document.getElementById('closeTypeSelect'),
+                closePriceInput: document.getElementById('closePriceInput'),
+                closeQuantityInput: document.getElementById('closeQuantityInput'),
+                closeRatioRow: document.getElementById('closeRatioRow'),
+                submitCloseBtn: document.getElementById('submitCloseBtn'),
+                closeHint: document.getElementById('closeHint'),
                 ordersBody: document.getElementById('ordersBody'),
                 ordersMeta: document.getElementById('ordersMeta'),
-                chartHost: document.getElementById('klineChart')
+                chartHost: document.getElementById('klineChart'),
+                volumeHost: document.getElementById('volumeChart')
             };
 
             const urlParams = new URLSearchParams(window.location.search || '');
@@ -1335,6 +2054,8 @@
                 priceRef: NaN,
                 high24: NaN,
                 low24: NaN,
+                volume24h: NaN,
+                turnover24h: NaN,
                 bids: [],
                 asks: [],
                 trades: [],
@@ -1346,6 +2067,12 @@
                 },
                 positions: [],
                 orders: [],
+                closeForm: {
+                    symbol: '',
+                    side: '',
+                    type: 'MARKET',
+                    open: false
+                },
                 logs: [],
                 renderScheduled: false,
                 renderDirty: {
@@ -1358,9 +2085,14 @@
                 },
                 chart: {
                     instance: null,
+                    volumeInstance: null,
                     candleSeries: null,
                     volumeSeries: null,
                     lastCandleTime: 0,
+                    lastRenderedCandle: null,
+                    liveAggregatedCandle: null,
+                    hoverCandle: null,
+                    candleByTime: new Map(),
                     resizeObserver: null,
                     pendingCandle: null,
                     updateRaf: 0
@@ -1375,6 +2107,7 @@
                 bindEvents();
                 syncControls();
                 updateRouteQuery();
+                updateProfileCenterEntry();
                 initChart();
                 markDirty('book');
                 markDirty('trades');
@@ -1394,13 +2127,6 @@
                     }
                 });
 
-                ui.headerIntervalSelect.addEventListener('change', () => {
-                    const next = normalizeInterval(ui.headerIntervalSelect.value);
-                    if (next !== state.interval) {
-                        setIntervalValue(next);
-                    }
-                });
-
                 ui.intervalTabs.addEventListener('click', (event) => {
                     const btn = event.target.closest('.interval-btn');
                     if (!btn) return;
@@ -1409,6 +2135,19 @@
                         setIntervalValue(next);
                     }
                 });
+
+                if (ui.intervalMoreSelect) {
+                    ui.intervalMoreSelect.addEventListener('change', () => {
+                        const raw = ui.intervalMoreSelect.value;
+                        if (!raw) {
+                            return;
+                        }
+                        const next = normalizeInterval(raw);
+                        if (next !== state.interval) {
+                            setIntervalValue(next);
+                        }
+                    });
+                }
 
                 ui.symbolSelect.addEventListener('change', () => {
                     const next = normalizeSymbol(ui.symbolSelect.value);
@@ -1428,6 +2167,70 @@
                 ui.buySideBtn.addEventListener('click', () => setTradeSide('BUY'));
                 ui.sellSideBtn.addEventListener('click', () => setTradeSide('SELL'));
                 ui.submitOrderBtn.addEventListener('click', submitOrder);
+                ui.submitCloseBtn.addEventListener('click', submitCloseOrder);
+                ui.closeTypeSelect.addEventListener('change', () => {
+                    state.closeForm.type = ui.closeTypeSelect.value === 'LIMIT' ? 'LIMIT' : 'MARKET';
+                    ui.closePriceInput.disabled = state.closeForm.type !== 'LIMIT';
+                    if (state.closeForm.type !== 'LIMIT') {
+                        ui.closePriceInput.value = '';
+                    } else {
+                        const fallbackPrice = Number.isFinite(state.priceRef) && state.priceRef > 0 ? state.priceRef : NaN;
+                        if (!ui.closePriceInput.value && Number.isFinite(fallbackPrice)) {
+                            ui.closePriceInput.value = formatInputQuantity(fallbackPrice);
+                        }
+                    }
+                });
+                ui.closeQuantityInput.addEventListener('blur', () => {
+                    normalizeCloseQuantity();
+                });
+                ui.closeRatioRow.addEventListener('click', (event) => {
+                    const btn = event.target.closest('[data-close-ratio]');
+                    if (!btn) return;
+                    applyCloseRatio(btn.dataset.closeRatio);
+                });
+                ui.positionsBody.addEventListener('click', (event) => {
+                    const btn = event.target.closest('[data-close-index]');
+                    if (!btn) return;
+                    const idx = Number(btn.dataset.closeIndex);
+                    if (!Number.isInteger(idx) || idx < 0) return;
+                    selectPositionForClose(idx);
+                });
+                ui.ordersBody.addEventListener('click', async (event) => {
+                    const btn = event.target.closest('[data-cancel-order-id]');
+                    if (!btn || !ui.ordersBody.contains(btn)) return;
+                    if (btn.disabled) return;
+                    const orderId = String(btn.dataset.cancelOrderId || '').trim();
+                    if (!orderId || orderId === '--') return;
+                    const status = String(btn.dataset.cancelOrderStatus || '').toUpperCase();
+                    if (!canCancelOrderStatus(status)) {
+                        setOrderHint('当前状态不可撤单', 'warn');
+                        return;
+                    }
+
+                    const previousLabel = btn.textContent;
+                    btn.disabled = true;
+                    btn.textContent = '撤单中';
+                    try {
+                        await cancelOrder(orderId);
+                    } finally {
+                        if (btn.isConnected) {
+                            btn.disabled = false;
+                            btn.textContent = previousLabel || '撤单';
+                        }
+                    }
+                });
+                ui.closeModalCloseBtn.addEventListener('click', closeCloseModal);
+                ui.closeModalCancelBtn.addEventListener('click', closeCloseModal);
+                ui.closeModalMask.addEventListener('click', (event) => {
+                    if (event.target === ui.closeModalMask) {
+                        closeCloseModal();
+                    }
+                });
+                document.addEventListener('keydown', (event) => {
+                    if (event.key === 'Escape' && state.closeForm.open) {
+                        closeCloseModal();
+                    }
+                });
                 ui.clearLogsBtn.addEventListener('click', clearLogs);
                 ui.reconnectWsBtn.addEventListener('click', reconnectAllWs);
 
@@ -1443,29 +2246,50 @@
                 document.querySelectorAll('.interval-btn').forEach((btn) => {
                     btn.classList.toggle('active', btn.dataset.interval === state.interval);
                 });
+                if (ui.intervalMoreSelect) {
+                    if (PRIMARY_INTERVALS.has(state.interval)) {
+                        ui.intervalMoreSelect.value = '';
+                        ui.intervalMoreSelect.classList.remove('active');
+                    } else {
+                        ui.intervalMoreSelect.value = state.interval;
+                        ui.intervalMoreSelect.classList.add('active');
+                    }
+                }
                 ui.headerSymbolSelect.value = state.symbol;
-                ui.headerIntervalSelect.value = state.interval;
                 ui.symbolSelect.value = state.symbol;
                 ui.orderType.value = state.orderType;
                 ui.priceInput.disabled = state.orderType === 'MARKET';
-                ui.chartMeta.textContent = `${state.symbol} · ${state.interval}`;
+                ui.closeTypeSelect.value = state.closeForm.type;
+                ui.closePriceInput.disabled = state.closeForm.type !== 'LIMIT';
+                ui.chartMeta.textContent = `${state.symbol} · ${formatIntervalLabel(state.interval)}`;
+                syncClosePanel();
             }
 
             function syncAuthUi() {
                 const authenticated = isLikelyJwt(state.token);
                 if (authenticated) {
-                    const userText = state.username ? `${state.username}` : `UID ${state.userId || '-'}`;
-                    ui.userLabel.textContent = `用户 · ${userText}`;
+                    const userText = state.username ? state.username : `UID ${state.userId || '-'}`;
+                    ui.userLabel.textContent = `状态: ${userText} 已登录`;
+                    ui.profileCenterEntry.textContent = '个人中心';
                     ui.modeLabel.textContent = '已登录可直接下单';
                     ui.quoteMode.textContent = '登录';
                     ui.orderHintBox.innerHTML = '已进入账户模式：<strong>下单、撤单、持仓</strong>会实时更新。';
                     ui.submitOrderBtn.disabled = false;
+                    setCloseHint('', 'info');
                 } else {
-                    ui.userLabel.textContent = '用户 · 游客';
+                    ui.userLabel.textContent = '状态: 未登录';
+                    ui.profileCenterEntry.textContent = '登录后查看个人中心';
                     ui.modeLabel.textContent = '登录后可直接下单';
                     ui.quoteMode.textContent = '游客';
                     ui.orderHintBox.innerHTML = '当前仅行情模式。<strong>登录后</strong>可提交订单并查看账户信息。';
+                    state.closeForm.symbol = '';
+                    state.closeForm.side = '';
+                    ui.closeQuantityInput.value = '';
+                    ui.closePriceInput.value = '';
+                    setCloseHint('登录后可执行平仓操作', 'warn');
+                    closeCloseModal();
                 }
+                syncClosePanel();
                 markDirty('account');
                 markDirty('positions');
                 markDirty('orders');
@@ -1476,9 +2300,18 @@
                 if (!nextSymbol || nextSymbol === state.symbol) return;
                 const prevSymbol = state.symbol;
                 state.symbol = nextSymbol;
+                if (state.closeForm.symbol && state.closeForm.symbol !== nextSymbol) {
+                    state.closeForm.symbol = '';
+                    state.closeForm.side = '';
+                    ui.closeQuantityInput.value = '';
+                    ui.closePriceInput.value = '';
+                    setCloseHint('', 'info');
+                    closeCloseModal();
+                }
                 localStorage.setItem('fx_symbol', nextSymbol);
                 syncControls();
                 updateRouteQuery();
+                updateProfileCenterEntry();
                 clearMarketDataToLoading();
                 subscribePublicChannels(prevSymbol, state.symbol);
                 bootstrapData();
@@ -1490,9 +2323,14 @@
                 if (!nextInterval || nextInterval === state.interval) return;
                 const prevInterval = state.interval;
                 state.interval = nextInterval;
+                state.chart.lastRenderedCandle = null;
+                state.chart.liveAggregatedCandle = null;
+                state.chart.hoverCandle = null;
+                state.chart.candleByTime = new Map();
                 localStorage.setItem('fx_interval', nextInterval);
                 syncControls();
                 updateRouteQuery();
+                updateProfileCenterEntry();
                 fetchKlineSnapshot();
                 subscribePublicChannels(state.symbol, state.symbol, prevInterval);
                 log('info', `切换周期: ${prevInterval} -> ${state.interval}`);
@@ -1512,6 +2350,12 @@
                 state.trades = [];
                 state.high24 = NaN;
                 state.low24 = NaN;
+                state.volume24h = NaN;
+                state.turnover24h = NaN;
+                state.chart.lastRenderedCandle = null;
+                state.chart.liveAggregatedCandle = null;
+                state.chart.hoverCandle = null;
+                state.chart.candleByTime = new Map();
                 markDirty('book');
                 markDirty('trades');
                 markDirty('price');
@@ -1522,6 +2366,7 @@
                     fetchDepthSnapshot(),
                     fetchTradeSnapshot(),
                     fetchKlineSnapshot(),
+                    fetchTickerSnapshot(),
                     refreshPrivateData()
                 ]);
             }
@@ -1529,10 +2374,12 @@
             function buildPublicChannels(symbol = state.symbol, interval = state.interval) {
                 const normalizedSymbol = normalizeSymbol(symbol);
                 const normalizedInterval = normalizeInterval(interval);
+                const klineInterval = resolveKlineSourceInterval(normalizedInterval);
                 return [
                     `trade.${normalizedSymbol}`,
                     `depth.${normalizedSymbol}`,
-                    `kline.${normalizedSymbol}.${normalizedInterval}`
+                    `kline.${normalizedSymbol}.${klineInterval}`,
+                    `ticker.${normalizedSymbol}`
                 ];
             }
 
@@ -1758,6 +2605,29 @@
                     return;
                 }
 
+                if (isTickerPayload(channel, payload)) {
+                    const ticker = parseTickerPayload(payload);
+                    if (ticker) {
+                        if (Number.isFinite(ticker.last) && ticker.last > 0) {
+                            state.priceRef = ticker.last;
+                        }
+                        if (Number.isFinite(ticker.high24)) {
+                            state.high24 = ticker.high24;
+                        }
+                        if (Number.isFinite(ticker.low24)) {
+                            state.low24 = ticker.low24;
+                        }
+                        if (Number.isFinite(ticker.volume24h)) {
+                            state.volume24h = ticker.volume24h;
+                        }
+                        if (Number.isFinite(ticker.turnover24h)) {
+                            state.turnover24h = ticker.turnover24h;
+                        }
+                        markDirty('price');
+                    }
+                    return;
+                }
+
                 if (isTradePayload(channel, payload)) {
                     const normalizedTrades = parseTradePayload(payload);
                     if (normalizedTrades.length) {
@@ -1773,7 +2643,7 @@
                 }
 
                 if (isKlinePayload(channel, payload)) {
-                    const candle = parseKlineTick(payload);
+                    const candle = adaptRealtimeCandle(parseKlineTick(payload));
                     if (candle) {
                         queueKlineUpdate(candle);
                     }
@@ -1840,8 +2710,7 @@
             async function fetchTradeSnapshot() {
                 const symbol = state.symbol;
                 const urls = [
-                    `${config.apiGateway}/api/v1/trades?symbol=${encodeURIComponent(symbol)}&limit=${MAX_TRADES}`,
-                    `${config.marketPriceApi}/api/v1/trades?symbol=${encodeURIComponent(symbol)}&limit=${MAX_TRADES}`
+                    `${config.apiGateway}/api/v1/trades?symbol=${encodeURIComponent(symbol)}&limit=${MAX_TRADES}`
                 ];
                 const payload = await fetchFirstSuccess(urls, { method: 'GET' }, 'trades');
                 if (!payload) return;
@@ -1856,17 +2725,20 @@
             }
 
             async function fetchKlineSnapshot() {
-                if (!state.chart.instance) return;
+                if (!state.chart.instance || !state.chart.volumeInstance || !state.chart.candleSeries || !state.chart.volumeSeries) return;
                 const symbol = state.symbol;
-                const interval = state.interval;
+                const interval = normalizeInterval(state.interval);
+                const sourceInterval = resolveKlineSourceInterval(interval);
                 const urls = [
-                    `${config.apiGateway}/api/v1/klines?symbol=${encodeURIComponent(symbol)}&interval=${encodeURIComponent(interval)}&limit=300`,
-                    `${config.marketPriceApi}/api/v1/klines?symbol=${encodeURIComponent(symbol)}&interval=${encodeURIComponent(interval)}&limit=300`
+                    `${config.apiGateway}/api/v1/klines?symbol=${encodeURIComponent(symbol)}&interval=${encodeURIComponent(sourceInterval)}&limit=500`,
+                    `${config.marketPriceApi}/api/v1/klines?symbol=${encodeURIComponent(symbol)}&interval=${encodeURIComponent(sourceInterval)}&limit=500`
                 ];
 
                 const payload = await fetchFirstSuccess(urls, { method: 'GET' }, 'klines');
                 if (!payload) return;
-                const candles = parseKlineSnapshot(payload);
+                const rawCandles = parseKlineSnapshot(payload);
+                if (!rawCandles.length) return;
+                const candles = alignCandlesByInterval(rawCandles, sourceInterval, interval);
                 if (!candles.length) return;
 
                 state.chart.candleSeries.setData(candles.map((row) => ({
@@ -1880,13 +2752,62 @@
                 state.chart.volumeSeries.setData(candles.map((row) => ({
                     time: row.time,
                     value: row.volume,
-                    color: row.close >= row.open ? 'rgba(28,203,146,0.45)' : 'rgba(255,110,110,0.4)'
+                    color: row.close >= row.open ? 'rgba(26,203,143,0.56)' : 'rgba(255,110,127,0.52)'
                 })));
 
                 state.chart.lastCandleTime = candles[candles.length - 1].time;
+                state.chart.lastRenderedCandle = { ...candles[candles.length - 1] };
+                state.chart.liveAggregatedCandle = null;
+                state.chart.hoverCandle = null;
+                state.chart.candleByTime = new Map(candles.map((row) => [row.time, { ...row }]));
+                const logicalRange = state.chart.instance.timeScale().getVisibleLogicalRange();
+                if (logicalRange) {
+                    state.chart.volumeInstance.timeScale().setVisibleLogicalRange(logicalRange);
+                } else {
+                    state.chart.instance.timeScale().fitContent();
+                    const fallbackRange = state.chart.instance.timeScale().getVisibleLogicalRange();
+                    if (fallbackRange) {
+                        state.chart.volumeInstance.timeScale().setVisibleLogicalRange(fallbackRange);
+                    }
+                }
                 state.priceRef = candles[candles.length - 1].close;
-                state.high24 = Math.max(...candles.map((row) => row.high));
-                state.low24 = Math.min(...candles.map((row) => row.low));
+                // 回退路径：仅在 ticker 不可用时，用严格 24h 窗口从 K 线推导高低。
+                if (!Number.isFinite(state.high24) || !Number.isFinite(state.low24)) {
+                    const cutoffSec = Math.floor(Date.now() / 1000) - 24 * 60 * 60;
+                    const windowCandles = candles.filter((row) => row.time >= cutoffSec);
+                    if (windowCandles.length) {
+                        state.high24 = Math.max(...windowCandles.map((row) => row.high));
+                        state.low24 = Math.min(...windowCandles.map((row) => row.low));
+                    }
+                }
+                markDirty('price');
+            }
+
+            async function fetchTickerSnapshot() {
+                const symbol = state.symbol;
+                const urls = [
+                    `${config.apiGateway}/api/v1/ticker/24hr?symbol=${encodeURIComponent(symbol)}`,
+                    `${config.marketPriceApi}/api/v1/ticker/24hr?symbol=${encodeURIComponent(symbol)}`
+                ];
+                const payload = await fetchFirstSuccess(urls, { method: 'GET' }, 'ticker24hr');
+                if (!payload) return;
+                const ticker = parseTickerPayload(payload);
+                if (!ticker) return;
+                if (Number.isFinite(ticker.last) && ticker.last > 0) {
+                    state.priceRef = ticker.last;
+                }
+                if (Number.isFinite(ticker.high24)) {
+                    state.high24 = ticker.high24;
+                }
+                if (Number.isFinite(ticker.low24)) {
+                    state.low24 = ticker.low24;
+                }
+                if (Number.isFinite(ticker.volume24h)) {
+                    state.volume24h = ticker.volume24h;
+                }
+                if (Number.isFinite(ticker.turnover24h)) {
+                    state.turnover24h = ticker.turnover24h;
+                }
                 markDirty('price');
             }
 
@@ -1895,6 +2816,12 @@
                     state.balances = { available: NaN, frozen: NaN, margin: NaN, equity: NaN };
                     state.positions = [];
                     state.orders = [];
+                    state.closeForm.symbol = '';
+                    state.closeForm.side = '';
+                    ui.closeQuantityInput.value = '';
+                    ui.closePriceInput.value = '';
+                    closeCloseModal();
+                    syncClosePanel();
                     markDirty('account');
                     markDirty('positions');
                     markDirty('orders');
@@ -1922,20 +2849,22 @@
                 const frozen = toNumber(normalized.frozenBalance ?? normalized.frozen ?? normalized.locked ?? normalized.freeze);
                 const margin = toNumber(normalized.positionMargin ?? normalized.marginBalance ?? normalized.margin ?? normalized.usedMargin);
                 let equity = toNumber(normalized.equity ?? normalized.totalBalance ?? normalized.totalAsset ?? normalized.balance);
+                const prev = state.balances || {};
 
-                const safeAvailable = Number.isFinite(available) ? available : 0;
-                const safeFrozen = Number.isFinite(frozen) ? frozen : 0;
-                const safeMargin = Number.isFinite(margin) ? margin : 0;
+                const nextAvailable = Number.isFinite(available) ? available : prev.available;
+                const nextFrozen = Number.isFinite(frozen) ? frozen : prev.frozen;
+                const nextMargin = Number.isFinite(margin) ? margin : prev.margin;
 
                 if (!Number.isFinite(equity)) {
-                    equity = safeAvailable + safeFrozen + safeMargin;
+                    const canComputeEquity = Number.isFinite(nextAvailable) && Number.isFinite(nextFrozen) && Number.isFinite(nextMargin);
+                    equity = canComputeEquity ? (nextAvailable + nextFrozen + nextMargin) : prev.equity;
                 }
 
                 state.balances = {
-                    available: safeAvailable,
-                    frozen: safeFrozen,
-                    margin: safeMargin,
-                    equity
+                    available: nextAvailable,
+                    frozen: nextFrozen,
+                    margin: nextMargin,
+                    equity: Number.isFinite(equity) ? equity : prev.equity
                 };
 
                 markDirty('account');
@@ -1949,6 +2878,7 @@
                 ], authOptions(), 'positions');
                 if (!payload) return;
                 state.positions = parsePositions(payload);
+                syncClosePanel();
                 markDirty('positions');
             }
 
@@ -2022,8 +2952,7 @@
                         body: JSON.stringify(payload)
                     });
 
-                    const code = Number(response.code ?? response.status ?? response.data?.code);
-                    const ok = response.success === true || code === 0 || code === 200 || response.code === 'SUCCESS' || response.status === 'OK';
+                    const ok = isApiSuccess(response);
                     if (ok) {
                         setOrderHint('下单成功', 'success');
                         log('success', `下单成功: ${payload.side} ${payload.symbol} ${payload.type}`);
@@ -2043,6 +2972,56 @@
                 }
             }
 
+            async function cancelOrder(orderId) {
+                if (!isLikelyJwt(state.token)) {
+                    setOrderHint('请先登录后再撤单', 'warn');
+                    log('warn', '游客模式无法撤单');
+                    return;
+                }
+
+                const normalizedOrderId = String(orderId || '').trim();
+                if (!normalizedOrderId || normalizedOrderId === '--') {
+                    setOrderHint('无效委托号，无法撤单', 'error');
+                    return;
+                }
+
+                const order = state.orders.find((item) => String(item.orderId) === normalizedOrderId);
+                const symbol = order?.symbol ? normalizeSymbol(order.symbol) : state.symbol;
+                const payload = {
+                    symbol,
+                    orderId: normalizedOrderId
+                };
+                const urls = [
+                    `${config.apiGateway}/api/order/cancel`,
+                    `${config.apiGateway}/api/v1/oms/order/cancel`,
+                    `${config.apiGateway}/api/v1/order/cancel`
+                ];
+
+                setOrderHint(`正在撤单 ${compactOrderId(normalizedOrderId)}...`, 'info');
+                log('info', `提交撤单: ${compactOrderId(normalizedOrderId)}`);
+
+                const response = await requestFirstApiSuccess(urls, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${state.token}`,
+                        'X-Idempotency-Key': `cancel_${Date.now()}`
+                    },
+                    body: JSON.stringify(payload)
+                }, 'cancel');
+
+                if (response && isApiSuccess(response)) {
+                    setOrderHint('撤单成功，正在刷新账户与挂单', 'success');
+                    log('success', `撤单成功: ${compactOrderId(normalizedOrderId)}`);
+                    refreshPrivateData();
+                    return;
+                }
+
+                const message = response?.message || response?.msg || response?.errorMsg || response?.data?.message || response?.data?.msg || '撤单失败';
+                setOrderHint(message, 'error');
+                log('error', `撤单失败: ${message}`);
+            }
+
             function setOrderHint(text, level) {
                 ui.orderHint.textContent = text;
                 if (level === 'error') {
@@ -2056,58 +3035,378 @@
                 }
             }
 
+            function setCloseHint(text, level) {
+                ui.closeHint.textContent = text || '';
+                if (level === 'error') {
+                    ui.closeHint.style.color = 'var(--danger)';
+                } else if (level === 'success') {
+                    ui.closeHint.style.color = 'var(--buy)';
+                } else if (level === 'warn') {
+                    ui.closeHint.style.color = 'var(--warning)';
+                } else {
+                    ui.closeHint.style.color = 'var(--text-sub)';
+                }
+            }
+
+            function openCloseModal() {
+                state.closeForm.open = true;
+                ui.closeModalMask.classList.add('open');
+                ui.closeModalMask.setAttribute('aria-hidden', 'false');
+            }
+
+            function closeCloseModal() {
+                state.closeForm.open = false;
+                ui.closeModalMask.classList.remove('open');
+                ui.closeModalMask.setAttribute('aria-hidden', 'true');
+            }
+
+            function isClosePositionMatch(position) {
+                if (!position || !state.closeForm.symbol || !state.closeForm.side) {
+                    return false;
+                }
+                return position.symbol === state.closeForm.symbol && position.side === state.closeForm.side;
+            }
+
+            function getSelectedClosePosition() {
+                if (!state.closeForm.symbol || !state.closeForm.side) {
+                    return null;
+                }
+                return state.positions.find((pos) => isClosePositionMatch(pos)) || null;
+            }
+
+            function syncClosePanel() {
+                const authenticated = isLikelyJwt(state.token);
+                const selected = getSelectedClosePosition();
+
+                ui.closeTypeSelect.value = state.closeForm.type;
+
+                if (!authenticated) {
+                    ui.closePositionLabel.textContent = '登录后可执行平仓操作。';
+                    ui.closeMaxQty.textContent = '可平数量: --';
+                    ui.submitCloseBtn.textContent = '登录后可平仓';
+                    ui.submitCloseBtn.disabled = true;
+                    ui.closeTypeSelect.disabled = true;
+                    ui.closeQuantityInput.disabled = true;
+                    ui.closePriceInput.disabled = true;
+                    ui.closeRatioRow.querySelectorAll('button').forEach((btn) => {
+                        btn.disabled = true;
+                    });
+                    closeCloseModal();
+                    return;
+                }
+
+                if (!selected) {
+                    state.closeForm.symbol = '';
+                    state.closeForm.side = '';
+                    ui.closePositionLabel.textContent = '选择持仓后可平仓，支持部分平仓。';
+                    ui.closeMaxQty.textContent = '可平数量: --';
+                    ui.submitCloseBtn.textContent = '选择持仓后平仓';
+                    ui.submitCloseBtn.disabled = true;
+                    ui.closeTypeSelect.disabled = true;
+                    ui.closeQuantityInput.disabled = true;
+                    ui.closeQuantityInput.value = '';
+                    ui.closePriceInput.disabled = true;
+                    ui.closeRatioRow.querySelectorAll('button').forEach((btn) => {
+                        btn.disabled = true;
+                    });
+                    closeCloseModal();
+                    return;
+                }
+
+                const sideText = selected.side === 'SHORT' ? '空' : '多';
+                const closeSide = selected.side === 'SHORT' ? 'BUY' : 'SELL';
+                const closeActionText = closeSide === 'SELL' ? '卖出' : '买入';
+
+                ui.closePositionLabel.textContent = `${selected.symbol} ${sideText} 持仓 · 将以${closeActionText}方向平仓`;
+                ui.closeMaxQty.textContent = `可平数量: ${formatQty(selected.qty)}`;
+                ui.submitCloseBtn.textContent = `${closeActionText}平仓`;
+                ui.submitCloseBtn.disabled = false;
+                ui.closeTypeSelect.disabled = false;
+                ui.closeQuantityInput.disabled = false;
+                ui.closeRatioRow.querySelectorAll('button').forEach((btn) => {
+                    btn.disabled = false;
+                });
+
+                const draftQty = toNumber(ui.closeQuantityInput.value);
+                if (Number.isFinite(draftQty) && draftQty > selected.qty) {
+                    ui.closeQuantityInput.value = formatInputQuantity(selected.qty);
+                }
+
+                const isLimit = state.closeForm.type === 'LIMIT';
+                ui.closePriceInput.disabled = !isLimit;
+                if (isLimit && !ui.closePriceInput.value && Number.isFinite(state.priceRef) && state.priceRef > 0) {
+                    ui.closePriceInput.value = formatInputQuantity(state.priceRef);
+                }
+            }
+
+            function selectPositionForClose(index) {
+                const selected = state.positions[index];
+                if (!selected) return;
+
+                state.closeForm.symbol = selected.symbol;
+                state.closeForm.side = selected.side;
+                ui.closeQuantityInput.value = formatInputQuantity(selected.qty);
+                if (state.closeForm.type === 'LIMIT' && Number.isFinite(state.priceRef) && state.priceRef > 0) {
+                    ui.closePriceInput.value = formatInputQuantity(state.priceRef);
+                }
+
+                syncClosePanel();
+                openCloseModal();
+                markDirty('positions');
+                setCloseHint(`已选择 ${selected.symbol} ${selected.side === 'SHORT' ? '空' : '多'} 持仓`, 'info');
+                setTimeout(() => {
+                    ui.closeQuantityInput.focus();
+                    ui.closeQuantityInput.select();
+                }, 0);
+            }
+
+            function applyCloseRatio(rawRatio) {
+                const selected = getSelectedClosePosition();
+                if (!selected) {
+                    setCloseHint('请先选择要平仓的持仓', 'warn');
+                    return;
+                }
+
+                const ratio = Math.max(0, Math.min(1, toNumber(rawRatio)));
+                if (!Number.isFinite(ratio) || ratio <= 0) {
+                    return;
+                }
+
+                const qty = selected.qty * ratio;
+                ui.closeQuantityInput.value = formatInputQuantity(qty);
+                normalizeCloseQuantity();
+                setCloseHint(`已填入 ${Math.round(ratio * 100)}% 平仓数量`, 'info');
+            }
+
+            function normalizeCloseQuantity() {
+                const selected = getSelectedClosePosition();
+                if (!selected) return NaN;
+
+                let qty = toNumber(ui.closeQuantityInput.value);
+                if (!Number.isFinite(qty) || qty <= 0) {
+                    return NaN;
+                }
+
+                if (qty > selected.qty) {
+                    qty = selected.qty;
+                    setCloseHint('平仓数量超过持仓，已自动调整为最大可平数量', 'warn');
+                }
+
+                ui.closeQuantityInput.value = formatInputQuantity(qty);
+                return qty;
+            }
+
+            async function submitCloseOrder() {
+                if (!isLikelyJwt(state.token)) {
+                    setCloseHint('请先登录后再平仓', 'warn');
+                    return;
+                }
+
+                const selected = getSelectedClosePosition();
+                if (!selected) {
+                    setCloseHint('请先从持仓列表选择要平仓的仓位', 'warn');
+                    return;
+                }
+
+                const type = ui.closeTypeSelect.value === 'LIMIT' ? 'LIMIT' : 'MARKET';
+                state.closeForm.type = type;
+                const quantity = normalizeCloseQuantity();
+                const price = toNumber(ui.closePriceInput.value);
+                const closeSide = selected.side === 'SHORT' ? 'BUY' : 'SELL';
+                const leverage = Math.max(1, Math.floor(toNumber(ui.leverageSelect.value) || 10));
+
+                if (!Number.isFinite(quantity) || quantity <= 0) {
+                    setCloseHint('请输入有效的平仓数量', 'error');
+                    return;
+                }
+
+                if (type === 'LIMIT' && (!Number.isFinite(price) || price <= 0)) {
+                    setCloseHint('限价平仓请输入有效价格', 'error');
+                    return;
+                }
+
+                const payload = {
+                    symbol: selected.symbol,
+                    side: closeSide,
+                    type,
+                    price: type === 'MARKET' ? '0' : Number(price).toFixed(8),
+                    quantity: Number(quantity).toFixed(8),
+                    leverage,
+                    timeInForce: 'GTC',
+                    clientOrderId: `close_${Date.now()}`
+                };
+
+                ui.submitCloseBtn.disabled = true;
+                setCloseHint('正在提交平仓单...', 'info');
+
+                try {
+                    const response = await requestJson(`${config.apiGateway}/api/order/create`, {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                            'Authorization': `Bearer ${state.token}`,
+                            'X-Idempotency-Key': `close_idem_${Date.now()}`
+                        },
+                        body: JSON.stringify(payload)
+                    });
+
+                    if (isApiSuccess(response)) {
+                        setCloseHint('平仓单提交成功，等待撮合与持仓刷新', 'success');
+                        setOrderHint('平仓单已提交', 'success');
+                        log('success', `平仓下单成功: ${payload.symbol} ${payload.side} ${payload.quantity} (${payload.type})`);
+                        closeCloseModal();
+                        state.privateRefreshDebounced();
+                    } else {
+                        const message = response.message || response.msg || response.errorMsg || '平仓下单失败';
+                        setCloseHint(message, 'error');
+                        log('error', `平仓下单失败: ${message}`);
+                    }
+                } catch (error) {
+                    const message = error.message || '网络异常';
+                    setCloseHint(message, 'error');
+                    log('error', `平仓下单异常: ${message}`);
+                } finally {
+                    syncClosePanel();
+                }
+            }
+
+            function isApiSuccess(response) {
+                if (!response || typeof response !== 'object') return false;
+                const code = Number(response.code ?? response.status ?? response.data?.code);
+                return response.success === true || code === 0 || code === 200 || response.code === 'SUCCESS' || response.status === 'OK';
+            }
+
             function initChart() {
-                const chart = LightweightCharts.createChart(ui.chartHost, {
+                const candleChart = LightweightCharts.createChart(ui.chartHost, {
                     width: ui.chartHost.clientWidth,
                     height: ui.chartHost.clientHeight,
                     layout: {
-                        background: { color: '#030a18' },
-                        textColor: '#8fa5c6',
-                        fontSize: 12,
+                        background: { color: '#010612' },
+                        textColor: '#8ea8cb',
+                        fontSize: 11,
                         fontFamily: 'IBM Plex Mono'
                     },
                     grid: {
-                        vertLines: { color: 'rgba(74,104,156,0.18)' },
-                        horzLines: { color: 'rgba(74,104,156,0.18)' }
+                        vertLines: { color: 'rgba(74,104,156,0.08)' },
+                        horzLines: { color: 'rgba(74,104,156,0.12)' }
                     },
                     rightPriceScale: {
-                        borderColor: 'rgba(110,156,226,0.32)'
+                        borderColor: 'rgba(110,156,226,0.28)',
+                        scaleMargins: { top: 0.04, bottom: 0.08 }
                     },
                     timeScale: {
-                        borderColor: 'rgba(110,156,226,0.32)',
+                        visible: false,
                         timeVisible: true,
-                        secondsVisible: false
+                        secondsVisible: false,
+                        barSpacing: 10,
+                        minBarSpacing: 6,
+                        rightOffset: 3
                     },
                     crosshair: {
-                        mode: LightweightCharts.CrosshairMode.Normal
+                        mode: LightweightCharts.CrosshairMode.Normal,
+                        vertLine: {
+                            color: 'rgba(120, 170, 255, 0.24)',
+                            style: LightweightCharts.LineStyle.Dashed
+                        },
+                        horzLine: {
+                            color: 'rgba(120, 170, 255, 0.24)',
+                            style: LightweightCharts.LineStyle.Dashed
+                        }
                     }
                 });
 
-                state.chart.instance = chart;
-
-                state.chart.candleSeries = chart.addCandlestickSeries({
-                    upColor: '#1ccb92',
-                    downColor: '#ff6e6e',
-                    borderVisible: false,
-                    wickUpColor: '#1ccb92',
-                    wickDownColor: '#ff6e6e'
+                const volumeChart = LightweightCharts.createChart(ui.volumeHost, {
+                    width: ui.volumeHost.clientWidth,
+                    height: ui.volumeHost.clientHeight,
+                    layout: {
+                        background: { color: '#020914' },
+                        textColor: 'rgba(142,168,203,0.68)',
+                        fontSize: 10,
+                        fontFamily: 'IBM Plex Mono'
+                    },
+                    grid: {
+                        vertLines: { visible: false },
+                        horzLines: { visible: false }
+                    },
+                    leftPriceScale: { visible: false },
+                    rightPriceScale: {
+                        visible: false
+                    },
+                    timeScale: {
+                        borderColor: 'rgba(110,156,226,0.26)',
+                        timeVisible: true,
+                        secondsVisible: false,
+                        barSpacing: 10,
+                        minBarSpacing: 6,
+                        rightOffset: 3
+                    },
+                    crosshair: {
+                        vertLine: { visible: false },
+                        horzLine: { visible: false }
+                    },
+                    handleScroll: false,
+                    handleScale: false
                 });
 
-                state.chart.volumeSeries = chart.addHistogramSeries({
-                    priceScaleId: '',
+                state.chart.instance = candleChart;
+                state.chart.volumeInstance = volumeChart;
+
+                state.chart.candleSeries = candleChart.addCandlestickSeries({
+                    upColor: '#1acb8f',
+                    downColor: '#ff6e7f',
+                    borderVisible: true,
+                    borderUpColor: '#1acb8f',
+                    borderDownColor: '#ff6e7f',
+                    wickUpColor: '#58dcb0',
+                    wickDownColor: '#ff8f9a',
+                    priceLineVisible: true,
+                    lastValueVisible: true
+                });
+
+                state.chart.volumeSeries = volumeChart.addHistogramSeries({
+                    priceScaleId: 'right',
                     priceFormat: { type: 'volume' },
-                    scaleMargins: { top: 0.78, bottom: 0 }
+                    priceLineVisible: false,
+                    lastValueVisible: false
+                });
+
+                let syncingLogicalRange = false;
+                candleChart.timeScale().subscribeVisibleLogicalRangeChange((range) => {
+                    if (!range || syncingLogicalRange || !state.chart.volumeInstance) {
+                        return;
+                    }
+                    syncingLogicalRange = true;
+                    state.chart.volumeInstance.timeScale().setVisibleLogicalRange(range);
+                    syncingLogicalRange = false;
+                });
+
+                candleChart.subscribeCrosshairMove((param) => {
+                    const candle = getCandleFromCrosshair(param);
+                    state.chart.hoverCandle = candle;
+                    if (candle) {
+                        renderOhlc(candle);
+                    } else {
+                        renderOhlc(state.chart.liveAggregatedCandle || state.chart.lastRenderedCandle);
+                    }
                 });
 
                 state.chart.resizeObserver = new ResizeObserver(() => {
-                    if (!state.chart.instance) return;
-                    state.chart.instance.applyOptions({
-                        width: ui.chartHost.clientWidth,
-                        height: ui.chartHost.clientHeight
-                    });
+                    if (state.chart.instance) {
+                        state.chart.instance.applyOptions({
+                            width: ui.chartHost.clientWidth,
+                            height: ui.chartHost.clientHeight
+                        });
+                    }
+                    if (state.chart.volumeInstance) {
+                        state.chart.volumeInstance.applyOptions({
+                            width: ui.volumeHost.clientWidth,
+                            height: ui.volumeHost.clientHeight
+                        });
+                    }
                 });
 
                 state.chart.resizeObserver.observe(ui.chartHost);
+                state.chart.resizeObserver.observe(ui.volumeHost);
             }
 
             function queueKlineUpdate(candle) {
@@ -2117,7 +3416,7 @@
                     state.chart.updateRaf = 0;
                     const pending = state.chart.pendingCandle;
                     state.chart.pendingCandle = null;
-                    if (!pending || !state.chart.candleSeries || !state.chart.volumeSeries) return;
+                    if (!pending || !state.chart.candleSeries || !state.chart.volumeSeries || !state.chart.candleByTime) return;
 
                     state.chart.candleSeries.update({
                         time: pending.time,
@@ -2129,13 +3428,61 @@
                     state.chart.volumeSeries.update({
                         time: pending.time,
                         value: pending.volume,
-                        color: pending.close >= pending.open ? 'rgba(28,203,146,0.45)' : 'rgba(255,110,110,0.4)'
+                        color: pending.close >= pending.open ? 'rgba(26,203,143,0.56)' : 'rgba(255,110,127,0.52)'
                     });
 
                     state.chart.lastCandleTime = Math.max(state.chart.lastCandleTime, pending.time);
+                    if (!state.chart.lastRenderedCandle || pending.time >= state.chart.lastRenderedCandle.time) {
+                        state.chart.lastRenderedCandle = { ...pending };
+                    }
+                    if (state.chart.liveAggregatedCandle && pending.time > state.chart.liveAggregatedCandle.time) {
+                        state.chart.liveAggregatedCandle = null;
+                    }
+                    state.chart.candleByTime.set(pending.time, { ...pending });
                     state.priceRef = pending.close;
                     markDirty('price');
                 });
+            }
+
+            function getCandleFromCrosshair(param) {
+                if (!param || !param.time || !param.seriesData || !state.chart.candleSeries) {
+                    return null;
+                }
+                const candle = param.seriesData.get(state.chart.candleSeries);
+                if (!candle) {
+                    return null;
+                }
+                const time = normalizeCrosshairTime(param.time);
+                const saved = Number.isFinite(time) ? state.chart.candleByTime.get(time) : null;
+                const volume = toNumber(saved?.volume);
+                let turnover = toNumber(saved?.turnover);
+                const close = toNumber(candle.close);
+                if (!Number.isFinite(turnover) && Number.isFinite(volume) && Number.isFinite(close)) {
+                    turnover = volume * close;
+                }
+                return {
+                    time,
+                    open: candle.open,
+                    high: candle.high,
+                    low: candle.low,
+                    close: candle.close,
+                    volume,
+                    turnover
+                };
+            }
+
+            function normalizeCrosshairTime(timeValue) {
+                if (typeof timeValue === 'number') {
+                    return timeValue;
+                }
+                if (timeValue && typeof timeValue === 'object' &&
+                    Number.isFinite(timeValue.year) &&
+                    Number.isFinite(timeValue.month) &&
+                    Number.isFinite(timeValue.day)) {
+                    const utcMs = Date.UTC(timeValue.year, timeValue.month - 1, timeValue.day, 0, 0, 0);
+                    return Math.floor(utcMs / 1000);
+                }
+                return NaN;
             }
 
             function markDirty(key) {
@@ -2214,10 +3561,10 @@
                 const bestAsk = asks[0] ? asks[0].price : NaN;
                 const mid = Number.isFinite(bestBid) && Number.isFinite(bestAsk) ? (bestBid + bestAsk) / 2 : NaN;
 
-                ui.bestBid.textContent = Number.isFinite(bestBid) ? formatPrice(bestBid) : '--';
-                ui.bestAsk.textContent = Number.isFinite(bestAsk) ? formatPrice(bestAsk) : '--';
-                ui.quoteMid.textContent = Number.isFinite(mid) ? formatPrice(mid) : '--';
-                ui.midPrice.textContent = Number.isFinite(mid) ? formatPrice(mid) : '--';
+                ui.bestBid.textContent = Number.isFinite(bestBid) ? formatQuotePrice(bestBid) : '--';
+                ui.bestAsk.textContent = Number.isFinite(bestAsk) ? formatQuotePrice(bestAsk) : '--';
+                ui.quoteMid.textContent = Number.isFinite(mid) ? formatQuotePrice(mid) : '--';
+                ui.midPrice.textContent = Number.isFinite(mid) ? formatQuotePrice(mid) : '--';
             }
 
             function renderTrades() {
@@ -2233,7 +3580,23 @@
 
             function renderPrice() {
                 const price = state.priceRef;
-                ui.chartMeta.textContent = `${state.symbol} · ${state.interval}`;
+                ui.chartMeta.textContent = `${state.symbol} · ${formatIntervalLabel(state.interval)}`;
+                const liveCandle = state.chart.hoverCandle || state.chart.liveAggregatedCandle || state.chart.lastRenderedCandle;
+                const candleVolume = toNumber(liveCandle?.volume);
+                let candleTurnover = toNumber(liveCandle?.turnover);
+                let turnover24h = toNumber(state.turnover24h);
+                if (!Number.isFinite(candleTurnover) && Number.isFinite(candleVolume) && Number.isFinite(price)) {
+                    candleTurnover = candleVolume * price;
+                }
+                if (!Number.isFinite(turnover24h) && Number.isFinite(state.volume24h) && Number.isFinite(price)) {
+                    turnover24h = state.volume24h * price;
+                }
+
+                ui.metricVolume24h.textContent = formatCompactValue(state.volume24h);
+                ui.metricTurnover24h.textContent = formatCompactValue(turnover24h, 'USDT');
+                ui.metricCandleVolume.textContent = formatCompactValue(candleVolume);
+                ui.metricCandleTurnover.textContent = formatCompactValue(candleTurnover, 'USDT');
+                renderOhlc(liveCandle);
                 if (!Number.isFinite(price) || price <= 0) {
                     ui.lastPrice.textContent = '--';
                     ui.lastPrice.className = 'price-main';
@@ -2264,6 +3627,53 @@
                 ui.bannerLow24.textContent = Number.isFinite(state.low24) ? formatPrice(state.low24) : '--';
             }
 
+            function renderOhlc(candle) {
+                if (!candle) {
+                    ui.ohlcTime.textContent = '--';
+                    ui.ohlcOpen.textContent = '--';
+                    ui.ohlcHigh.textContent = '--';
+                    ui.ohlcLow.textContent = '--';
+                    ui.ohlcClose.textContent = '--';
+                    ui.ohlcChange.textContent = '--';
+                    ui.ohlcVolume.textContent = '--';
+                    ui.ohlcTurnover.textContent = '--';
+                    ui.ohlcChange.classList.remove('positive', 'negative');
+                    return;
+                }
+
+                const open = toNumber(candle.open);
+                const high = toNumber(candle.high);
+                const low = toNumber(candle.low);
+                const close = toNumber(candle.close);
+                const volume = toNumber(candle.volume);
+                let turnover = toNumber(candle.turnover);
+                if (!Number.isFinite(turnover) && Number.isFinite(volume) && Number.isFinite(close)) {
+                    turnover = volume * close;
+                }
+
+                const change = Number.isFinite(open) && Number.isFinite(close) ? close - open : NaN;
+                const changePct = Number.isFinite(open) && open !== 0 && Number.isFinite(change)
+                    ? (change / open) * 100
+                    : NaN;
+
+                ui.ohlcTime.textContent = formatKlineTime(candle.time);
+                ui.ohlcOpen.textContent = formatPrice(open);
+                ui.ohlcHigh.textContent = formatPrice(high);
+                ui.ohlcLow.textContent = formatPrice(low);
+                ui.ohlcClose.textContent = formatPrice(close);
+                ui.ohlcVolume.textContent = formatCompactValue(volume);
+                ui.ohlcTurnover.textContent = formatCompactValue(turnover, 'USDT');
+
+                const changeText = Number.isFinite(change)
+                    ? `${change >= 0 ? '+' : ''}${formatPrice(Math.abs(change))} (${Number.isFinite(changePct) ? `${changePct >= 0 ? '+' : ''}${changePct.toFixed(2)}%` : '--'})`
+                    : '--';
+                ui.ohlcChange.textContent = changeText;
+                ui.ohlcChange.classList.remove('positive', 'negative');
+                if (Number.isFinite(change)) {
+                    ui.ohlcChange.classList.add(change >= 0 ? 'positive' : 'negative');
+                }
+            }
+
             function renderAccount() {
                 const b = state.balances;
                 ui.availableBalance.innerHTML = `${formatMoney(b.available)}<span class="stat-unit">USDT</span>`;
@@ -2277,21 +3687,25 @@
                 ui.positionsMeta.textContent = `${rows.length} 条`;
                 if (!rows.length) {
                     ui.positionsBody.innerHTML = '<div class="empty">暂无持仓</div>';
+                    syncClosePanel();
                     return;
                 }
 
-                ui.positionsBody.innerHTML = rows.map((pos) => {
+                ui.positionsBody.innerHTML = rows.map((pos, index) => {
                     const pnlClass = pos.pnl >= 0 ? 'pnl-pos' : 'pnl-neg';
                     const sideClass = pos.side === 'SHORT' ? 'short' : 'long';
+                    const sideText = pos.side === 'SHORT' ? '空' : '多';
                     const pnlText = (pos.pnl >= 0 ? '+' : '') + formatMoney(pos.pnl, 2, false);
                     return `<div class="table-row positions-row">
-                        <span>${pos.symbol}</span>
-                        <span><span class="side-tag ${sideClass}">${pos.side}</span></span>
+                        <span class="symbol-cell" title="${escapeHtml(pos.symbol)}">${escapeHtml(pos.symbol)}</span>
+                        <span><span class="side-tag ${sideClass}">${sideText}</span></span>
                         <span>${formatQty(pos.qty)}</span>
                         <span>${formatPrice(pos.entryPrice)}</span>
                         <span class="${pnlClass}">${pnlText}</span>
+                        <span><button type="button" class="close-btn" data-close-index="${index}">平仓</button></span>
                     </div>`;
                 }).join('');
+                syncClosePanel();
             }
 
             function renderOrders() {
@@ -2304,12 +3718,21 @@
 
                 ui.ordersBody.innerHTML = rows.map((order) => {
                     const sideClass = order.side === 'SELL' ? 'sell' : 'buy';
+                    const sideText = order.side === 'SELL' ? '卖' : '买';
+                    const statusText = formatOrderStatus(order.status);
+                    const statusClass = formatOrderStatusClass(order.status);
+                    const orderId = escapeHtml(order.orderId);
+                    const orderIdShort = escapeHtml(compactOrderId(order.orderId));
+                    const cancelable = canCancelOrderStatus(order.status) && order.orderId && order.orderId !== '--';
+                    const cancelDisabledAttr = cancelable ? '' : 'disabled';
+                    const cancelTip = cancelable ? '撤销该委托' : '当前状态不可撤单';
                     return `<div class="table-row orders-row">
-                        <span title="${order.orderId}">${order.orderId}</span>
-                        <span><span class="side-tag ${sideClass}">${order.side}</span></span>
+                        <span class="order-id" title="${orderId}">${orderIdShort}</span>
+                        <span><span class="side-tag ${sideClass}">${sideText}</span></span>
                         <span>${order.type === 'MARKET' ? '市价' : formatPrice(order.price)}</span>
                         <span>${formatQty(order.qty)}</span>
-                        <span>${order.status}</span>
+                        <span><span class="status-tag ${statusClass}">${statusText}</span></span>
+                        <span class="order-action-cell"><button type="button" class="cancel-order-btn" title="${cancelTip}" data-cancel-order-id="${orderId}" data-cancel-order-status="${escapeHtml(order.status || '')}" ${cancelDisabledAttr}>撤单</button></span>
                     </div>`;
                 }).join('');
             }
@@ -2383,6 +3806,24 @@
                     }
                 }
                 return null;
+            }
+
+            async function requestFirstApiSuccess(urls, options = {}, label = '') {
+                let lastPayload = null;
+                for (const url of urls) {
+                    try {
+                        const payload = await requestJson(url, options);
+                        lastPayload = payload;
+                        if (isApiSuccess(payload)) {
+                            return payload;
+                        }
+                        const message = payload?.message || payload?.msg || payload?.errorMsg || payload?.data?.message || payload?.data?.msg || `code=${payload?.code ?? payload?.status ?? 'unknown'}`;
+                        log('warn', `${label || 'request'} 响应非成功: ${stripProtocol(url)} (${message})`);
+                    } catch (error) {
+                        log('warn', `${label || 'request'} 失败: ${stripProtocol(url)} (${error.message})`);
+                    }
+                }
+                return lastPayload;
             }
 
             function authOptions() {
@@ -2489,6 +3930,86 @@
                 return normalizeKlineRow(payload?.k ? payload.k : payload);
             }
 
+            function adaptRealtimeCandle(candle) {
+                if (!candle) return null;
+                const targetInterval = normalizeInterval(state.interval);
+                const sourceInterval = resolveKlineSourceInterval(targetInterval);
+                const targetSec = intervalToSeconds(targetInterval);
+                const sourceSec = intervalToSeconds(sourceInterval);
+
+                if (!Number.isFinite(targetSec) || !Number.isFinite(sourceSec) || targetSec <= sourceSec || targetSec % sourceSec !== 0) {
+                    state.chart.liveAggregatedCandle = null;
+                    return candle;
+                }
+
+                const bucketTime = Math.floor(candle.time / targetSec) * targetSec;
+                let aggregate = state.chart.liveAggregatedCandle;
+
+                if (!aggregate || aggregate.time !== bucketTime) {
+                    if (state.chart.lastRenderedCandle && state.chart.lastRenderedCandle.time === bucketTime) {
+                        aggregate = { ...state.chart.lastRenderedCandle };
+                    } else {
+                        aggregate = {
+                            time: bucketTime,
+                            open: candle.open,
+                            high: candle.high,
+                            low: candle.low,
+                            close: candle.close,
+                            volume: 0,
+                            turnover: NaN
+                        };
+                    }
+                }
+
+                aggregate.high = Math.max(aggregate.high, candle.high);
+                aggregate.low = Math.min(aggregate.low, candle.low);
+                aggregate.close = candle.close;
+                aggregate.volume = Number.isFinite(candle.volume) ? candle.volume : aggregate.volume;
+                aggregate.turnover = Number.isFinite(candle.turnover) ? candle.turnover : aggregate.turnover;
+
+                state.chart.liveAggregatedCandle = aggregate;
+                return { ...aggregate };
+            }
+
+            function alignCandlesByInterval(candles, sourceInterval, targetInterval) {
+                if (!Array.isArray(candles) || !candles.length) {
+                    return [];
+                }
+                const sourceSec = intervalToSeconds(sourceInterval);
+                const targetSec = intervalToSeconds(targetInterval);
+                if (!Number.isFinite(sourceSec) || !Number.isFinite(targetSec) || targetSec <= sourceSec || targetSec % sourceSec !== 0) {
+                    return candles.slice(-500);
+                }
+                return aggregateCandles(candles, targetSec).slice(-500);
+            }
+
+            function aggregateCandles(candles, bucketSec) {
+                const aggregated = [];
+                for (const candle of candles) {
+                    if (!candle || !Number.isFinite(candle.time)) continue;
+                    const bucketTime = Math.floor(candle.time / bucketSec) * bucketSec;
+                    const last = aggregated[aggregated.length - 1];
+                    if (!last || last.time !== bucketTime) {
+                        aggregated.push({
+                            time: bucketTime,
+                            open: candle.open,
+                            high: candle.high,
+                            low: candle.low,
+                            close: candle.close,
+                            volume: Number.isFinite(candle.volume) ? candle.volume : 0,
+                            turnover: Number.isFinite(candle.turnover) ? candle.turnover : 0
+                        });
+                        continue;
+                    }
+                    last.high = Math.max(last.high, candle.high);
+                    last.low = Math.min(last.low, candle.low);
+                    last.close = candle.close;
+                    last.volume += Number.isFinite(candle.volume) ? candle.volume : 0;
+                    last.turnover += Number.isFinite(candle.turnover) ? candle.turnover : 0;
+                }
+                return aggregated;
+            }
+
             function normalizeKlineRow(row) {
                 if (!row) return null;
                 let time;
@@ -2497,6 +4018,7 @@
                 let low;
                 let close;
                 let volume;
+                let turnover;
 
                 if (Array.isArray(row)) {
                     time = toKlineTime(row[0]);
@@ -2505,6 +4027,7 @@
                     low = toNumber(row[3]);
                     close = toNumber(row[4]);
                     volume = toNumber(row[5]);
+                    turnover = toNumber(row[7]);
                 } else {
                     const source = row.k && typeof row.k === 'object' ? row.k : row;
                     time = toKlineTime(source.openTime ?? source.t ?? source.time ?? source.T);
@@ -2513,6 +4036,7 @@
                     low = toNumber(source.low ?? source.l);
                     close = toNumber(source.close ?? source.c);
                     volume = toNumber(source.volume ?? source.v);
+                    turnover = toNumber(source.quoteVolume ?? source.quoteAssetVolume ?? source.q ?? source.amount ?? source.turnover);
                 }
 
                 if (!Number.isFinite(time) || !Number.isFinite(open) || !Number.isFinite(high) || !Number.isFinite(low) || !Number.isFinite(close)) {
@@ -2525,7 +4049,8 @@
                     high,
                     low,
                     close,
-                    volume: Number.isFinite(volume) ? volume : 0
+                    volume: Number.isFinite(volume) ? volume : 0,
+                    turnover: Number.isFinite(turnover) ? turnover : NaN
                 };
             }
 
@@ -2578,8 +4103,9 @@
 
                 const out = [];
                 for (const item of list) {
-                    const status = String(item.status ?? item.orderStatus ?? item.state ?? '').toUpperCase();
-                    if (status && !ACTIVE_ORDER_STATUSES.has(status)) continue;
+                    const rawStatus = String(item.status ?? item.orderStatus ?? item.state ?? '').toUpperCase();
+                    const status = rawStatus || 'NEW';
+                    if (!ACTIVE_ORDER_STATUSES.has(status)) continue;
                     const orderId = String(item.orderId ?? item.id ?? item.clientOrderId ?? '--');
                     const sideRaw = String(item.side ?? item.S ?? 'BUY').toUpperCase();
                     const side = sideRaw.includes('SELL') ? 'SELL' : 'BUY';
@@ -2633,12 +4159,39 @@
                 );
             }
 
+            function isTickerPayload(channel, payload) {
+                const c = String(channel || '').toLowerCase();
+                if (c.includes('ticker')) return true;
+                if (!payload || typeof payload !== 'object') return false;
+                return (
+                    payload.e === '24hrTicker' ||
+                    payload.h !== undefined ||
+                    payload.l !== undefined ||
+                    payload.highPrice !== undefined ||
+                    payload.lowPrice !== undefined
+                );
+            }
+
             function isKlinePayload(channel, payload) {
                 const c = String(channel || '').toLowerCase();
                 if (c.includes('kline')) return true;
                 if (!payload || typeof payload !== 'object') return false;
                 if (payload.k && typeof payload.k === 'object') return true;
                 return payload.o !== undefined && payload.h !== undefined && payload.l !== undefined && payload.c !== undefined;
+            }
+
+            function parseTickerPayload(payload) {
+                const data = unwrapPayload(payload);
+                if (!data || typeof data !== 'object') return null;
+                const high24 = toNumber(data.h ?? data.highPrice);
+                const low24 = toNumber(data.l ?? data.lowPrice);
+                const last = toNumber(data.c ?? data.lastPrice ?? data.price);
+                const volume24h = toNumber(data.v ?? data.volume ?? data.baseVolume);
+                const turnover24h = toNumber(data.q ?? data.quoteVolume ?? data.amount ?? data.turnover);
+                if (!Number.isFinite(high24) && !Number.isFinite(low24) && !Number.isFinite(last)) {
+                    return null;
+                }
+                return { high24, low24, last, volume24h, turnover24h };
             }
 
             function updateRouteQuery() {
@@ -2649,6 +4202,15 @@
                 window.history.replaceState(null, '', next);
             }
 
+            function updateProfileCenterEntry() {
+                if (!ui.profileCenterEntry) return;
+                const params = new URLSearchParams();
+                params.set('gateway', config.apiGateway);
+                params.set('symbol', state.symbol);
+                params.set('interval', state.interval);
+                ui.profileCenterEntry.href = `profile-center.html?${params.toString()}`;
+            }
+
             function normalizeSymbol(value) {
                 const upper = String(value || 'BTCUSDT').trim().toUpperCase();
                 if (SUPPORTED_SYMBOLS.includes(upper)) return upper;
@@ -2656,9 +4218,44 @@
             }
 
             function normalizeInterval(value) {
-                const interval = String(value || '1h').trim();
-                if (SUPPORTED_INTERVALS.includes(interval)) return interval;
+                const raw = String(value || '1h').trim();
+                if (!raw) {
+                    return '1h';
+                }
+                const alias = INTERVAL_ALIAS_MAP[raw.toLowerCase()];
+                if (alias && SUPPORTED_INTERVALS.includes(alias)) {
+                    return alias;
+                }
+                if (SUPPORTED_INTERVALS.includes(raw)) {
+                    return raw;
+                }
+                const lower = raw.toLowerCase();
+                if (SUPPORTED_INTERVALS.includes(lower)) {
+                    return lower;
+                }
+                const upper = raw.toUpperCase();
+                if (SUPPORTED_INTERVALS.includes(upper)) {
+                    return upper;
+                }
                 return '1h';
+            }
+
+            function resolveKlineSourceInterval(interval) {
+                const normalized = normalizeInterval(interval);
+                return KLINE_FALLBACK_INTERVAL_MAP[normalized] || normalized;
+            }
+
+            function intervalToSeconds(interval) {
+                return INTERVAL_SECONDS_MAP[normalizeInterval(interval)] ?? NaN;
+            }
+
+            function formatIntervalLabel(interval) {
+                const normalized = normalizeInterval(interval);
+                if (normalized === '1d') return '1day';
+                if (normalized === '3d') return '3day';
+                if (normalized === '1w') return '1week';
+                if (normalized === '1M') return '1month';
+                return normalized;
             }
 
             function normalizeToken(value) {
@@ -2689,10 +4286,56 @@
                 return cur;
             }
 
+            function compactOrderId(value) {
+                const raw = String(value || '--');
+                if (raw.length <= 12) return raw;
+                return `${raw.slice(0, 6)}...${raw.slice(-4)}`;
+            }
+
+            function canCancelOrderStatus(status) {
+                const normalized = String(status || '').toUpperCase();
+                return CANCELABLE_ORDER_STATUSES.has(normalized);
+            }
+
+            function formatOrderStatus(status) {
+                const normalized = String(status || '').toUpperCase();
+                if (normalized === 'NEW' || normalized === 'OPEN') return '挂单中';
+                if (normalized === 'PARTIALLY_FILLED') return '部分成交';
+                if (normalized === 'PENDING') return '排队中';
+                if (normalized === 'PENDING_RISK') return '风控中';
+                if (normalized === 'FROZEN') return '挂单中';
+                return normalized || '--';
+            }
+
+            function formatOrderStatusClass(status) {
+                const normalized = String(status || '').toUpperCase();
+                if (normalized === 'NEW' || normalized === 'OPEN') return 'open';
+                if (normalized === 'PARTIALLY_FILLED') return 'partial';
+                if (normalized === 'PENDING') return 'pending';
+                if (normalized === 'PENDING_RISK') return 'pending';
+                if (normalized === 'FROZEN') return 'open';
+                return '';
+            }
+
             function formatPrice(value) {
                 const num = toNumber(value);
                 if (!Number.isFinite(num)) return '--';
-                return num.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+                if (Math.abs(num) >= 1000) {
+                    return num.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+                }
+                if (Math.abs(num) >= 1) {
+                    return num.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 4 });
+                }
+                return num.toLocaleString('en-US', { minimumFractionDigits: 4, maximumFractionDigits: 6 });
+            }
+
+            function formatQuotePrice(value) {
+                const num = toNumber(value);
+                if (!Number.isFinite(num)) return '--';
+                return num.toLocaleString('en-US', {
+                    minimumFractionDigits: 2,
+                    maximumFractionDigits: 2
+                });
             }
 
             function formatQty(value) {
@@ -2704,21 +4347,80 @@
                 return num.toLocaleString('en-US', { maximumFractionDigits: 4 });
             }
 
-            function formatMoney(value, fixed = 2, fallbackDash = true) {
+            function formatInputQuantity(value) {
                 const num = toNumber(value);
-                if (!Number.isFinite(num)) return fallbackDash ? '--' : '0.00';
+                if (!Number.isFinite(num) || num <= 0) return '';
+                return num.toFixed(8).replace(/\.?0+$/, '');
+            }
+
+            function formatMoney(value, fixed = 2, fallbackDash = true, keepTrailing = false) {
+                const num = toNumber(value);
+                if (!Number.isFinite(num)) {
+                    if (fallbackDash) return '--';
+                    return keepTrailing ? Number(0).toFixed(fixed) : '0';
+                }
                 return num.toLocaleString('en-US', {
-                    minimumFractionDigits: fixed,
+                    minimumFractionDigits: keepTrailing ? fixed : 0,
                     maximumFractionDigits: fixed
                 });
             }
 
+            function formatCompactValue(value, unit = '') {
+                const num = toNumber(value);
+                if (!Number.isFinite(num)) {
+                    return '--';
+                }
+                const abs = Math.abs(num);
+                let scaled = num;
+                let suffix = '';
+
+                if (abs >= 1e12) {
+                    scaled = num / 1e12;
+                    suffix = 'T';
+                } else if (abs >= 1e9) {
+                    scaled = num / 1e9;
+                    suffix = 'B';
+                } else if (abs >= 1e6) {
+                    scaled = num / 1e6;
+                    suffix = 'M';
+                } else if (abs >= 1e3) {
+                    scaled = num / 1e3;
+                    suffix = 'K';
+                }
+
+                const digits = Math.abs(scaled) >= 100 ? 0 : Math.abs(scaled) >= 10 ? 1 : 2;
+                const text = scaled.toLocaleString('en-US', {
+                    minimumFractionDigits: 0,
+                    maximumFractionDigits: digits
+                });
+                return unit ? `${text}${suffix} ${unit}` : `${text}${suffix}`;
+            }
+
             function formatTime(ts) {
                 const time = new Date(toTimestamp(ts));
-                const h = String(time.getHours()).padStart(2, '0');
-                const m = String(time.getMinutes()).padStart(2, '0');
-                const s = String(time.getSeconds()).padStart(2, '0');
-                return `${h}:${m}:${s}`;
+                return time.toLocaleTimeString('zh-CN', {
+                    hour12: false,
+                    hour: '2-digit',
+                    minute: '2-digit',
+                    second: '2-digit',
+                    timeZone: 'Asia/Shanghai'
+                });
+            }
+
+            function formatKlineTime(timeSec) {
+                const value = toNumber(timeSec);
+                if (!Number.isFinite(value) || value <= 0) {
+                    return '--';
+                }
+                const date = new Date(value * 1000);
+                return date.toLocaleString('zh-CN', {
+                    hour12: false,
+                    month: '2-digit',
+                    day: '2-digit',
+                    hour: '2-digit',
+                    minute: '2-digit',
+                    timeZone: 'Asia/Shanghai'
+                });
             }
 
             function toKlineTime(value) {
