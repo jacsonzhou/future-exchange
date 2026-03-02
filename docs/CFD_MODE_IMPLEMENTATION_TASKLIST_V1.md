@@ -180,8 +180,18 @@ mark-price-update
 5. `scripts/cfd/test_c5_limit_trigger.sh`
 6. `scripts/cfd/test_c6_ledger_balance.sh`
 7. `scripts/cfd/test_c7_push_consistency.sh`
+8. `scripts/cfd/test_c8_funding_prehold_flow.sh`
 
-### 7.2 建议新增脚本
+### 7.2 本轮新增回归脚本（R2/R6）
+
+1. `scripts/cfd/test_r2_cancel_unfreeze.sh`：验证 LIMIT 挂单冻结、撤单解冻、Ledger 冻结/解冻分录完整性。
+2. `scripts/cfd/test_r6_liquidation_e2e.sh`：复用 `e2e_acceptance_suite.py` 的 strict liquidation 阶段，验证强平触发到持仓收敛的 E2E 闭环。
+
+### 7.3 一键执行入口
+
+1. `scripts/cfd/run_full_chain_regression.sh`：自动注册 taker/maker、等待初始资金、执行 `R2` 与 `R6`（可通过环境变量开关）。
+
+### 7.4 后续建议新增脚本（未完成项）
 
 1. `scripts/cfd/test_c8_liquidation_route.sh`：验证强平单在 CFD symbol 下的真实路由。
 2. `scripts/cfd/test_c9_liquidation_retry.sh`：验证超时重试、失败重试、人工强平兜底。
