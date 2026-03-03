@@ -780,10 +780,16 @@
 
     <script>
         (function () {
+            const API_BASE = window.__AGENT_API_BASE__
+                || (window.location.port === '8082' ? window.location.origin : 'http://localhost:8082');
+
             const tasks = document.querySelectorAll('.task-item');
             const timerText = document.getElementById('timerText');
             const trainingState = document.getElementById('trainingState');
             const taskText = document.getElementById('taskText');
+            const modeText = document.getElementById('modeText');
+            const sessionBadge = document.getElementById('sessionBadge');
+            const symbolTag = document.getElementById('symbolTag');
             const startBtn = document.getElementById('startBtn');
             const pauseBtn = document.getElementById('pauseBtn');
             const resetBtn = document.getElementById('resetBtn');
@@ -812,11 +818,23 @@
             let elapsed = 0;
             let timer = null;
             let pulseTimer = null;
+            let coachTimer = null;
             let score = 84.6;
             let completion = 68;
             let risk = 38.4;
             let discipline = 89.2;
             let price = 66320.5;
+            let symbol = 'BTCUSDT';
+            let interval = '1m';
+            let selectedDecision = null;
+            let decisionPool = [];
+
+            const fallbackSessionRows = [
+                { time: '07:10:22', action: '开仓', side: '做空', result: '+0.42R', note: '区间上沿回落，按计划入场', tag: '纪律' },
+                { time: '07:13:40', action: '减仓', side: '做空', result: '+0.18R', note: '达到第一止盈位，部分止盈', tag: '执行' },
+                { time: '07:18:05', action: '平仓', side: '做空', result: '+0.56R', note: '波动收敛，保护收益退出', tag: '稳健' },
+                { time: '07:25:12', action: '开仓', side: '做多', result: '-0.31R', note: '信号确认不足，止损离场', tag: '复盘' }
+            ];
 
             const reasonPool = {
                 LONG: [
@@ -840,6 +858,11 @@
                 return String(v).padStart(2, '0');
             }
 
+            function parseNumber(value, fallback) {
+                const n = Number(value);
+                return Number.isFinite(n) ? n : fallback;
+            }
+
             function formatTimer(sec) {
                 const m = Math.floor(sec / 60);
                 const s = sec % 60;
@@ -847,7 +870,7 @@
             }
 
             function formatPrice(value) {
-                return value.toLocaleString('zh-CN', { minimumFractionDigits: 1, maximumFractionDigits: 1 });
+                return Number(value).toLocaleString('zh-CN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
             }
 
             function nowTimeText() {
@@ -857,6 +880,72 @@
 
             function clamp(n, min, max) {
                 return Math.min(max, Math.max(min, n));
+            }
+
+            function actionLabel(action) {
+                if (action === 'OPEN_LONG') return '建议做多';
+                if (action === 'OPEN_SHORT') return '建议做空';
+                return '建议观望';
+            }
+
+            function sideLabel(action) {
+                if (action === 'OPEN_LONG') return '做多';
+                if (action === 'OPEN_SHORT') return '做空';
+                return '观望';
+            }
+
+            function biasClass(action) {
+                if (action === 'OPEN_LONG') return 'long';
+                if (action === 'OPEN_SHORT') return 'short';
+                return 'wait';
+            }
+
+            function detectMode(taskName) {
+                const text = String(taskName || '').toLowerCase();
+                if (text.includes('突破')) return '突破确认训练';
+                if (text.includes('止损')) return '纪律止损训练';
+                if (text.includes('回撤')) return '趋势回撤训练';
+                if (text.includes('复盘')) return '复盘改进训练';
+                return '趋势回撤训练';
+            }
+
+            function updateSymbolByTag() {
+                const text = symbolTag ? symbolTag.textContent : '';
+                if (!text) return;
+                const parts = text.split('·').map((item) => item.trim());
+                if (parts[0]) symbol = parts[0].toUpperCase();
+                if (parts[1]) interval = parts[1];
+            }
+
+            async function fetchJson(path, options) {
+                const response = await fetch(`${API_BASE}${path}`, {
+                    headers: { 'Content-Type': 'application/json' },
+                    ...options
+                });
+                if (!response.ok) throw new Error(`HTTP ${response.status}`);
+                return response.json();
+            }
+
+            function payloadData(payload) {
+                if (!payload || payload.code !== 0) {
+                    throw new Error('invalid payload');
+                }
+                return payload.data;
+            }
+
+            function normalizeDecision(item) {
+                return {
+                    decisionId: item.decisionId || '--',
+                    action: item.action || 'WAIT',
+                    confidence: parseNumber(item.confidence, 0),
+                    entryMin: parseNumber(item.entryMin, 0),
+                    entryMax: parseNumber(item.entryMax, 0),
+                    exposure: parseNumber(item.exposure, parseNumber(item.riskExposurePct, risk)),
+                    stop: parseNumber(item.stop, 0),
+                    take: parseNumber(item.take, 0),
+                    reasons: Array.isArray(item.reasons) ? item.reasons : [],
+                    symbol: item.symbol || symbol
+                };
             }
 
             function renderCandles() {
@@ -870,49 +959,155 @@
                 }
             }
 
-            function renderSessionRows() {
-                const rows = [
-                    { time: '07:10:22', action: '开仓', side: '做空', result: '+0.42R', note: '区间上沿回落，按计划入场', tag: '纪律' },
-                    { time: '07:13:40', action: '减仓', side: '做空', result: '+0.18R', note: '达到第一止盈位，部分止盈', tag: '执行' },
-                    { time: '07:18:05', action: '平仓', side: '做空', result: '+0.56R', note: '波动收敛，保护收益退出', tag: '稳健' },
-                    { time: '07:25:12', action: '开仓', side: '做多', result: '-0.31R', note: '信号确认不足，止损离场', tag: '复盘' }
-                ];
-
-                sessionRows.innerHTML = rows.map((row) => {
-                    const cls = row.result.startsWith('-') ? 'loss' : 'win';
+            function renderSessionRows(rows) {
+                const safeRows = Array.isArray(rows) && rows.length ? rows : fallbackSessionRows;
+                sessionRows.innerHTML = safeRows.map((row) => {
+                    const cls = String(row.result || '').startsWith('-') ? 'loss' : 'win';
                     return `<div class="table-row">
-                        <span>${row.time}</span>
-                        <span>${row.action}</span>
-                        <span>${row.side}</span>
-                        <span style="color:${cls === 'win' ? 'var(--buy)' : 'var(--sell)'}">${row.result}</span>
-                        <span>${row.note}</span>
-                        <span><i class="badge ${cls}">${row.tag}</i></span>
+                        <span>${row.time || '--:--:--'}</span>
+                        <span>${row.action || '--'}</span>
+                        <span>${row.side || '--'}</span>
+                        <span style="color:${cls === 'win' ? 'var(--buy)' : 'var(--sell)'}">${row.result || '--'}</span>
+                        <span>${row.note || '--'}</span>
+                        <span><i class="badge ${cls}">${row.tag || '--'}</i></span>
                     </div>`;
                 }).join('');
             }
 
-            function renderCoach() {
+            function renderCoachFallback() {
                 const modeSeed = Math.random();
                 let action = 'WAIT';
-                if (modeSeed > 0.66) action = 'LONG';
-                else if (modeSeed > 0.28) action = 'SHORT';
+                if (modeSeed > 0.66) action = 'OPEN_LONG';
+                else if (modeSeed > 0.28) action = 'OPEN_SHORT';
 
                 const confidence = Math.round(clamp(48 + Math.random() * 24, 35, 78));
-                const entryMin = price * (action === 'LONG' ? 0.998 : action === 'SHORT' ? 1.002 : 1);
-                const entryMax = price * (action === 'LONG' ? 1.001 : action === 'SHORT' ? 1.005 : 1.0015);
-                const stop = price * (action === 'LONG' ? 0.994 : action === 'SHORT' ? 1.006 : 0.996);
-                const take = price * (action === 'LONG' ? 1.008 : action === 'SHORT' ? 0.992 : 1.004);
+                const entryMin = price * (action === 'OPEN_LONG' ? 0.998 : action === 'OPEN_SHORT' ? 1.002 : 1);
+                const entryMax = price * (action === 'OPEN_LONG' ? 1.001 : action === 'OPEN_SHORT' ? 1.005 : 1.0015);
+                const stop = price * (action === 'OPEN_LONG' ? 0.994 : action === 'OPEN_SHORT' ? 1.006 : 0.996);
+                const take = price * (action === 'OPEN_LONG' ? 1.008 : action === 'OPEN_SHORT' ? 0.992 : 1.004);
                 const exposure = clamp(risk + (Math.random() - 0.5) * 6, 26, 53);
+                const fallbackReasonKey = action === 'OPEN_LONG' ? 'LONG' : action === 'OPEN_SHORT' ? 'SHORT' : 'WAIT';
 
-                biasBadge.className = `coach-bias ${action === 'LONG' ? 'long' : action === 'SHORT' ? 'short' : 'wait'}`;
-                biasBadge.textContent = action === 'LONG' ? '建议做多' : action === 'SHORT' ? '建议做空' : '建议观望';
+                biasBadge.className = `coach-bias ${biasClass(action)}`;
+                biasBadge.textContent = actionLabel(action);
                 confidenceText.textContent = `${confidence}%`;
                 entryText.textContent = `${formatPrice(entryMin)} - ${formatPrice(entryMax)}`;
                 riskExposure.textContent = `${exposure.toFixed(1)}%`;
                 stopText.textContent = formatPrice(stop);
                 takeText.textContent = formatPrice(take);
                 updatedAt.textContent = `更新 ${nowTimeText()}`;
-                reasonList.innerHTML = reasonPool[action].map((item) => `<div>• ${item}</div>`).join('');
+                reasonList.innerHTML = reasonPool[fallbackReasonKey].map((item) => `<div>• ${item}</div>`).join('');
+            }
+
+            function renderCoachFromDecision(item) {
+                if (!item) {
+                    renderCoachFallback();
+                    return;
+                }
+                biasBadge.className = `coach-bias ${biasClass(item.action)}`;
+                biasBadge.textContent = actionLabel(item.action);
+                confidenceText.textContent = `${Math.round(item.confidence)}%`;
+                entryText.textContent = item.action === 'WAIT'
+                    ? '--'
+                    : `${formatPrice(item.entryMin)} - ${formatPrice(item.entryMax)}`;
+                riskExposure.textContent = `${parseNumber(item.exposure, risk).toFixed(1)}%`;
+                stopText.textContent = item.action === 'WAIT' ? '--' : formatPrice(item.stop);
+                takeText.textContent = item.action === 'WAIT' ? '--' : formatPrice(item.take);
+                updatedAt.textContent = `更新 ${nowTimeText()}`;
+                reasonList.innerHTML = (item.reasons || []).map((reason) => `<div>• ${reason}</div>`).join('') || '<div>• 暂无决策理由。</div>';
+            }
+
+            async function loadContext() {
+                try {
+                    const params = new URLSearchParams({ symbol, interval, depthLevel: '20', windowMinutes: '60' });
+                    const payload = await fetchJson(`/api/v1/agent/context?${params.toString()}`);
+                    const data = payloadData(payload);
+                    const market = data.market || {};
+                    const kline = market.kline || {};
+                    const depthTop = market.depthTop || {};
+                    const account = data.account || {};
+
+                    symbol = data.symbol || symbol;
+                    interval = data.interval || interval;
+                    symbolTag.textContent = `${symbol} · ${interval}`;
+                    sessionBadge.textContent = data.contextId
+                        ? `Session ${String(data.contextId).slice(-4).toUpperCase()}`
+                        : sessionBadge.textContent;
+
+                    price = parseNumber(kline.close, price);
+                    risk = parseNumber(account.riskExposurePct, risk);
+
+                    const bid = parseNumber(depthTop.bid, price);
+                    const ask = parseNumber(depthTop.ask, price);
+                    const spread = Math.max(0, ask - bid);
+                    flowText.textContent = spread <= 0.2 ? '买盘 +2' : spread <= 1 ? '中性 +0' : '卖盘 +1';
+                    lastPrice.textContent = formatPrice(price);
+                    riskValue.textContent = `${risk.toFixed(1)}%`;
+                    return;
+                } catch (error) {
+                    console.warn('[training] context fallback:', error);
+                }
+                flowText.textContent = `买盘 ${Math.random() > 0.5 ? '+' : '-'}${Math.floor(Math.random() * 4)}`;
+            }
+
+            async function refreshDecisions(forcePreview) {
+                try {
+                    if (forcePreview) {
+                        await fetchJson('/api/v1/agent/decisions/preview', {
+                            method: 'POST',
+                            body: JSON.stringify({
+                                symbol,
+                                interval,
+                                strategyVersion: 'ai-momentum-v1.2.3',
+                                marketState: 'training'
+                            })
+                        });
+                    }
+
+                    const query = new URLSearchParams({ symbol }).toString();
+                    const payload = await fetchJson(`/api/v1/agent/decisions?${query}`);
+                    const data = payloadData(payload);
+                    if (!Array.isArray(data) || !data.length) throw new Error('empty decisions');
+                    decisionPool = data.map(normalizeDecision);
+
+                    if (!selectedDecision || !decisionPool.find((item) => item.decisionId === selectedDecision.decisionId)) {
+                        selectedDecision = decisionPool[0];
+                    } else {
+                        selectedDecision = decisionPool.find((item) => item.decisionId === selectedDecision.decisionId) || decisionPool[0];
+                    }
+
+                    renderCoachFromDecision(selectedDecision);
+                    return;
+                } catch (error) {
+                    console.warn('[training] decision fallback:', error);
+                }
+                selectedDecision = null;
+                renderCoachFallback();
+            }
+
+            async function loadSessionLogs() {
+                try {
+                    const payload = await fetchJson('/api/v1/agent/decisions/logs');
+                    const data = payloadData(payload);
+                    if (!Array.isArray(data) || !data.length) throw new Error('empty logs');
+                    const rows = data.slice(0, 6).map((item) => {
+                        const status = item.status || 'unknown';
+                        const isLoss = status === 'rejected';
+                        return {
+                            time: item.time || '--:--:--',
+                            action: item.action === 'WAIT' ? '观望' : '下单',
+                            side: sideLabel(item.action),
+                            result: isLoss ? '-0.10R' : '+0.12R',
+                            note: item.feedback || '--',
+                            tag: status === 'accepted' ? '执行' : status === 'rejected' ? '风控' : '复盘'
+                        };
+                    });
+                    renderSessionRows(rows);
+                    return;
+                } catch (error) {
+                    console.warn('[training] session-log fallback:', error);
+                }
+                renderSessionRows(fallbackSessionRows);
             }
 
             function pulse() {
@@ -923,7 +1118,9 @@
                 discipline = clamp(discipline + (Math.random() - 0.5) * 1.4, 70, 98);
 
                 lastPrice.textContent = formatPrice(price);
-                flowText.textContent = `买盘 ${Math.random() > 0.5 ? '+' : '-'}${Math.floor(Math.random() * 4)}`;
+                if (!flowText.textContent || flowText.textContent.includes('买盘') || flowText.textContent.includes('卖盘')) {
+                    flowText.textContent = `买盘 ${Math.random() > 0.5 ? '+' : '-'}${Math.floor(Math.random() * 4)}`;
+                }
 
                 scoreValue.textContent = score.toFixed(1);
                 scoreSub.textContent = `较上轮 ${(Math.random() > 0.5 ? '+' : '-') + (Math.random() * 1.6).toFixed(2)}`;
@@ -932,29 +1129,53 @@
                 disciplineValue.textContent = discipline.toFixed(1);
 
                 renderCandles();
-                renderCoach();
+                if (!selectedDecision) {
+                    renderCoachFallback();
+                }
+            }
+
+            function startTimers() {
+                timer = setInterval(() => {
+                    elapsed += 1;
+                    timerText.textContent = formatTimer(elapsed);
+                }, 1000);
+                pulseTimer = setInterval(pulse, 3500);
+                coachTimer = setInterval(async () => {
+                    await refreshDecisions(false);
+                    await loadSessionLogs();
+                }, 12000);
+            }
+
+            function stopTimers() {
+                clearInterval(timer);
+                clearInterval(pulseTimer);
+                clearInterval(coachTimer);
+                timer = null;
+                pulseTimer = null;
+                coachTimer = null;
             }
 
             tasks.forEach((task) => {
                 task.addEventListener('click', () => {
                     tasks.forEach((item) => item.classList.remove('active'));
                     task.classList.add('active');
-                    taskText.textContent = task.dataset.task || taskText.textContent;
+                    const nextTask = task.dataset.task || taskText.textContent;
+                    taskText.textContent = nextTask;
+                    modeText.textContent = detectMode(nextTask);
                 });
             });
 
-            startBtn.addEventListener('click', () => {
+            startBtn.addEventListener('click', async () => {
                 if (running) return;
                 running = true;
                 trainingState.textContent = '进行中';
                 startBtn.disabled = true;
                 pauseBtn.disabled = false;
                 finishBtn.disabled = false;
-                timer = setInterval(() => {
-                    elapsed += 1;
-                    timerText.textContent = formatTimer(elapsed);
-                }, 1000);
-                pulseTimer = setInterval(pulse, 3500);
+                if (!selectedDecision) {
+                    await refreshDecisions(true);
+                }
+                startTimers();
             });
 
             pauseBtn.addEventListener('click', () => {
@@ -963,11 +1184,10 @@
                 trainingState.textContent = '已暂停';
                 startBtn.disabled = false;
                 pauseBtn.disabled = true;
-                clearInterval(timer);
-                clearInterval(pulseTimer);
+                stopTimers();
             });
 
-            resetBtn.addEventListener('click', () => {
+            resetBtn.addEventListener('click', async () => {
                 running = false;
                 elapsed = 0;
                 timerText.textContent = '00:00';
@@ -975,8 +1195,12 @@
                 startBtn.disabled = false;
                 pauseBtn.disabled = true;
                 finishBtn.disabled = true;
-                clearInterval(timer);
-                clearInterval(pulseTimer);
+                completion = 68;
+                completionValue.textContent = '68%';
+                stopTimers();
+                await loadContext();
+                await refreshDecisions(true);
+                await loadSessionLogs();
                 pulse();
             });
 
@@ -986,26 +1210,71 @@
                 startBtn.disabled = false;
                 pauseBtn.disabled = true;
                 finishBtn.disabled = true;
-                clearInterval(timer);
-                clearInterval(pulseTimer);
+                stopTimers();
                 completionValue.textContent = '100%';
                 scoreSub.textContent = '训练完成，可进入复盘实验室';
             });
 
-            applyBtn.addEventListener('click', () => {
+            applyBtn.addEventListener('click', async () => {
+                if (!selectedDecision) {
+                    await refreshDecisions(true);
+                }
+                if (!selectedDecision) {
+                    scoreSub.textContent = '当前无可采纳建议，请稍后重试';
+                    return;
+                }
+
+                try {
+                    const payload = await fetchJson('/api/v1/agent/decisions/adopt', {
+                        method: 'POST',
+                        body: JSON.stringify({ decisionId: selectedDecision.decisionId })
+                    });
+                    const data = payloadData(payload);
+                    score = clamp(score + 0.35, 0, 100);
+                    scoreValue.textContent = score.toFixed(1);
+                    scoreSub.textContent = data.message || '已采纳 AI 建议并填单';
+                    await loadSessionLogs();
+                    return;
+                } catch (error) {
+                    console.warn('[training] adopt fallback:', error);
+                }
+
                 score = clamp(score + 0.3, 0, 100);
                 scoreValue.textContent = score.toFixed(1);
                 scoreSub.textContent = '已采纳 AI 建议并填单（演示）';
             });
 
-            replayBtn.addEventListener('click', () => {
+            replayBtn.addEventListener('click', async () => {
+                try {
+                    const payload = await fetchJson('/api/v1/agent/replays', {
+                        method: 'POST',
+                        body: JSON.stringify({
+                            decisionId: selectedDecision ? selectedDecision.decisionId : '',
+                            symbol,
+                            notes: 'from-training-page'
+                        })
+                    });
+                    const data = payloadData(payload);
+                    scoreSub.textContent = `已加入复盘实验室队列（${data.id || 'rep_new'}）`;
+                    return;
+                } catch (error) {
+                    console.warn('[training] replay fallback:', error);
+                }
                 scoreSub.textContent = '已加入复盘实验室队列（演示）';
             });
 
-            renderCandles();
-            renderCoach();
-            renderSessionRows();
-            pulse();
+            async function bootstrap() {
+                updateSymbolByTag();
+                modeText.textContent = detectMode(taskText.textContent);
+                renderCandles();
+                renderSessionRows(fallbackSessionRows);
+                await loadContext();
+                await refreshDecisions(true);
+                await loadSessionLogs();
+                pulse();
+            }
+
+            bootstrap();
         })();
     </script>
 </body>

@@ -318,6 +318,160 @@ kafka-topics --create \
 
 echo ""
 
+# 外部行情通道 Topics（Binance Data Source -> Public Push / Market Price）
+echo "=================================================="
+echo "创建 外部行情通道 Topics (market.ext.binance.*)..."
+echo "=================================================="
+echo ""
+
+EXT_SYMBOLS=(BTCUSDT ETHUSDT BNBUSDT SOLUSDT XRPUSDT)
+EXT_INTERVALS=(1m 3m 5m 15m 30m 1h 2h 4h 6h 8h 12h 1d 3d 1w 1M)
+
+for symbol in "${EXT_SYMBOLS[@]}"; do
+  echo "创建 market.ext.binance.depth.${symbol} ..."
+  kafka-topics --create \
+      --bootstrap-server localhost:9092 \
+      --topic "market.ext.binance.depth.${symbol}" \
+      --partitions 1 \
+      --replication-factor 1 \
+      --config retention.ms=3600000 \
+      --if-not-exists
+
+  echo "创建 market.ext.binance.trade.${symbol} ..."
+  kafka-topics --create \
+      --bootstrap-server localhost:9092 \
+      --topic "market.ext.binance.trade.${symbol}" \
+      --partitions 1 \
+      --replication-factor 1 \
+      --config retention.ms=3600000 \
+      --if-not-exists
+
+  echo "创建 market.ext.binance.ticker.${symbol} ..."
+  kafka-topics --create \
+      --bootstrap-server localhost:9092 \
+      --topic "market.ext.binance.ticker.${symbol}" \
+      --partitions 1 \
+      --replication-factor 1 \
+      --config retention.ms=3600000 \
+      --if-not-exists
+
+  for interval in "${EXT_INTERVALS[@]}"; do
+    kafka-topics --create \
+        --bootstrap-server localhost:9092 \
+        --topic "market.ext.binance.kline.${symbol}.${interval}" \
+        --partitions 1 \
+        --replication-factor 1 \
+        --config retention.ms=86400000 \
+        --if-not-exists
+  done
+done
+
+echo ""
+
+# Agent Training Topics（训练域：与真实下单链路隔离）
+echo "=================================================="
+echo "创建 Agent Training Topics..."
+echo "=================================================="
+echo ""
+
+# 全局Topic
+echo "创建 agent.decision.created ..."
+kafka-topics --create \
+    --bootstrap-server localhost:9092 \
+    --topic agent.decision.created \
+    --partitions 6 \
+    --replication-factor 1 \
+    --config retention.ms=604800000 \
+    --if-not-exists
+
+echo "创建 agent.decision.validated ..."
+kafka-topics --create \
+    --bootstrap-server localhost:9092 \
+    --topic agent.decision.validated \
+    --partitions 6 \
+    --replication-factor 1 \
+    --config retention.ms=604800000 \
+    --if-not-exists
+
+echo "创建 agent.replay.generated ..."
+kafka-topics --create \
+    --bootstrap-server localhost:9092 \
+    --topic agent.replay.generated \
+    --partitions 6 \
+    --replication-factor 1 \
+    --config retention.ms=604800000 \
+    --if-not-exists
+
+echo "创建 agent.score.updated ..."
+kafka-topics --create \
+    --bootstrap-server localhost:9092 \
+    --topic agent.score.updated \
+    --partitions 12 \
+    --replication-factor 1 \
+    --config retention.ms=604800000 \
+    --if-not-exists
+
+echo "创建 agent.growth.task.updated ..."
+kafka-topics --create \
+    --bootstrap-server localhost:9092 \
+    --topic agent.growth.task.updated \
+    --partitions 12 \
+    --replication-factor 1 \
+    --config retention.ms=604800000 \
+    --if-not-exists
+
+echo "创建 agent.arena.session.event ..."
+kafka-topics --create \
+    --bootstrap-server localhost:9092 \
+    --topic agent.arena.session.event \
+    --partitions 6 \
+    --replication-factor 1 \
+    --config retention.ms=604800000 \
+    --if-not-exists
+
+echo "创建 agent.skill.version.event ..."
+kafka-topics --create \
+    --bootstrap-server localhost:9092 \
+    --topic agent.skill.version.event \
+    --partitions 6 \
+    --replication-factor 1 \
+    --config retention.ms=604800000 \
+    --if-not-exists
+
+# 按symbol隔离的模拟执行Topic
+TRAINING_SYMBOLS=(BTCUSDT ETHUSDT BNBUSDT SOLUSDT XRPUSDT)
+
+for symbol in "${TRAINING_SYMBOLS[@]}"; do
+  echo "创建 agent.paper.order.command.${symbol} ..."
+  kafka-topics --create \
+      --bootstrap-server localhost:9092 \
+      --topic "agent.paper.order.command.${symbol}" \
+      --partitions 1 \
+      --replication-factor 1 \
+      --config retention.ms=259200000 \
+      --if-not-exists
+
+  echo "创建 agent.paper.order.state.${symbol} ..."
+  kafka-topics --create \
+      --bootstrap-server localhost:9092 \
+      --topic "agent.paper.order.state.${symbol}" \
+      --partitions 1 \
+      --replication-factor 1 \
+      --config retention.ms=259200000 \
+      --if-not-exists
+
+  echo "创建 agent.paper.fill.${symbol} ..."
+  kafka-topics --create \
+      --bootstrap-server localhost:9092 \
+      --topic "agent.paper.fill.${symbol}" \
+      --partitions 1 \
+      --replication-factor 1 \
+      --config retention.ms=259200000 \
+      --if-not-exists
+done
+
+echo ""
+
 # DLQ Topics（消费者异常兜底）
 echo "=================================================="
 echo "创建 DLQ Topics..."
@@ -356,7 +510,7 @@ echo ""
 # 3. 列出所有Topic
 echo ""
 echo "Step 3: 列出所有Topics..."
-kafka-topics --list --bootstrap-server localhost:9092 | grep -E "(order-event|cfd-order-command|order-state|trade-event|trade-entry|account-entry)"
+kafka-topics --list --bootstrap-server localhost:9092 | grep -E "(order-event|cfd-order-command|order-state|trade-event|trade-entry|account-entry|agent\\.)"
 
 echo ""
 
@@ -429,6 +583,15 @@ echo "    - market.depth.BTCUSDT (深度数据)"
 echo "    - market.trade.BTCUSDT (实时成交)"
 echo "    - market.kline.BTCUSDT.1m (K线数据)"
 echo "    - market.ticker.BTCUSDT (24h统计)"
+echo ""
+echo "  Agent Training (训练域)："
+echo "    - agent.decision.created / agent.decision.validated"
+echo "    - agent.paper.order.command.{symbol}"
+echo "    - agent.paper.order.state.{symbol}"
+echo "    - agent.paper.fill.{symbol}"
+echo "    - agent.replay.generated / agent.score.updated"
+echo "    - agent.growth.task.updated / agent.arena.session.event"
+echo "    - agent.skill.version.event"
 echo ""
 echo "下一步："
 echo "  1. 启动OMS: cd oms-core && mvn spring-boot:run"

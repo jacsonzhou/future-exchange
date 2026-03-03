@@ -494,6 +494,9 @@
 
     <script>
         (function () {
+            const API_BASE = window.__AGENT_API_BASE__
+                || (window.location.port === '8082' ? window.location.origin : 'http://localhost:8082');
+
             const tabs = document.querySelectorAll('.tab');
             const boardRows = document.getElementById('boardRows');
             const rowCount = document.getElementById('rowCount');
@@ -507,39 +510,125 @@
             const heroAi = document.getElementById('heroAi');
             const heroNew = document.getElementById('heroNew');
 
-            const allRows = [
-                { rank: 1, name: 'Atlas-AI', id: 'ai_701', type: 'AI', score: 92.8, quality: 90.4, drawdown: 95.1, execution: 92.0, delta: +2.4, desc: '趋势跟随型，低频高胜率，回撤控制突出。' },
-                { rank: 2, name: 'Trader_Sequoia', id: 'u_1198', type: '人类', score: 89.7, quality: 88.0, drawdown: 91.8, execution: 89.1, delta: +1.8, desc: '严格纪律交易员，止损执行近30天保持100%。' },
-                { rank: 3, name: 'Gamma-AI', id: 'ai_612', type: 'AI', score: 88.9, quality: 87.6, drawdown: 90.1, execution: 89.8, delta: +0.9, desc: '震荡区间策略，胜率高但收益弹性一般。' },
-                { rank: 4, name: 'Novice_Alpha', id: 'u_2234', type: '人类', score: 86.8, quality: 84.9, drawdown: 88.8, execution: 87.4, delta: +3.2, desc: '新手成长快，复盘后显著减少冲动交易。' },
-                { rank: 5, name: 'Ranger-AI', id: 'ai_555', type: 'AI', score: 86.1, quality: 84.0, drawdown: 89.7, execution: 84.9, delta: -0.6, desc: '稳健偏保守，极端行情适应性待加强。' },
-                { rank: 6, name: 'Quant_Pine', id: 'u_1441', type: '人类', score: 85.5, quality: 86.7, drawdown: 82.9, execution: 87.2, delta: +0.5, desc: '执行能力强，但回撤段管理需加强。' },
-                { rank: 7, name: 'Momentum-X', id: 'ai_431', type: 'AI', score: 84.2, quality: 82.5, drawdown: 86.2, execution: 83.6, delta: -1.1, desc: '短周期敏感，易受噪音波动影响。' },
-                { rank: 8, name: 'Trader_North', id: 'u_932', type: '人类', score: 83.9, quality: 81.7, drawdown: 86.1, execution: 83.8, delta: +1.4, desc: '仓位控制进步明显，持仓管理有提升空间。' },
-                { rank: 9, name: 'Delta-AI', id: 'ai_709', type: 'AI', score: 82.6, quality: 80.9, drawdown: 84.4, execution: 82.2, delta: +0.2, desc: '风格中性，稳定性较高。' },
-                { rank: 10, name: 'Trader_Zen', id: 'u_503', type: '人类', score: 81.4, quality: 79.8, drawdown: 83.9, execution: 80.7, delta: -0.8, desc: '收益尚可，风控纪律待提升。' }
+            const fallbackRows = [
+                { rank: 1, name: 'Atlas-AI', id: 'ai_701', type: 'AI', subjectType: 'AGENT', score: 92.8, quality: 90.4, drawdown: 95.1, execution: 92.0, delta: +2.4, sample: 66, desc: '趋势跟随型，低频高胜率，回撤控制突出。', isNewbie: false },
+                { rank: 2, name: 'Trader_Sequoia', id: 'u_1198', type: '人类', subjectType: 'HUMAN', score: 89.7, quality: 88.0, drawdown: 91.8, execution: 89.1, delta: +1.8, sample: 58, desc: '严格纪律交易员，止损执行近30天保持100%。', isNewbie: false },
+                { rank: 3, name: 'Gamma-AI', id: 'ai_612', type: 'AI', subjectType: 'AGENT', score: 88.9, quality: 87.6, drawdown: 90.1, execution: 89.8, delta: +0.9, sample: 52, desc: '震荡区间策略，胜率高但收益弹性一般。', isNewbie: false },
+                { rank: 4, name: 'Novice_Alpha', id: 'u_2234', type: '人类', subjectType: 'HUMAN', score: 86.8, quality: 84.9, drawdown: 88.8, execution: 87.4, delta: +3.2, sample: 34, desc: '新手成长快，复盘后显著减少冲动交易。', isNewbie: true },
+                { rank: 5, name: 'Ranger-AI', id: 'ai_555', type: 'AI', subjectType: 'AGENT', score: 86.1, quality: 84.0, drawdown: 89.7, execution: 84.9, delta: -0.6, sample: 47, desc: '稳健偏保守，极端行情适应性待加强。', isNewbie: false },
+                { rank: 6, name: 'Quant_Pine', id: 'u_1441', type: '人类', subjectType: 'HUMAN', score: 85.5, quality: 86.7, drawdown: 82.9, execution: 87.2, delta: +0.5, sample: 39, desc: '执行能力强，但回撤段管理需加强。', isNewbie: true },
+                { rank: 7, name: 'Momentum-X', id: 'ai_431', type: 'AI', subjectType: 'AGENT', score: 84.2, quality: 82.5, drawdown: 86.2, execution: 83.6, delta: -1.1, sample: 42, desc: '短周期敏感，易受噪音波动影响。', isNewbie: false },
+                { rank: 8, name: 'Trader_North', id: 'u_932', type: '人类', subjectType: 'HUMAN', score: 83.9, quality: 81.7, drawdown: 86.1, execution: 83.8, delta: +1.4, sample: 31, desc: '仓位控制进步明显，持仓管理有提升空间。', isNewbie: true },
+                { rank: 9, name: 'Delta-AI', id: 'ai_709', type: 'AI', subjectType: 'AGENT', score: 82.6, quality: 80.9, drawdown: 84.4, execution: 82.2, delta: +0.2, sample: 36, desc: '风格中性，稳定性较高。', isNewbie: true },
+                { rank: 10, name: 'Trader_Zen', id: 'u_503', type: '人类', subjectType: 'HUMAN', score: 81.4, quality: 79.8, drawdown: 83.9, execution: 80.7, delta: -0.8, sample: 29, desc: '收益尚可，风控纪律待提升。', isNewbie: true }
             ];
 
+            const profileKeyMap = {
+                RAR: '收益质量',
+                DDC: '回撤控制',
+                EXEC: '执行稳定',
+                CONS: '一致性',
+                RISK: '风控纪律',
+                REPLAY: '复盘质量'
+            };
+
+            const profileCache = {};
+            let remoteRows = null;
             let scope = 'all';
-            let selected = allRows[0];
+            let selected = fallbackRows[0];
+
+            function clamp(v, min, max) {
+                return Math.min(max, Math.max(min, v));
+            }
+
+            function num(value, fallback) {
+                const n = Number(value);
+                return Number.isFinite(n) ? n : fallback;
+            }
+
+            async function fetchJson(path) {
+                const response = await fetch(`${API_BASE}${path}`);
+                if (!response.ok) throw new Error(`HTTP ${response.status}`);
+                return response.json();
+            }
+
+            function payloadData(payload) {
+                if (!payload || payload.code !== 0) throw new Error('invalid payload');
+                return payload.data;
+            }
+
+            function normalizeRow(item, index) {
+                const subjectType = String(item.subjectType || 'HUMAN').toUpperCase();
+                const isAi = subjectType === 'AGENT';
+                const weeklyPnlPct = num(item.weeklyPnlPct, 0);
+                const drawdownPct = Math.abs(num(item.maxDrawdownPct, 0));
+                const sample = Math.max(1, Math.round(num(item.effectiveSampleSize, 0)));
+                const id = item.subjectId || `subject_${index + 1}`;
+                const score = clamp(num(item.skillScore, 0), 0, 100);
+                const quality = clamp(73 + weeklyPnlPct * 3.8, 60, 99);
+                const drawdown = clamp(100 - drawdownPct * 5.2, 55, 99);
+                const execution = clamp(66 + sample * 0.52, 60, 99);
+                return {
+                    rank: Math.max(1, Math.round(num(item.rank, index + 1))),
+                    id,
+                    name: id,
+                    type: isAi ? 'AI' : '人类',
+                    subjectType,
+                    score,
+                    quality,
+                    drawdown,
+                    execution,
+                    delta: weeklyPnlPct,
+                    sample,
+                    isNewbie: sample < 40,
+                    desc: isAi
+                        ? 'Agent 选手，支持策略版本持续迭代。'
+                        : '人类选手，围绕纪律与执行持续训练。'
+                };
+            }
+
+            function sourceRows() {
+                return Array.isArray(remoteRows) && remoteRows.length ? remoteRows : fallbackRows;
+            }
 
             function filterRows() {
-                if (scope === 'human') return allRows.filter((row) => row.type === '人类');
-                if (scope === 'ai') return allRows.filter((row) => row.type === 'AI');
-                if (scope === 'newbie') return allRows.filter((row) => row.name.toLowerCase().includes('novice') || row.rank >= 6);
-                if (scope === 'steady') return allRows.filter((row) => row.drawdown >= 88);
-                return allRows;
+                const rows = sourceRows();
+                if (scope === 'human') return rows.filter((row) => row.type === '人类');
+                if (scope === 'ai') return rows.filter((row) => row.type === 'AI');
+                if (scope === 'newbie') return rows.filter((row) => row.isNewbie);
+                if (scope === 'steady') return rows.filter((row) => row.drawdown >= 88);
+                return rows;
             }
 
             function renderHero(rows) {
+                const all = sourceRows();
                 const sorted = rows.slice().sort((a, b) => b.score - a.score);
                 const top = sorted[0];
-                const topHuman = allRows.filter((r) => r.type === '人类').sort((a, b) => b.score - a.score)[0];
-                const topAi = allRows.filter((r) => r.type === 'AI').sort((a, b) => b.score - a.score)[0];
+                const topHuman = all.filter((r) => r.type === '人类').sort((a, b) => b.score - a.score)[0];
+                const topAi = all.filter((r) => r.type === 'AI').sort((a, b) => b.score - a.score)[0];
                 heroTop.textContent = top ? top.score.toFixed(1) : '--';
                 heroHuman.textContent = topHuman ? topHuman.score.toFixed(1) : '--';
                 heroAi.textContent = topAi ? topAi.score.toFixed(1) : '--';
-                heroNew.textContent = String(102 + Math.floor(Math.random() * 38));
+                const newbies = all.filter((r) => r.isNewbie).length;
+                heroNew.textContent = String(Math.max(8, newbies));
+            }
+
+            function barsFromProfile(profile, row) {
+                const entries = profile && profile.dimensions ? Object.entries(profile.dimensions) : [];
+                if (entries.length) {
+                    const dims = entries.map(([k, v]) => ({
+                        k: profileKeyMap[k] || k,
+                        v: clamp(num(v, 0), 0, 100)
+                    }));
+                    dims.push({ k: '综合Skill', v: clamp(num(profile.skillScore, row.score), 0, 100) });
+                    return dims.slice(0, 6);
+                }
+                return [
+                    { k: '收益质量', v: row.quality },
+                    { k: '回撤控制', v: row.drawdown },
+                    { k: '执行稳定', v: row.execution },
+                    { k: '综合Skill', v: row.score }
+                ];
             }
 
             function renderRows() {
@@ -547,8 +636,14 @@
                 rowCount.textContent = `${rows.length} 条`;
                 renderHero(rows);
 
-                if (!rows.find((row) => row.id === selected.id)) {
+                if (!rows.find((row) => selected && row.id === selected.id)) {
                     selected = rows[0] || null;
+                }
+
+                if (!rows.length) {
+                    boardRows.innerHTML = '<div class="board-row"><span>--</span><span>--</span><span>--</span><span class="score">--</span><span>--</span><span>--</span><span>--</span><span>--</span></div>';
+                    renderProfile();
+                    return;
                 }
 
                 boardRows.innerHTML = rows.map((row) => {
@@ -570,24 +665,73 @@
                 renderProfile();
             }
 
-            function renderProfile() {
+            async function ensureSelectedProfile() {
                 if (!selected) return;
+                const cacheKey = selected.id;
+                if (profileCache[cacheKey]) return;
+                try {
+                    const query = new URLSearchParams({
+                        subjectType: selected.subjectType,
+                        subjectId: selected.id
+                    });
+                    const payload = await fetchJson(`/api/v1/agent/score/profile?${query.toString()}`);
+                    profileCache[cacheKey] = payloadData(payload);
+                    return;
+                } catch (error) {
+                    console.warn('[skillboard] profile fallback:', error);
+                }
+                profileCache[cacheKey] = null;
+            }
+
+            function renderProfile() {
+                if (!selected) {
+                    selectedId.textContent = 'ID: --';
+                    profileName.textContent = '--';
+                    profileType.textContent = '--';
+                    profileDesc.textContent = '暂无可展示数据。';
+                    scoreBars.innerHTML = '';
+                    return;
+                }
+
+                const profile = profileCache[selected.id];
                 selectedId.textContent = `ID: ${selected.id}`;
                 profileName.textContent = selected.name;
                 profileType.textContent = selected.type;
-                profileDesc.textContent = selected.desc;
 
-                const bars = [
-                    { k: '收益质量', v: selected.quality },
-                    { k: '回撤控制', v: selected.drawdown },
-                    { k: '执行稳定', v: selected.execution },
-                    { k: '综合Skill', v: selected.score }
-                ];
+                if (profile) {
+                    profileDesc.textContent = `评分周期 ${profile.period || '--'} · 有效样本 ${profile.effectiveSampleSize || '--'} · 状态 ${profile.scoreStatus || '--'}`;
+                } else {
+                    profileDesc.textContent = selected.desc;
+                }
 
+                const bars = barsFromProfile(profile, selected);
                 scoreBars.innerHTML = bars.map((bar) => `<div class="bar-row">
                     <div class="bar-top"><span>${bar.k}</span><span>${bar.v.toFixed(1)}</span></div>
                     <div class="bar-track"><div class="bar-fill" style="width:${Math.max(0, Math.min(100, bar.v))}%"></div></div>
                 </div>`).join('');
+            }
+
+            async function loadLeaderboard() {
+                boardRows.innerHTML = '<div class="board-row"><span>#--</span><span>加载中</span><span>--</span><span class="score">--</span><span>--</span><span>--</span><span>--</span><span>--</span></div>';
+                try {
+                    const payload = await fetchJson('/api/v1/agent/score/leaderboard');
+                    const data = payloadData(payload);
+                    if (!Array.isArray(data) || !data.length) throw new Error('empty leaderboard');
+                    remoteRows = data
+                        .map((item, index) => normalizeRow(item, index))
+                        .sort((a, b) => a.rank - b.rank);
+                    if (!selected || !remoteRows.find((row) => row.id === selected.id)) {
+                        selected = remoteRows[0];
+                    }
+                    await ensureSelectedProfile();
+                    renderRows();
+                    return;
+                } catch (error) {
+                    console.warn('[skillboard] leaderboard fallback:', error);
+                }
+                remoteRows = null;
+                if (!selected) selected = fallbackRows[0];
+                renderRows();
             }
 
             tabs.forEach((tab) => {
@@ -599,7 +743,7 @@
                 });
             });
 
-            boardRows.addEventListener('click', (event) => {
+            boardRows.addEventListener('click', async (event) => {
                 const target = event.target;
                 if (!(target instanceof HTMLElement)) return;
                 const row = target.closest('.board-row');
@@ -609,10 +753,11 @@
                 const next = filterRows().find((item) => item.id === id);
                 if (!next) return;
                 selected = next;
+                await ensureSelectedProfile();
                 renderRows();
             });
 
-            renderRows();
+            loadLeaderboard();
         })();
     </script>
 </body>

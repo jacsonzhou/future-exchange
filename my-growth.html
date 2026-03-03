@@ -475,6 +475,9 @@
 
     <script>
         (function () {
+            const API_BASE = window.__AGENT_API_BASE__
+                || (window.location.port === '8082' ? window.location.origin : 'http://localhost:8082');
+
             const abilityGrid = document.getElementById('abilityGrid');
             const timelineEl = document.getElementById('timeline');
             const planList = document.getElementById('planList');
@@ -486,7 +489,16 @@
             const kpiStable = document.getElementById('kpiStable');
             const kpiGain = document.getElementById('kpiGain');
 
-            const dataset = {
+            const dimensionLabelMap = {
+                RAR: '收益质量',
+                DDC: '回撤控制',
+                EXEC: '执行稳定',
+                CONS: '执行一致性',
+                RISK: '风险纪律',
+                REPLAY: '复盘质量'
+            };
+
+            const localDataset = {
                 week: {
                     score: 85.5,
                     delta: +2.3,
@@ -570,7 +582,161 @@
                 }
             };
 
+            let dataset = JSON.parse(JSON.stringify(localDataset));
             let period = 'week';
+
+            function clamp(v, min, max) {
+                return Math.min(max, Math.max(min, v));
+            }
+
+            function num(value, fallback) {
+                const n = Number(value);
+                return Number.isFinite(n) ? n : fallback;
+            }
+
+            function sign(value) {
+                return value >= 0 ? '+' : '';
+            }
+
+            function toGain(delta) {
+                const r = delta * 0.58;
+                return `${sign(r)}${r.toFixed(1)}R`;
+            }
+
+            function translateAbilities(dimensions, fallbackScore) {
+                const orderedKeys = ['RAR', 'DDC', 'EXEC', 'CONS', 'RISK', 'REPLAY'];
+                return orderedKeys.map((key, index) => {
+                    const fallback = clamp(fallbackScore - 2 + index * 0.4, 0, 100);
+                    return {
+                        key: dimensionLabelMap[key],
+                        value: clamp(num(dimensions[key], fallback), 0, 100)
+                    };
+                });
+            }
+
+            function derivePeriod(base, type) {
+                if (type === 'month') {
+                    return {
+                        score: clamp(base.score - 2.1, 0, 100),
+                        delta: base.delta + 2.5,
+                        disciplineDays: Math.max(7, Math.round(base.disciplineDays * 2.3)),
+                        loop: Math.max(4, Math.round(base.loop * 3.2)),
+                        stable: clamp(base.stable - 1.6, 0, 100),
+                        gain: toGain(base.delta + 2.5),
+                        abilities: base.abilities.map((item, index) => ({
+                            key: item.key,
+                            value: clamp(item.value - 1.8 + index * 0.3, 0, 100)
+                        })),
+                        timeline: [
+                            { time: '本月', text: '进入稳定训练区间，能力曲线持续向上。', tag: '阶段进步' },
+                            { time: '近4周', text: '人机协作下单流程稳定，决策偏差明显下降。', tag: '执行改善' },
+                            { time: '近3周', text: '复盘实验室输出 3 条有效迭代规则。', tag: '策略优化' },
+                            { time: '近2周', text: '高波动日回撤控制优于上个周期。', tag: '风控升级' }
+                        ],
+                        plans: base.plans.map((item, index) => ({
+                            title: item.title,
+                            impact: index === 0 ? '月度重点' : '持续执行',
+                            value: index === 0 ? 'P0' : 'P1'
+                        }))
+                    };
+                }
+
+                return {
+                    score: clamp(base.score - 5.8, 0, 100),
+                    delta: base.delta + 6.9,
+                    disciplineDays: Math.max(20, Math.round(base.disciplineDays * 5.1)),
+                    loop: Math.max(10, Math.round(base.loop * 8.2)),
+                    stable: clamp(base.stable - 5.2, 0, 100),
+                    gain: toGain(base.delta + 6.9),
+                    abilities: base.abilities.map((item, index) => ({
+                        key: item.key,
+                        value: clamp(item.value - 5.1 + index * 0.5, 0, 100)
+                    })),
+                    timeline: [
+                        { time: 'Q1-W9', text: '建立“训练-执行-复盘”固定闭环，行为更可控。', tag: '方法升级' },
+                        { time: 'Q1-W7', text: '统一 Skill Score 评估后，策略迭代方向更清晰。', tag: '评分落地' },
+                        { time: 'Q1-W4', text: '接入 AI 决策台并保留人工确认，误触发显著减少。', tag: '协作成型' },
+                        { time: 'Q1-W1', text: '完成模拟训练体系上线，建立可验证成长路径。', tag: '基础完成' }
+                    ],
+                    plans: base.plans.map((item, index) => ({
+                        title: item.title,
+                        impact: index === 0 ? '季度核心' : '季度支撑',
+                        value: index === 0 ? 'KR1' : 'KR2'
+                    }))
+                };
+            }
+
+            function buildWeekFromRemote(profile, weeklyPlan) {
+                const score = clamp(num(profile.skillScore, 85.5), 0, 100);
+                const delta = num(profile.deltaVsLastPeriod, 2.3);
+                const sample = Math.max(6, Math.round(num(profile.effectiveSampleSize, 24)));
+                const dimensions = profile.dimensions || {};
+                const planItems = weeklyPlan && Array.isArray(weeklyPlan.items) && weeklyPlan.items.length
+                    ? weeklyPlan.items
+                    : [
+                        '执行偏差控制在 12% 以内（至少 8 笔样本）',
+                        '每次决策必须带止损并在下单前完成 validate',
+                        '本周完成 2 次有效复盘并输出下周改进项'
+                    ];
+
+                const abilities = translateAbilities(dimensions, score);
+                const periodLabel = profile.period || (weeklyPlan ? weeklyPlan.week : '2026-W10') || '2026-W10';
+                const subjectLabel = String(profile.subjectType || 'HUMAN').toUpperCase() === 'AGENT' ? 'AI Agent' : '交易员';
+
+                return {
+                    score,
+                    delta,
+                    disciplineDays: Math.max(5, Math.round(sample * 0.32)),
+                    loop: Math.max(2, Math.round(sample / 12)),
+                    stable: clamp(num(dimensions.CONS, score - 1.4), 0, 100),
+                    gain: toGain(delta),
+                    abilities,
+                    timeline: [
+                        { time: periodLabel, text: `${subjectLabel} 当前 Skill Score ${score.toFixed(1)}，保持连续训练。`, tag: '阶段快照' },
+                        { time: '近72h', text: 'AI 决策采纳后执行偏差下降，复盘闭环更稳定。', tag: '人机协作' },
+                        { time: '近48h', text: '风险纪律维度维持高位，止损执行一致性提升。', tag: '风险纪律' },
+                        { time: '近24h', text: '新增训练样本进入评分，维度波动受控。', tag: '样本更新' }
+                    ],
+                    plans: planItems.map((item, index) => ({
+                        title: item,
+                        impact: index === 0 ? '优先推进' : '持续执行',
+                        value: index === 0 ? 'P0' : 'P1'
+                    }))
+                };
+            }
+
+            async function fetchJson(path, options) {
+                const response = await fetch(`${API_BASE}${path}`, options);
+                if (!response.ok) throw new Error(`HTTP ${response.status}`);
+                return response.json();
+            }
+
+            function payloadData(payload) {
+                if (!payload || payload.code !== 0) throw new Error('invalid payload');
+                return payload.data;
+            }
+
+            async function loadRemoteData() {
+                try {
+                    const [profilePayload, planPayload] = await Promise.all([
+                        fetchJson('/api/v1/agent/score/profile'),
+                        fetchJson('/api/v1/agent/growth/weekly-plan')
+                    ]);
+
+                    const profile = payloadData(profilePayload);
+                    const weeklyPlan = payloadData(planPayload);
+                    const week = buildWeekFromRemote(profile, weeklyPlan);
+                    dataset = {
+                        week,
+                        month: derivePeriod(week, 'month'),
+                        quarter: derivePeriod(week, 'quarter')
+                    };
+                    return;
+                } catch (error) {
+                    console.warn('[my-growth] fallback to local dataset:', error);
+                }
+                dataset = JSON.parse(JSON.stringify(localDataset));
+            }
 
             function renderAbilities(list) {
                 abilityGrid.innerHTML = list.map((item) => `<div class="ability-card">
@@ -594,7 +760,7 @@
             }
 
             function render() {
-                const data = dataset[period];
+                const data = dataset[period] || dataset.week;
                 heroScore.textContent = data.score.toFixed(1);
                 heroDelta.textContent = `${data.delta >= 0 ? '+' : ''}${data.delta.toFixed(1)}`;
                 heroDelta.style.color = data.delta >= 0 ? 'var(--buy)' : 'var(--sell)';
@@ -617,7 +783,13 @@
                 });
             });
 
-            render();
+            async function bootstrap() {
+                render();
+                await loadRemoteData();
+                render();
+            }
+
+            bootstrap();
         })();
     </script>
 </body>

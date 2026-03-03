@@ -144,6 +144,12 @@ spring:
           uri: lb://market-price-core
           predicates:
             - Path=/api/v1/ticker/**
+
+        # 成交数据
+        - id: market-price-trades
+          uri: lb://market-price-core
+          predicates:
+            - Path=/api/v1/trades/**
         
         # 最优盘口
         - id: market-price-book-ticker
@@ -169,6 +175,12 @@ spring:
           uri: lb://binance-data-source
           predicates:
             - Path=/api/binance/**
+
+        # ==================== Agent Training 路由（训练域）====================
+        - id: agent-training-service
+          uri: lb://agent-training-core
+          predicates:
+            - Path=/api/v1/agent/**
         
         # ==================== 账户余额路由 ====================
         - id: account-balance
@@ -225,6 +237,7 @@ gateway:
       - /api/v1/kline/**       # 单数形式（兼容旧版本）
       - /api/v1/klines/**      # ✅ 复数形式（K线数据接口）
       - /api/v1/bookTicker/**  # ✅ 最优盘口接口
+      - /api/v1/agent/**       # ✅ 训练域联调接口（dev）
       - /actuator/health
       - /actuator/info
       - /ws/market/**

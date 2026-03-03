@@ -37,6 +37,7 @@
         <module>liquidation-core</module>
         <module>binance-data-source</module>
         <module>cfd-dealer-core</module>
+        <module>agent-training-core</module>
         <module>user-core</module>
     </modules>
 

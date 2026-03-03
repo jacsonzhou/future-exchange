@@ -465,6 +465,9 @@
 
     <script>
         (function () {
+            const API_BASE = window.__AGENT_API_BASE__
+                || ((window.location.protocol.startsWith('http') && window.location.port === '8082') ? '' : 'http://localhost:8082');
+
             const PAGE_SIZE = 3;
             const replayList = document.getElementById('replayList');
             const timeline = document.getElementById('timeline');
@@ -479,16 +482,17 @@
             const replaySearch = document.getElementById('replaySearch');
             const replayDataset = document.getElementById('replayDataset');
 
-            const baseData = [
-                { id: 'rep_3021', symbol: 'BTCUSDT', side: 'SHORT', pnl: '+0.56R', summary: '上沿回撤做空，分批止盈执行良好。', events: [{ t: '07:10:03', d: '观察到24h上沿压力与成交衰减。' }, { t: '07:10:26', d: '采纳AI建议填单，人工下调仓位20%。' }, { t: '07:13:11', d: '触发第一止盈，执行部分减仓。' }, { t: '07:18:09', d: '波动收敛后平仓，锁定收益。' }], scores: [{ k: '信号充分度', v: 88.2 }, { k: '执行偏差控制', v: 91.1 }, { k: '风险纪律', v: 93.2 }] },
-                { id: 'rep_3018', symbol: 'BTCUSDT', side: 'LONG', pnl: '-0.31R', summary: '入场略早，止损执行到位。', events: [{ t: '06:42:55', d: '看到买盘增强但未确认突破。' }, { t: '06:43:10', d: '手动提前入场，偏离策略等待规则。' }, { t: '06:45:48', d: '价格转弱触发止损，亏损受控。' }, { t: '06:47:02', d: '记录偏差：等待确认不足。' }], scores: [{ k: '信号充分度', v: 72.4 }, { k: '执行偏差控制', v: 79.1 }, { k: '风险纪律', v: 90.4 }] },
-                { id: 'rep_3013', symbol: 'ETHUSDT', side: 'WAIT', pnl: '+0.00R', summary: '观望决策，避免噪音行情。', events: [{ t: '05:58:20', d: '方向不明，波动压缩。' }, { t: '05:59:10', d: 'AI与人工均选择观望。' }, { t: '06:10:33', d: '后续出现假突破，观望有效。' }], scores: [{ k: '信号充分度', v: 86.7 }, { k: '执行偏差控制', v: 88.8 }, { k: '风险纪律', v: 92.1 }] },
-                { id: 'rep_3009', symbol: 'SOLUSDT', side: 'SHORT', pnl: '+0.27R', summary: '建议有效，止盈过早。', events: [{ t: '05:22:08', d: '空头信号成立，进入计划仓位。' }, { t: '05:24:12', d: '小幅盈利后提前离场。' }, { t: '05:30:01', d: '原计划止盈位后续触达，收益漏掉。' }], scores: [{ k: '信号充分度', v: 83.4 }, { k: '执行偏差控制', v: 74.5 }, { k: '风险纪律', v: 89.6 }] },
-                { id: 'rep_3006', symbol: 'BTCUSDT', side: 'SHORT', pnl: '+0.41R', summary: '震荡上沿做空，按纪律减仓。', events: [{ t: '04:38:21', d: '上沿压力确认。' }, { t: '04:41:10', d: '分批止盈一档。' }, { t: '04:45:59', d: '尾仓保本离场。' }], scores: [{ k: '信号充分度', v: 84.9 }, { k: '执行偏差控制', v: 88.3 }, { k: '风险纪律', v: 91.7 }] },
-                { id: 'rep_3002', symbol: 'ETHUSDT', side: 'LONG', pnl: '-0.18R', summary: '试错仓位过大，止损及时。', events: [{ t: '04:12:03', d: '突破信号偏弱。' }, { t: '04:15:44', d: '止损执行，亏损可控。' }], scores: [{ k: '信号充分度', v: 70.6 }, { k: '执行偏差控制', v: 82.1 }, { k: '风险纪律', v: 88.2 }] }
-            ];
+            const localData = {
+                normal: [
+                    { id: 'rep_3021', symbol: 'BTCUSDT', side: 'SHORT', pnl: '+0.56R', summary: '上沿回撤做空，分批止盈执行良好。', events: [{ t: '07:10:03', d: '观察到24h上沿压力与成交衰减。' }, { t: '07:10:26', d: '采纳AI建议填单，人工下调仓位20%。' }, { t: '07:13:11', d: '触发第一止盈，执行部分减仓。' }, { t: '07:18:09', d: '波动收敛后平仓，锁定收益。' }], scores: [{ k: '信号充分度', v: 88.2 }, { k: '执行偏差控制', v: 91.1 }, { k: '风险纪律', v: 93.2 }] },
+                    { id: 'rep_3018', symbol: 'BTCUSDT', side: 'LONG', pnl: '-0.31R', summary: '入场略早，止损执行到位。', events: [{ t: '06:42:55', d: '看到买盘增强但未确认突破。' }, { t: '06:43:10', d: '手动提前入场，偏离策略等待规则。' }, { t: '06:45:48', d: '价格转弱触发止损，亏损受控。' }, { t: '06:47:02', d: '记录偏差：等待确认不足。' }], scores: [{ k: '信号充分度', v: 72.4 }, { k: '执行偏差控制', v: 79.1 }, { k: '风险纪律', v: 90.4 }] },
+                    { id: 'rep_3013', symbol: 'ETHUSDT', side: 'WAIT', pnl: '+0.00R', summary: '观望决策，避免噪音行情。', events: [{ t: '05:58:20', d: '方向不明，波动压缩。' }, { t: '05:59:10', d: 'AI与人工均选择观望。' }, { t: '06:10:33', d: '后续出现假突破，观望有效。' }], scores: [{ k: '信号充分度', v: 86.7 }, { k: '执行偏差控制', v: 88.8 }, { k: '风险纪律', v: 92.1 }] },
+                    { id: 'rep_3009', symbol: 'SOLUSDT', side: 'SHORT', pnl: '+0.27R', summary: '建议有效，止盈过早。', events: [{ t: '05:22:08', d: '空头信号成立，进入计划仓位。' }, { t: '05:24:12', d: '小幅盈利后提前离场。' }, { t: '05:30:01', d: '原计划止盈位后续触达，收益漏掉。' }], scores: [{ k: '信号充分度', v: 83.4 }, { k: '执行偏差控制', v: 74.5 }, { k: '风险纪律', v: 89.6 }] }
+                ],
+                volatile: []
+            };
 
-            const volatileData = baseData.map((item, idx) => {
+            localData.volatile = localData.normal.map((item, idx) => {
                 const drift = idx % 2 === 0 ? -0.18 : -0.42;
                 const numeric = Number(item.pnl.replace('R', ''));
                 const nextPnl = `${(numeric + drift >= 0 ? '+' : '') + (numeric + drift).toFixed(2)}R`;
@@ -500,11 +504,50 @@
                 };
             });
 
-            let selected = baseData[0];
+            const remoteData = {
+                normal: null,
+                volatile: null
+            };
+
+            let selected = localData.normal[0];
             let page = 1;
 
+            function normalizeReplay(item) {
+                return {
+                    id: item.id || item.replayId || 'rep_--',
+                    symbol: item.symbol || 'BTCUSDT',
+                    side: item.side || 'WAIT',
+                    pnl: item.pnl || '+0.00R',
+                    summary: item.summary || '--',
+                    events: Array.isArray(item.events) ? item.events : [],
+                    scores: Array.isArray(item.scores) ? item.scores : []
+                };
+            }
+
+            async function fetchScenario(scenario) {
+                const url = `${API_BASE}/api/v1/agent/replays?scenario=${encodeURIComponent(scenario)}`;
+                const response = await fetch(url);
+                if (!response.ok) throw new Error(`HTTP ${response.status}`);
+                const payload = await response.json();
+                if (!payload || payload.code !== 0 || !Array.isArray(payload.data)) {
+                    throw new Error('invalid payload');
+                }
+                return payload.data.map(normalizeReplay);
+            }
+
+            async function ensureScenario(scenario) {
+                if (remoteData[scenario]) return;
+                try {
+                    remoteData[scenario] = await fetchScenario(scenario);
+                } catch (error) {
+                    console.warn('[replay-lab] fallback to local data:', error);
+                    remoteData[scenario] = null;
+                }
+            }
+
             function currentDataset() {
-                return replayDataset.value === 'volatile' ? volatileData : baseData;
+                const scenario = replayDataset.value === 'volatile' ? 'volatile' : 'normal';
+                return remoteData[scenario] || localData[scenario];
             }
 
             function filteredData() {
@@ -531,7 +574,7 @@
                 const start = (page - 1) * PAGE_SIZE;
                 const current = data.slice(start, start + PAGE_SIZE);
 
-                if (!data.find((item) => item.id === selected.id)) {
+                if (!selected || !data.find((item) => item.id === selected.id)) {
                     selected = data[0] || null;
                 }
 
@@ -549,7 +592,7 @@
                 }
 
                 replayList.innerHTML = current.map((item) => {
-                    const active = item.id === selected.id ? 'active' : '';
+                    const active = selected && item.id === selected.id ? 'active' : '';
                     const color = item.pnl.startsWith('-') ? 'var(--sell)' : 'var(--buy)';
                     return `<div class="replay-item ${active}" data-id="${item.id}">
                         <div class="replay-head"><span>${item.id}</span><span>${item.symbol} ${item.side}</span></div>
@@ -571,9 +614,17 @@
                 selectedReplay.textContent = selected.id;
                 timeline.innerHTML = selected.events.map((event) => `<div class="timeline-item"><span class="time">${event.t}</span><span>${event.d}</span></div>`).join('');
                 bars.innerHTML = selected.scores.map((score) => `<div class="bar-row">
-                    <div class="bar-top"><span>${score.k}</span><span>${score.v.toFixed(1)}</span></div>
-                    <div class="bar-track"><div class="bar-fill" style="width:${Math.max(0, Math.min(100, score.v))}%"></div></div>
+                    <div class="bar-top"><span>${score.k}</span><span>${Number(score.v).toFixed(1)}</span></div>
+                    <div class="bar-track"><div class="bar-fill" style="width:${Math.max(0, Math.min(100, Number(score.v) || 0))}%"></div></div>
                 </div>`).join('');
+            }
+
+            async function loadAndRender() {
+                const scenario = replayDataset.value === 'volatile' ? 'volatile' : 'normal';
+                replayList.innerHTML = '<div class="replay-item"><div class="replay-title">加载中...</div></div>';
+                await ensureScenario(scenario);
+                renderList();
+                renderDetail();
             }
 
             replayList.addEventListener('click', (event) => {
@@ -589,7 +640,7 @@
                 renderDetail();
             });
 
-            [symbolFilter, resultFilter, replayDataset, replaySearch].forEach((el) => {
+            [symbolFilter, resultFilter, replaySearch].forEach((el) => {
                 el.addEventListener('change', () => {
                     page = 1;
                     renderList();
@@ -600,6 +651,11 @@
                     renderList();
                     renderDetail();
                 });
+            });
+
+            replayDataset.addEventListener('change', async () => {
+                page = 1;
+                await loadAndRender();
             });
 
             replayPrev.addEventListener('click', () => {
@@ -614,8 +670,7 @@
                 renderDetail();
             });
 
-            renderList();
-            renderDetail();
+            loadAndRender();
         })();
     </script>
 </body>

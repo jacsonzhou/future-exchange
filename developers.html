@@ -401,6 +401,9 @@ novax replay create --order-id ord_20260303_8891</div>
 
     <script>
         (function () {
+            const API_BASE = window.__AGENT_API_BASE__
+                || ((window.location.protocol.startsWith('http') && window.location.port === '8082') ? '' : 'http://localhost:8082');
+
             const PAGE_SIZE = 5;
             const apiRows = document.getElementById('apiRows');
             const apiTotal = document.getElementById('apiTotal');
@@ -414,26 +417,62 @@ novax replay create --order-id ord_20260303_8891</div>
 
             let page = 1;
 
-            const sandboxData = [
-                { method: 'POST', path: '/api/v1/ai/decision/preview', usage: '生成候选决策', auth: 'JWT', group: 'decision' },
-                { method: 'POST', path: '/api/v1/ai/decision/validate', usage: '风控预校验', auth: 'JWT', group: 'decision' },
-                { method: 'POST', path: '/api/v1/ai/decision/log', usage: '写入审计日志', auth: 'JWT', group: 'decision' },
-                { method: 'GET', path: '/api/v1/ai/decision/logs', usage: '查询决策日志', auth: 'JWT', group: 'decision' },
-                { method: 'GET', path: '/api/v1/skill/profile/{id}', usage: '能力评分详情', auth: 'JWT', group: 'skill' },
-                { method: 'GET', path: '/api/v1/skill/leaderboard', usage: 'Skill榜单', auth: 'JWT', group: 'skill' },
-                { method: 'POST', path: '/api/v1/replay/create', usage: '创建复盘会话', auth: 'JWT', group: 'replay' },
-                { method: 'GET', path: '/api/v1/replay/{replayId}', usage: '回放证据链', auth: 'JWT', group: 'replay' },
-                { method: 'GET', path: '/api/v1/market/context', usage: '获取上下文快照', auth: 'NONE', group: 'market' }
-            ];
-
-            const prodData = sandboxData.map((item) => ({
+            const localData = {
+                sandbox: [
+                    { method: 'POST', path: '/api/v1/agent/decisions/preview', usage: '生成候选决策', auth: 'JWT', group: 'decision' },
+                    { method: 'POST', path: '/api/v1/agent/decisions/validate', usage: '风控预校验', auth: 'JWT', group: 'decision' },
+                    { method: 'POST', path: '/api/v1/agent/decisions/adopt', usage: '采纳建议并填单', auth: 'JWT', group: 'decision' },
+                    { method: 'GET', path: '/api/v1/agent/decisions/logs', usage: '查询决策日志', auth: 'JWT', group: 'decision' },
+                    { method: 'GET', path: '/api/v1/agent/score/profile', usage: '能力评分详情', auth: 'JWT', group: 'skill' },
+                    { method: 'GET', path: '/api/v1/agent/score/leaderboard', usage: 'Skill榜单', auth: 'JWT', group: 'skill' },
+                    { method: 'POST', path: '/api/v1/agent/replays', usage: '创建复盘会话', auth: 'JWT', group: 'replay' },
+                    { method: 'GET', path: '/api/v1/agent/replays', usage: '查询复盘会话', auth: 'JWT', group: 'replay' },
+                    { method: 'GET', path: '/api/v1/agent/context', usage: '获取上下文快照', auth: 'NONE', group: 'market' }
+                ],
+                prod: []
+            };
+            localData.prod = localData.sandbox.map((item) => ({
                 ...item,
                 auth: item.auth === 'NONE' ? 'JWT' : item.auth,
                 usage: `${item.usage}（生产）`
             }));
 
+            const remoteData = { sandbox: null, prod: null };
+
+            function normalize(item) {
+                return {
+                    method: item.method || 'GET',
+                    path: item.path || '--',
+                    usage: item.usage || '--',
+                    auth: item.auth || 'JWT',
+                    group: item.group || 'decision'
+                };
+            }
+
+            async function fetchDataset(dataset) {
+                const url = `${API_BASE}/api/v1/agent/developer/apis?dataset=${encodeURIComponent(dataset)}`;
+                const response = await fetch(url);
+                if (!response.ok) throw new Error(`HTTP ${response.status}`);
+                const payload = await response.json();
+                if (!payload || payload.code !== 0 || !Array.isArray(payload.data)) {
+                    throw new Error('invalid payload');
+                }
+                return payload.data.map(normalize);
+            }
+
+            async function ensureDataset(dataset) {
+                if (remoteData[dataset]) return;
+                try {
+                    remoteData[dataset] = await fetchDataset(dataset);
+                } catch (error) {
+                    console.warn('[developers] fallback to local apis:', error);
+                    remoteData[dataset] = null;
+                }
+            }
+
             function dataset() {
-                return apiDataset.value === 'prod' ? prodData : sandboxData;
+                const key = apiDataset.value === 'prod' ? 'prod' : 'sandbox';
+                return remoteData[key] || localData[key];
             }
 
             function filtered() {
@@ -476,7 +515,14 @@ novax replay create --order-id ord_20260303_8891</div>
                 </div>`).join('');
             }
 
-            [apiSearch, apiGroup, apiAuth, apiDataset].forEach((el) => {
+            async function loadAndRender() {
+                const key = apiDataset.value === 'prod' ? 'prod' : 'sandbox';
+                apiRows.innerHTML = '<div class="table-row"><span class="mono">...</span><span class="mono">加载中</span><span>...</span><span>...</span></div>';
+                await ensureDataset(key);
+                render();
+            }
+
+            [apiSearch, apiGroup, apiAuth].forEach((el) => {
                 el.addEventListener('input', () => {
                     page = 1;
                     render();
@@ -485,6 +531,11 @@ novax replay create --order-id ord_20260303_8891</div>
                     page = 1;
                     render();
                 });
+            });
+
+            apiDataset.addEventListener('change', async () => {
+                page = 1;
+                await loadAndRender();
             });
 
             apiPrev.addEventListener('click', () => {
@@ -497,7 +548,7 @@ novax replay create --order-id ord_20260303_8891</div>
                 render();
             });
 
-            render();
+            loadAndRender();
         })();
     </script>
 </body>

@@ -570,6 +570,9 @@
 
     <script>
         (function () {
+            const API_BASE = window.__AGENT_API_BASE__
+                || ((window.location.protocol.startsWith('http') && window.location.port === '8082') ? '' : 'http://localhost:8082');
+
             const decisionListEl = document.getElementById('decisionList');
             const decisionIdText = document.getElementById('decisionIdText');
             const detailAction = document.getElementById('detailAction');
@@ -582,6 +585,11 @@
             const policyBox = document.getElementById('policyBox');
             const hintText = document.getElementById('hintText');
             const logRows = document.getElementById('logRows');
+
+            const symbolSel = document.getElementById('symbolSel');
+            const intervalSel = document.getElementById('intervalSel');
+            const marketSel = document.getElementById('marketSel');
+            const strategySel = document.getElementById('strategySel');
 
             const kpiSuggestions = document.getElementById('kpiSuggestions');
             const kpiConfidence = document.getElementById('kpiConfidence');
@@ -597,7 +605,7 @@
             let selectedId = '';
             let applyRate = 26;
 
-            const decisions = [
+            let decisions = [
                 {
                     decisionId: 'dec_20260302_1001',
                     strategyVersion: 'ai-momentum-v1.2.3',
@@ -621,39 +629,55 @@
                     stop: 65880.4,
                     take: 66790.2,
                     reasons: ['价格回落至区间中下部。', '主动买盘比上个窗口增强。', '止损距离合理，盈亏比约2.1。']
-                },
-                {
-                    decisionId: 'dec_20260302_1003',
-                    strategyVersion: 'ai-hybrid-v2.0.1',
-                    action: 'WAIT',
-                    confidence: 47,
-                    entryMin: 0,
-                    entryMax: 0,
-                    exposure: 31.4,
-                    stop: 0,
-                    take: 0,
-                    reasons: ['方向不清晰，等待突破后确认。', '波动率压缩，性价比偏低。', '建议减少试错频率。']
-                },
-                {
-                    decisionId: 'dec_20260302_1004',
-                    strategyVersion: 'ai-momentum-v1.2.3',
-                    action: 'OPEN_SHORT',
-                    confidence: 58,
-                    entryMin: 66510.1,
-                    entryMax: 66668.4,
-                    exposure: 44.7,
-                    stop: 67008.2,
-                    take: 65860.3,
-                    reasons: ['短周期顶背离，动能减弱。', '挂单簿卖墙加强。', '建议分两档入场，控制滑点。']
                 }
             ];
 
             let logs = [
                 { id: 'dec_20260302_0988', strategy: 'ai-momentum-v1.2.2', action: 'OPEN_LONG', conf: '63%', status: 'accepted', feedback: '已填单，用户调整后下单', time: '07:02:14' },
                 { id: 'dec_20260302_0989', strategy: 'ai-range-v0.9.7', action: 'WAIT', conf: '44%', status: 'expired', feedback: '用户未采纳', time: '07:03:57' },
-                { id: 'dec_20260302_0990', strategy: 'ai-hybrid-v2.0.1', action: 'OPEN_SHORT', conf: '57%', status: 'rejected', feedback: '风险暴露超阈值，策略阻断', time: '07:05:08' },
-                { id: 'dec_20260302_0991', strategy: 'ai-momentum-v1.2.3', action: 'OPEN_LONG', conf: '60%', status: 'accepted', feedback: '已采纳并加入复盘', time: '07:07:31' }
+                { id: 'dec_20260302_0990', strategy: 'ai-hybrid-v2.0.1', action: 'OPEN_SHORT', conf: '57%', status: 'rejected', feedback: '风险暴露超阈值，策略阻断', time: '07:05:08' }
             ];
+
+            function normalizeDecision(item) {
+                return {
+                    decisionId: item.decisionId || '--',
+                    strategyVersion: item.strategyVersion || 'unknown',
+                    action: item.action || 'WAIT',
+                    confidence: Number(item.confidence || 0),
+                    entryMin: Number(item.entryMin || 0),
+                    entryMax: Number(item.entryMax || 0),
+                    exposure: Number(item.exposure || item.riskExposurePct || 0),
+                    stop: Number(item.stop || item.stopLoss || 0),
+                    take: Number(item.take || item.takeProfit || 0),
+                    reasons: Array.isArray(item.reasons) ? item.reasons : []
+                };
+            }
+
+            function normalizeLog(item) {
+                return {
+                    id: item.id || '--',
+                    strategy: item.strategy || item.strategyVersion || 'unknown',
+                    action: item.action || 'WAIT',
+                    conf: item.conf || '0%',
+                    status: item.status || 'unknown',
+                    feedback: item.feedback || '--',
+                    time: item.time || '--:--:--'
+                };
+            }
+
+            async function fetchJson(path, options) {
+                const response = await fetch(`${API_BASE}${path}`, {
+                    headers: { 'Content-Type': 'application/json' },
+                    ...options
+                });
+                if (!response.ok) throw new Error(`HTTP ${response.status}`);
+                return response.json();
+            }
+
+            function payloadData(payload) {
+                if (!payload || payload.code !== 0) throw new Error('invalid payload');
+                return payload.data;
+            }
 
             function fmtPrice(v) {
                 return Number(v).toLocaleString('zh-CN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -666,9 +690,10 @@
             }
 
             function renderDecisionList() {
+                const avg = decisions.length ? Math.round(decisions.reduce((a, b) => a + b.confidence, 0) / decisions.length) : 0;
                 decisionCount.textContent = `${decisions.length} 条`;
                 kpiSuggestions.textContent = String(decisions.length);
-                kpiConfidence.textContent = `${Math.round(decisions.reduce((a, b) => a + b.confidence, 0) / decisions.length)}%`;
+                kpiConfidence.textContent = `${avg}%`;
 
                 decisionListEl.innerHTML = decisions.map((item) => {
                     const active = item.decisionId === selectedId ? 'active' : '';
@@ -727,6 +752,68 @@
                 }).join('');
             }
 
+            async function triggerPreview() {
+                try {
+                    await fetchJson('/api/v1/agent/decisions/preview', {
+                        method: 'POST',
+                        body: JSON.stringify({
+                            symbol: symbolSel.value,
+                            strategyVersion: strategySel.value,
+                            interval: intervalSel.value,
+                            marketState: marketSel.value
+                        })
+                    });
+                } catch (error) {
+                    console.warn('[ai-console] preview fallback:', error);
+                }
+            }
+
+            async function loadDecisions() {
+                try {
+                    const params = new URLSearchParams({
+                        symbol: symbolSel.value,
+                        strategyVersion: strategySel.value
+                    });
+                    const payload = await fetchJson(`/api/v1/agent/decisions?${params.toString()}`);
+                    const data = payloadData(payload);
+                    if (Array.isArray(data) && data.length) {
+                        decisions = data.map(normalizeDecision);
+                        engineState.textContent = 'online';
+                        return;
+                    }
+                    throw new Error('empty decision list');
+                } catch (error) {
+                    console.warn('[ai-console] decisions fallback:', error);
+                    engineState.textContent = 'degraded';
+                }
+            }
+
+            async function loadLogs() {
+                try {
+                    const payload = await fetchJson('/api/v1/agent/decisions/logs');
+                    const data = payloadData(payload);
+                    if (Array.isArray(data) && data.length) {
+                        logs = data.map(normalizeLog);
+                        return;
+                    }
+                    throw new Error('empty log list');
+                } catch (error) {
+                    console.warn('[ai-console] logs fallback:', error);
+                }
+            }
+
+            async function refreshData() {
+                await triggerPreview();
+                await loadDecisions();
+                await loadLogs();
+                if (!decisions.find((item) => item.decisionId === selectedId)) {
+                    selectedId = decisions[0] ? decisions[0].decisionId : '';
+                }
+                renderDecisionList();
+                renderDetail(decisions.find((item) => item.decisionId === selectedId) || decisions[0]);
+                renderLogs();
+            }
+
             decisionListEl.addEventListener('click', (event) => {
                 const target = event.target;
                 if (!(target instanceof HTMLElement)) return;
@@ -739,9 +826,31 @@
                 renderDetail(decisions.find((item) => item.decisionId === id));
             });
 
-            applyBtn.addEventListener('click', () => {
+            [symbolSel, intervalSel, marketSel, strategySel].forEach((el) => {
+                el.addEventListener('change', async () => {
+                    await refreshData();
+                });
+            });
+
+            applyBtn.addEventListener('click', async () => {
                 const current = decisions.find((item) => item.decisionId === selectedId);
                 if (!current) return;
+                try {
+                    const payload = await fetchJson('/api/v1/agent/decisions/adopt', {
+                        method: 'POST',
+                        body: JSON.stringify({ decisionId: current.decisionId })
+                    });
+                    const data = payloadData(payload);
+                    applyRate = Math.min(95, applyRate + 1.5);
+                    kpiApply.textContent = `${applyRate.toFixed(1)}%`;
+                    hintText.textContent = data.message || `已采纳 ${current.decisionId} 并写入交易填单区。`;
+                    await loadLogs();
+                    renderLogs();
+                    return;
+                } catch (error) {
+                    console.warn('[ai-console] adopt fallback:', error);
+                }
+
                 applyRate = Math.min(95, applyRate + 1.5);
                 kpiApply.textContent = `${applyRate.toFixed(1)}%`;
                 hintText.textContent = `已采纳 ${current.decisionId} 并写入交易填单区（演示），仍需人工确认后下单。`;
@@ -757,21 +866,64 @@
                 renderLogs();
             });
 
-            checkBtn.addEventListener('click', () => {
+            checkBtn.addEventListener('click', async () => {
+                const current = decisions.find((item) => item.decisionId === selectedId);
+                if (!current) return;
+                try {
+                    const payload = await fetchJson('/api/v1/agent/decisions/validate', {
+                        method: 'POST',
+                        body: JSON.stringify({ decisionId: current.decisionId })
+                    });
+                    const data = payloadData(payload);
+                    engineState.textContent = data.passed ? 'online' : 'degraded';
+                    kpiPolicy.textContent = data.passed ? '92%' : '87%';
+                    hintText.textContent = data.message || '校验完成。';
+
+                    const bad = new Set(Array.isArray(data.violations) ? data.violations : []);
+                    const policyLines = [
+                        { key: 'max_leverage', pass: !bad.has('max_leverage') },
+                        { key: 'max_order_notional', pass: !bad.has('max_order_notional') },
+                        { key: 'max_daily_loss', pass: !bad.has('max_daily_loss') },
+                        { key: 'risk_exposure_guard', pass: !bad.has('risk_exposure_guard') }
+                    ];
+                    policyBox.innerHTML = policyLines.map((line) => {
+                        const cls = line.pass ? 'ok' : 'warn';
+                        return `<div class="policy-line"><span>${line.key}</span><strong class="${cls}">${line.pass ? 'PASS' : 'WARN'}</strong></div>`;
+                    }).join('');
+                    return;
+                } catch (error) {
+                    console.warn('[ai-console] validate fallback:', error);
+                }
+
                 const health = Math.random() > 0.15;
                 engineState.textContent = health ? 'online' : 'degraded';
                 kpiPolicy.textContent = health ? '92%' : '87%';
                 hintText.textContent = health ? '已重新校验，当前风险护栏可执行。' : '校验完成：当前波动偏高，建议降杠杆。';
             });
 
-            replayBtn.addEventListener('click', () => {
+            replayBtn.addEventListener('click', async () => {
+                const current = decisions.find((item) => item.decisionId === selectedId);
+                if (!current) return;
+                try {
+                    const payload = await fetchJson('/api/v1/agent/replays', {
+                        method: 'POST',
+                        body: JSON.stringify({
+                            decisionId: current.decisionId,
+                            symbol: current.symbol || symbolSel.value,
+                            notes: 'from-ai-console'
+                        })
+                    });
+                    const data = payloadData(payload);
+                    hintText.textContent = `该建议已加入复盘实验室（${data.id || data.replayId || 'rep_new'}）。`;
+                    return;
+                } catch (error) {
+                    console.warn('[ai-console] replay fallback:', error);
+                }
                 hintText.textContent = '该建议已加入复盘实验室（演示占位），用于后续归因分析。';
             });
 
             selectedId = decisions[0].decisionId;
-            renderDecisionList();
-            renderDetail(decisions[0]);
-            renderLogs();
+            refreshData();
         })();
     </script>
 </body>

@@ -488,6 +488,9 @@
 
     <script>
         (function () {
+            const API_BASE = window.__AGENT_API_BASE__
+                || ((window.location.protocol.startsWith('http') && window.location.port === '8082') ? '' : 'http://localhost:8082');
+
             const PAGE_SIZE = 5;
             const rowsEl = document.getElementById('skillRows');
             const totalEl = document.getElementById('skillTotal');
@@ -501,7 +504,7 @@
 
             let page = 1;
 
-            const datasets = {
+            const localDatasets = {
                 baseline: [
                     { skillId: 'skill_momentum', version: 'v3.2.1', owner: 'codex-agent', ownerType: 'agent', score: 91.8, drawdown: -2.4, status: 'passed', label: '可晋级' },
                     { skillId: 'skill_range', version: 'v1.7.4', owner: 'claude-code', ownerType: 'agent', score: 86.2, drawdown: -3.6, status: 'stable', label: '稳定' },
@@ -524,11 +527,55 @@
                 ]
             };
 
+            const remoteDatasets = {
+                baseline: null,
+                volatile: null
+            };
+
+            function normalizeItem(item) {
+                return {
+                    skillId: item.skillId || '--',
+                    version: item.version || '--',
+                    owner: item.owner || '--',
+                    ownerType: String(item.ownerType || 'human').toLowerCase(),
+                    score: Number(item.score || 0),
+                    drawdown: Number(item.drawdown || 0),
+                    status: item.status || 'stable',
+                    label: item.label || '稳定'
+                };
+            }
+
+            async function fetchScenario(scenario) {
+                const url = `${API_BASE}/api/v1/agent/skills?scenario=${encodeURIComponent(scenario)}`;
+                const response = await fetch(url);
+                if (!response.ok) throw new Error(`HTTP ${response.status}`);
+                const payload = await response.json();
+                if (!payload || payload.code !== 0 || !Array.isArray(payload.data)) {
+                    throw new Error('invalid payload');
+                }
+                return payload.data.map(normalizeItem);
+            }
+
+            async function ensureRemoteDataset(scenario) {
+                if (remoteDatasets[scenario]) return;
+                try {
+                    remoteDatasets[scenario] = await fetchScenario(scenario);
+                } catch (error) {
+                    console.warn('[skills] fallback to local dataset:', error);
+                    remoteDatasets[scenario] = null;
+                }
+            }
+
+            function currentDataset() {
+                const scenario = datasetSelect.value;
+                return remoteDatasets[scenario] || localDatasets[scenario] || localDatasets.baseline;
+            }
+
             function getFiltered() {
                 const keyword = (searchInput.value || '').trim().toLowerCase();
                 const owner = ownerFilter.value;
                 const status = statusFilter.value;
-                const source = datasets[datasetSelect.value] || datasets.baseline;
+                const source = currentDataset();
 
                 return source.filter((item) => {
                     const matchKeyword = !keyword || item.skillId.toLowerCase().includes(keyword) || item.owner.toLowerCase().includes(keyword);
@@ -571,7 +618,14 @@
                 }).join('');
             }
 
-            [searchInput, ownerFilter, statusFilter, datasetSelect].forEach((el) => {
+            async function loadAndRender() {
+                const scenario = datasetSelect.value;
+                rowsEl.innerHTML = '<div class="table-row"><span>...</span><span>...</span><span>...</span><span>...</span><span>...</span><span>加载中</span></div>';
+                await ensureRemoteDataset(scenario);
+                render();
+            }
+
+            [searchInput, ownerFilter, statusFilter].forEach((el) => {
                 el.addEventListener('input', () => {
                     page = 1;
                     render();
@@ -580,6 +634,11 @@
                     page = 1;
                     render();
                 });
+            });
+
+            datasetSelect.addEventListener('change', async () => {
+                page = 1;
+                await loadAndRender();
             });
 
             prevBtn.addEventListener('click', () => {
@@ -592,7 +651,7 @@
                 render();
             });
 
-            render();
+            loadAndRender();
         })();
     </script>
 </body>
