@@ -1,10 +1,18 @@
 package com.exchange.agent.service;
 
+import com.exchange.agent.repository.AgentTrainingPersistenceRepository;
+import jakarta.annotation.PostConstruct;
+import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
+import org.springframework.util.CollectionUtils;
 
+import java.time.Instant;
+import java.time.LocalDate;
 import java.time.LocalTime;
+import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
+import java.time.temporal.WeekFields;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CopyOnWriteArrayList;
@@ -18,24 +26,48 @@ import java.util.stream.Collectors;
  */
 @Slf4j
 @Service
+@RequiredArgsConstructor
 public class AgentTrainingService {
 
     private static final DateTimeFormatter TIME_FMT = DateTimeFormatter.ofPattern("HH:mm:ss");
+    private static final ZoneId SHANGHAI_ZONE = ZoneId.of("Asia/Shanghai");
 
+    private final AgentTrainingPersistenceRepository persistenceRepository;
     private final Map<String, List<SkillItem>> skillsByScenario = new ConcurrentHashMap<>();
     private final Map<String, List<ReplayItem>> replaysByScenario = new ConcurrentHashMap<>();
     private final Map<String, List<ApiDocItem>> apisByDataset = new ConcurrentHashMap<>();
     private final Map<String, DecisionItem> decisionMap = new ConcurrentHashMap<>();
     private final List<DecisionLogItem> decisionLogs = new CopyOnWriteArrayList<>();
     private final Map<Long, List<String>> weeklyPlans = new ConcurrentHashMap<>();
+    private volatile boolean persistenceReady = false;
 
-    public AgentTrainingService() {
+    @PostConstruct
+    public void init() {
         seedSkills();
         seedReplays();
         seedApiDocs();
         seedDecisions();
         seedDecisionLogs();
         seedGrowthPlans();
+        initPersistence();
+    }
+
+    private void initPersistence() {
+        try {
+            persistenceRepository.ensureSchema();
+            persistenceReady = persistenceRepository.ping();
+            if (!persistenceReady) {
+                log.warn("[AgentTrainingService] Persistence ping failed, fallback to memory mode");
+                return;
+            }
+            syncSeedSkillsToDb();
+            syncSeedDecisionLogsToDb();
+            syncSeedWeeklyPlanToDb();
+            log.info("[AgentTrainingService] Persistence enabled with MySQL");
+        } catch (Exception e) {
+            persistenceReady = false;
+            log.error("[AgentTrainingService] Persistence init failed, fallback to memory mode", e);
+        }
     }
 
     public Map<String, Object> buildContext(String symbol, String interval, Integer depthLevel, Integer windowMinutes) {
@@ -81,8 +113,18 @@ public class AgentTrainingService {
 
     public List<SkillItem> listSkills(String scenario) {
         String key = isBlank(scenario) ? "baseline" : scenario.toLowerCase(Locale.ROOT);
+        if (persistenceReady) {
+            try {
+                List<AgentTrainingPersistenceRepository.SkillRow> rows = persistenceRepository.listSkills(key);
+                if (!CollectionUtils.isEmpty(rows)) {
+                    return rows.stream().map(this::toSkillItem).collect(Collectors.toList());
+                }
+            } catch (Exception e) {
+                log.warn("[AgentTrainingService] listSkills fallback to memory, scenario={}", key, e);
+            }
+        }
         List<SkillItem> items = skillsByScenario.getOrDefault(key, skillsByScenario.get("baseline"));
-        return new ArrayList<>(items);
+        return new ArrayList<>(items == null ? List.of() : items);
     }
 
     public SkillItem createSkill(CreateSkillRequest req) {
@@ -90,22 +132,109 @@ public class AgentTrainingService {
         String owner = isBlank(req.owner()) ? "user_1001" : req.owner();
         String ownerType = normalizeOwnerType(req.ownerType());
         SkillItem item = new SkillItem(skillId, "v1.0.0", owner, ownerType, 75.0, -5.0, "stable", "稳定");
-        skillsByScenario.computeIfAbsent("baseline", k -> new CopyOnWriteArrayList<>()).add(0, item);
+        upsertSkillInMemory("baseline", item);
+        if (persistenceReady) {
+            try {
+                long now = nowMillis();
+                persistenceRepository.saveSkill(new AgentTrainingPersistenceRepository.SkillRow(
+                        item.skillId(),
+                        item.version(),
+                        item.owner(),
+                        item.ownerType(),
+                        "baseline",
+                        item.score(),
+                        item.drawdown(),
+                        item.status(),
+                        item.label(),
+                        now,
+                        now
+                ));
+            } catch (Exception e) {
+                log.warn("[AgentTrainingService] createSkill write DB failed, keep memory only, skillId={}", skillId, e);
+            }
+        }
         return item;
     }
 
     public SkillVersionResult createSkillVersion(String skillId, CreateSkillVersionRequest req) {
         String version = isBlank(req.version()) ? "v1.0.0" : req.version();
+        String scenario = "baseline";
+        SkillItem source = getSkill(skillId).orElse(null);
+        if (source != null) {
+            scenario = "baseline";
+            SkillItem cloned = new SkillItem(
+                    source.skillId(),
+                    version,
+                    source.owner(),
+                    source.ownerType(),
+                    source.score(),
+                    source.drawdown(),
+                    "stable",
+                    "稳定"
+            );
+            upsertSkillInMemory(scenario, cloned);
+        }
+
+        if (persistenceReady) {
+            try {
+                Optional<AgentTrainingPersistenceRepository.SkillRow> sourceOpt = persistenceRepository.findSkill(skillId);
+                if (sourceOpt.isPresent()) {
+                    AgentTrainingPersistenceRepository.SkillRow src = sourceOpt.get();
+                    long now = nowMillis();
+                    persistenceRepository.saveSkill(new AgentTrainingPersistenceRepository.SkillRow(
+                            src.skillId(),
+                            version,
+                            src.owner(),
+                            src.ownerType(),
+                            src.scenario(),
+                            src.skillScore(),
+                            src.drawdownPct(),
+                            "stable",
+                            "稳定",
+                            now,
+                            now
+                    ));
+                    upsertSkillInMemory(src.scenario(), new SkillItem(
+                            src.skillId(),
+                            version,
+                            src.owner(),
+                            src.ownerType(),
+                            src.skillScore(),
+                            src.drawdownPct(),
+                            "stable",
+                            "稳定"
+                    ));
+                }
+            } catch (Exception e) {
+                log.warn("[AgentTrainingService] createSkillVersion DB failed, skillId={}, version={}", skillId, version, e);
+            }
+        }
         return new SkillVersionResult(skillId, version, false, "version-created");
     }
 
     public SkillVersionResult publishSkillVersion(String skillId, PublishSkillRequest req) {
         String version = isBlank(req.version()) ? "latest" : req.version();
+        if (persistenceReady && !"latest".equalsIgnoreCase(version)) {
+            try {
+                persistenceRepository.updateSkillStatus(skillId, version, "passed", "可晋级", nowMillis());
+                syncPublishToMemory(skillId, version);
+            } catch (Exception e) {
+                log.warn("[AgentTrainingService] publishSkillVersion DB failed, skillId={}, version={}", skillId, version, e);
+            }
+        }
         return new SkillVersionResult(skillId, version, true, "published");
     }
 
     public Optional<SkillItem> getSkill(String skillId) {
         if (isBlank(skillId)) return Optional.empty();
+        if (persistenceReady) {
+            try {
+                Optional<AgentTrainingPersistenceRepository.SkillRow> row = persistenceRepository.findSkill(skillId);
+                if (row.isPresent()) return row.map(this::toSkillItem);
+            } catch (Exception e) {
+                log.warn("[AgentTrainingService] getSkill fallback to memory, skillId={}", skillId, e);
+            }
+        }
         return skillsByScenario.values().stream()
                 .flatMap(Collection::stream)
                 .filter(item -> skillId.equals(item.skillId()))
@@ -257,10 +386,35 @@ public class AgentTrainingService {
         );
         decisionLogs.add(0, logItem);
         trimLogs();
+        if (persistenceReady) {
+            try {
+                persistenceRepository.insertDecisionLog(new AgentTrainingPersistenceRepository.DecisionLogRow(
+                        logItem.id(),
+                        logItem.strategy(),
+                        logItem.action(),
+                        parseConfidencePct(logItem.conf()),
+                        logItem.status(),
+                        logItem.feedback(),
+                        nowMillis()
+                ));
+            } catch (Exception e) {
+                log.warn("[AgentTrainingService] adoptDecision write log failed, decisionId={}", decision.decisionId(), e);
+            }
+        }
         return new AdoptResult(decision.decisionId(), "accepted", "已采纳并写入填单参数。");
     }
 
     public List<DecisionLogItem> listDecisionLogs() {
+        if (persistenceReady) {
+            try {
+                List<AgentTrainingPersistenceRepository.DecisionLogRow> rows = persistenceRepository.listDecisionLogs(20);
+                if (!CollectionUtils.isEmpty(rows)) {
+                    return rows.stream().map(this::toDecisionLogItem).collect(Collectors.toList());
+                }
+            } catch (Exception e) {
+                log.warn("[AgentTrainingService] listDecisionLogs fallback to memory", e);
+            }
+        }
         return new ArrayList<>(decisionLogs);
     }
 
@@ -297,15 +451,37 @@ public class AgentTrainingService {
 
     public WeeklyPlan getWeeklyPlan(Long userId) {
         long uid = userId == null ? 1001L : userId;
+        String week = currentWeekCode();
+        if (persistenceReady) {
+            try {
+                List<String> items = persistenceRepository.listWeeklyPlanItems(uid, week);
+                if (CollectionUtils.isEmpty(items)) {
+                    items = defaultWeeklyPlan();
+                    persistenceRepository.replaceWeeklyPlan(uid, week, items, nowMillis());
+                }
+                return new WeeklyPlan(uid, week, items);
+            } catch (Exception e) {
+                log.warn("[AgentTrainingService] getWeeklyPlan fallback to memory, userId={}", uid, e);
+            }
+        }
+
         List<String> items = weeklyPlans.getOrDefault(uid, defaultWeeklyPlan());
-        return new WeeklyPlan(uid, "2026-W10", items);
+        return new WeeklyPlan(uid, week, items);
     }
 
     public WeeklyPlan saveWeeklyPlan(Long userId, UpdateWeeklyPlanRequest req) {
         long uid = userId == null ? 1001L : userId;
         List<String> items = req.items() == null || req.items().isEmpty() ? defaultWeeklyPlan() : req.items();
+        String week = currentWeekCode();
         weeklyPlans.put(uid, new CopyOnWriteArrayList<>(items));
-        return new WeeklyPlan(uid, "2026-W10", new ArrayList<>(items));
+        if (persistenceReady) {
+            try {
+                persistenceRepository.replaceWeeklyPlan(uid, week, items, nowMillis());
+            } catch (Exception e) {
+                log.warn("[AgentTrainingService] saveWeeklyPlan DB failed, userId={}", uid, e);
+            }
+        }
+        return new WeeklyPlan(uid, week, new ArrayList<>(items));
     }
 
     private void seedSkills() {
@@ -431,6 +607,56 @@ public class AgentTrainingService {
         weeklyPlans.put(1001L, new CopyOnWriteArrayList<>(defaultWeeklyPlan()));
     }
 
+    private void syncSeedSkillsToDb() {
+        for (Map.Entry<String, List<SkillItem>> entry : skillsByScenario.entrySet()) {
+            String scenario = entry.getKey();
+            long count = persistenceRepository.countSkillsByScenario(scenario);
+            if (count > 0) continue;
+            long now = nowMillis();
+            for (SkillItem item : entry.getValue()) {
+                persistenceRepository.saveSkill(new AgentTrainingPersistenceRepository.SkillRow(
+                        item.skillId(),
+                        item.version(),
+                        item.owner(),
+                        item.ownerType(),
+                        scenario,
+                        item.score(),
+                        item.drawdown(),
+                        item.status(),
+                        item.label(),
+                        now,
+                        now
+                ));
+            }
+        }
+    }
+
+    private void syncSeedDecisionLogsToDb() {
+        if (persistenceRepository.countDecisionLogs() > 0) return;
+        long baseTs = nowMillis();
+        int offset = 0;
+        for (DecisionLogItem item : decisionLogs) {
+            persistenceRepository.insertDecisionLog(new AgentTrainingPersistenceRepository.DecisionLogRow(
+                    item.id(),
+                    item.strategy(),
+                    item.action(),
+                    parseConfidencePct(item.conf()),
+                    item.status(),
+                    item.feedback(),
+                    baseTs - (offset++ * 1000L)
+            ));
+        }
+    }
+
+    private void syncSeedWeeklyPlanToDb() {
+        String week = currentWeekCode();
+        for (Map.Entry<Long, List<String>> entry : weeklyPlans.entrySet()) {
+            List<String> existing = persistenceRepository.listWeeklyPlanItems(entry.getKey(), week);
+            if (!CollectionUtils.isEmpty(existing)) continue;
+            persistenceRepository.replaceWeeklyPlan(entry.getKey(), week, entry.getValue(), nowMillis());
+        }
+    }
+
     private void trimLogs() {
         while (decisionLogs.size() > 20) {
             decisionLogs.remove(decisionLogs.size() - 1);
@@ -443,6 +669,100 @@ public class AgentTrainingService {
                 "每次决策必须带止损并在下单前完成 validate",
                 "本周完成 2 次有效复盘并输出下周改进项"
         );
+    }
+
+    private void upsertSkillInMemory(String scenario, SkillItem item) {
+        List<SkillItem> list = skillsByScenario.computeIfAbsent(scenario, k -> new CopyOnWriteArrayList<>());
+        list.removeIf(existing -> existing.skillId().equals(item.skillId()) && existing.version().equals(item.version()));
+        list.add(0, item);
+    }
+
+    private void syncPublishToMemory(String skillId, String version) {
+        for (Map.Entry<String, List<SkillItem>> entry : skillsByScenario.entrySet()) {
+            List<SkillItem> next = entry.getValue().stream()
+                    .map(item -> {
+                        if (!skillId.equals(item.skillId()) || !version.equals(item.version())) return item;
+                        return new SkillItem(
+                                item.skillId(),
+                                item.version(),
+                                item.owner(),
+                                item.ownerType(),
+                                item.score(),
+                                item.drawdown(),
+                                "passed",
+                                "可晋级"
+                        );
+                    })
+                    .collect(Collectors.toCollection(CopyOnWriteArrayList::new));
+            skillsByScenario.put(entry.getKey(), next);
+        }
+    }
+
+    private SkillItem toSkillItem(AgentTrainingPersistenceRepository.SkillRow row) {
+        return new SkillItem(
+                row.skillId(),
+                row.version(),
+                row.owner(),
+                normalizeOwnerType(row.ownerType()),
+                row.skillScore(),
+                row.drawdownPct(),
+                safeSkillStatus(row.status()),
+                isBlank(row.label()) ? statusLabel(row.status()) : row.label()
+        );
+    }
+
+    private DecisionLogItem toDecisionLogItem(AgentTrainingPersistenceRepository.DecisionLogRow row) {
+        return new DecisionLogItem(
+                row.decisionId(),
+                row.strategyVersion(),
+                row.action(),
+                String.format(Locale.ROOT, "%.0f%%", row.confidencePct()),
+                row.status(),
+                row.feedback(),
+                formatEpochMillis(row.eventTime())
+        );
+    }
+
+    private static long nowMillis() {
+        return Instant.now().toEpochMilli();
+    }
+
+    private static String currentWeekCode() {
+        LocalDate today = LocalDate.now(SHANGHAI_ZONE);
+        WeekFields wf = WeekFields.ISO;
+        int weekYear = today.get(wf.weekBasedYear());
+        int weekNo = today.get(wf.weekOfWeekBasedYear());
+        return String.format(Locale.ROOT, "%d-W%02d", weekYear, weekNo);
+    }
+
+    private static double parseConfidencePct(String conf) {
+        if (isBlank(conf)) return 0D;
+        String normalized = conf.replace("%", "").trim();
+        try {
+            return Double.parseDouble(normalized);
+        } catch (Exception e) {
+            return 0D;
+        }
+    }
+
+    private static String formatEpochMillis(long epochMillis) {
+        return Instant.ofEpochMilli(epochMillis)
+                .atZone(SHANGHAI_ZONE)
+                .format(TIME_FMT);
+    }
+
+    private static String safeSkillStatus(String status) {
+        if (isBlank(status)) return "stable";
+        String v = status.toLowerCase(Locale.ROOT);
+        if ("passed".equals(v) || "stable".equals(v) || "optimize".equals(v)) return v;
+        return "stable";
+    }
+
+    private static String statusLabel(String status) {
+        String s = safeSkillStatus(status);
+        if ("passed".equals(s)) return "可晋级";
+        if ("optimize".equals(s)) return "需优化";
+        return "稳定";
     }
 
     private static String toReplaySide(String action) {

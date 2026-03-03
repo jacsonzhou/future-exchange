@@ -8,6 +8,7 @@ mysql -u root -p <<EOF
 CREATE DATABASE IF NOT EXISTS exchange_oms DEFAULT CHARSET utf8mb4 COLLATE utf8mb4_unicode_ci;
 CREATE DATABASE IF NOT EXISTS exchange_ledger DEFAULT CHARSET utf8mb4 COLLATE utf8mb4_unicode_ci;
 CREATE DATABASE IF NOT EXISTS exchange_adl DEFAULT CHARSET utf8mb4 COLLATE utf8mb4_unicode_ci;
+CREATE DATABASE IF NOT EXISTS exchange_training DEFAULT CHARSET utf8mb4 COLLATE utf8mb4_unicode_ci;
 
 SHOW DATABASES;
 
@@ -20,10 +21,12 @@ SOURCE sql/ledger_schema.sql;
 USE exchange_adl;
 SOURCE sql/adl_schema.sql;
 
+USE exchange_training;
+SOURCE docs/skill_engine_schema.sql;
+
 SELECT 'Database initialization completed!' as Status;
 EOF
 
 echo "✅ 数据库初始化完成"
-
 
 
