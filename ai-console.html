@@ -1,0 +1,778 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>NovaX · AI决策台</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&family=Noto+Sans+SC:wght@400;500;700&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --bg-main: #05070c;
+            --bg-card: rgba(11, 16, 28, 0.82);
+            --line-soft: rgba(160, 188, 226, 0.24);
+            --text-main: #f2f7ff;
+            --text-sub: #8fa5c6;
+            --text-dim: #6f85a8;
+            --accent: #00c2ff;
+            --accent-2: #00e0b6;
+            --buy: #1ccb92;
+            --sell: #ff6e6e;
+            --warning: #ffb347;
+            --max-width: 1400px;
+            --mono: "IBM Plex Mono", Consolas, monospace;
+        }
+
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+
+        body {
+            min-height: 100vh;
+            color: var(--text-main);
+            font-family: "Noto Sans SC", "Space Grotesk", sans-serif;
+            background:
+                radial-gradient(800px 520px at -10% -15%, rgba(0, 194, 255, 0.16), transparent 70%),
+                radial-gradient(900px 480px at 110% 20%, rgba(0, 224, 182, 0.14), transparent 74%),
+                radial-gradient(1200px 700px at 50% 120%, rgba(80, 123, 255, 0.12), transparent 78%),
+                linear-gradient(150deg, #04060b 0%, #080b14 50%, #05070c 100%);
+            overflow-x: hidden;
+        }
+
+        a { color: inherit; text-decoration: none; }
+
+        .ambient-strip {
+            position: fixed;
+            inset: 0;
+            pointer-events: none;
+            z-index: -1;
+        }
+
+        .ambient-strip::before,
+        .ambient-strip::after {
+            content: "";
+            position: absolute;
+            width: 45vw;
+            height: 45vw;
+            filter: blur(110px);
+            opacity: 0.34;
+        }
+
+        .ambient-strip::before {
+            top: -16vw;
+            left: -8vw;
+            background: radial-gradient(circle, rgba(0, 188, 255, 0.38) 0%, transparent 72%);
+        }
+
+        .ambient-strip::after {
+            right: -12vw;
+            bottom: -24vw;
+            background: radial-gradient(circle, rgba(0, 224, 182, 0.34) 0%, transparent 72%);
+        }
+
+        .announcement {
+            width: min(var(--max-width), calc(100vw - 28px));
+            margin: 16px auto 10px;
+            padding: 12px 18px;
+            border: 1px solid rgba(0, 194, 255, 0.38);
+            border-radius: 999px;
+            background: linear-gradient(90deg, rgba(0, 194, 255, 0.12), rgba(0, 224, 182, 0.08));
+            color: #def7ff;
+            font-size: 15px;
+            line-height: 1.42;
+            display: flex;
+            justify-content: space-between;
+            gap: 10px;
+        }
+
+        .announcement .cta {
+            color: var(--accent-2);
+            font-weight: 700;
+            white-space: nowrap;
+        }
+
+        .header {
+            width: min(var(--max-width), calc(100vw - 28px));
+            margin: 0 auto;
+            display: grid;
+            gap: 10px;
+        }
+
+        .topbar {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 18px;
+            padding: 10px 2px 2px;
+        }
+
+        .brand {
+            display: inline-flex;
+            align-items: center;
+            gap: 10px;
+            font-family: "Space Grotesk", sans-serif;
+            font-weight: 700;
+            letter-spacing: 0.2px;
+            white-space: nowrap;
+        }
+
+        .brand-mark {
+            width: 30px;
+            height: 30px;
+            border-radius: 10px;
+            background: linear-gradient(135deg, #00c2ff, #00e0b6);
+            color: #03141b;
+            font-family: "Space Grotesk", sans-serif;
+            font-weight: 700;
+            display: grid;
+            place-items: center;
+            font-size: 14px;
+        }
+
+        .topnav {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            flex-wrap: wrap;
+            color: var(--text-sub);
+            font-size: 12px;
+        }
+
+        .topnav a { white-space: nowrap; }
+        .topnav a:hover { color: #d5e6ff; }
+        .topnav a.active { color: #d7ecff; font-weight: 600; }
+
+        .status-chip {
+            border: 1px solid var(--line-soft);
+            border-radius: 999px;
+            padding: 8px 12px;
+            font-size: 12px;
+            color: var(--text-sub);
+            background: rgba(8, 14, 27, 0.9);
+            white-space: nowrap;
+        }
+
+        .status-chip strong { color: #e8f2ff; margin-left: 6px; }
+
+        .hero {
+            border: 1px solid var(--line-soft);
+            border-radius: 16px;
+            background:
+                radial-gradient(460px 220px at 80% 40%, rgba(0, 224, 182, 0.08), transparent 78%),
+                linear-gradient(160deg, rgba(8, 15, 28, 0.94), rgba(6, 11, 20, 0.98));
+            padding: 16px 18px;
+            display: grid;
+            gap: 12px;
+        }
+
+        .hero h1 {
+            font-family: "Space Grotesk", sans-serif;
+            font-size: clamp(26px, 3.8vw, 36px);
+            line-height: 1.1;
+        }
+
+        .hero h1 span {
+            background: linear-gradient(120deg, #00c2ff, #00e0b6 72%);
+            -webkit-background-clip: text;
+            background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+
+        .hero p { color: var(--text-sub); font-size: 14px; line-height: 1.7; }
+
+        .filter-row {
+            display: grid;
+            grid-template-columns: repeat(4, minmax(0, 1fr));
+            gap: 10px;
+        }
+
+        .field { display: grid; gap: 6px; }
+
+        .field label { font-size: 11px; color: var(--text-sub); }
+
+        .field select {
+            width: 100%;
+            border: 1px solid rgba(89, 122, 175, 0.48);
+            border-radius: 10px;
+            background: rgba(5, 13, 26, 0.95);
+            color: #d7e9ff;
+            font-family: var(--mono);
+            font-size: 13px;
+            padding: 10px;
+        }
+
+        .layout {
+            width: min(var(--max-width), calc(100vw - 28px));
+            margin: 12px auto 28px;
+            display: grid;
+            gap: 12px;
+        }
+
+        .kpi-grid {
+            display: grid;
+            grid-template-columns: repeat(4, minmax(0, 1fr));
+            gap: 12px;
+        }
+
+        .kpi-card {
+            border: 1px solid var(--line-soft);
+            border-radius: 14px;
+            background: linear-gradient(160deg, rgba(9, 15, 27, 0.94), rgba(8, 13, 23, 0.96));
+            padding: 14px;
+        }
+
+        .kpi-card .label { color: var(--text-sub); font-size: 11px; margin-bottom: 8px; }
+        .kpi-card .value { font-family: var(--mono); font-size: 22px; font-weight: 600; }
+        .kpi-card .sub { color: var(--text-dim); margin-top: 6px; font-size: 12px; }
+
+        .value.buy { color: var(--buy); }
+        .value.sell { color: var(--sell); }
+        .value.accent { color: var(--accent); }
+
+        .main-grid {
+            display: grid;
+            grid-template-columns: 360px minmax(0, 1fr);
+            gap: 12px;
+            align-items: start;
+        }
+
+        .panel {
+            border: 1px solid var(--line-soft);
+            border-radius: 14px;
+            background: var(--bg-card);
+            overflow: hidden;
+        }
+
+        .panel-head {
+            padding: 12px 14px;
+            border-bottom: 1px solid rgba(105, 133, 181, 0.2);
+            background: rgba(9, 16, 27, 0.94);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .panel-title { font-size: 13px; font-weight: 600; }
+
+        .panel-body { padding: 14px; display: grid; gap: 10px; }
+
+        .decision-item {
+            border: 1px solid rgba(105, 133, 181, 0.26);
+            border-radius: 10px;
+            padding: 10px;
+            background: rgba(10, 18, 31, 0.84);
+            cursor: pointer;
+            display: grid;
+            gap: 8px;
+        }
+
+        .decision-item.active {
+            border-color: rgba(0, 224, 182, 0.52);
+            box-shadow: inset 0 0 0 1px rgba(0, 224, 182, 0.2);
+        }
+
+        .decision-head {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .decision-bias {
+            border-radius: 999px;
+            padding: 3px 8px;
+            font-size: 11px;
+            border: 1px solid rgba(101, 129, 174, 0.34);
+            color: #bfd5f3;
+        }
+
+        .decision-bias.long {
+            border-color: rgba(28, 203, 146, 0.45);
+            color: #abffe0;
+            background: rgba(28, 203, 146, 0.14);
+        }
+
+        .decision-bias.short {
+            border-color: rgba(255, 110, 110, 0.45);
+            color: #ffd2d2;
+            background: rgba(255, 110, 110, 0.14);
+        }
+
+        .decision-meta {
+            display: grid;
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+            gap: 6px;
+            font-size: 11px;
+            color: var(--text-sub);
+        }
+
+        .decision-meta strong {
+            color: #e1efff;
+            font-family: var(--mono);
+            font-size: 12px;
+            display: block;
+            margin-top: 2px;
+        }
+
+        .detail-grid {
+            display: grid;
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+            gap: 10px;
+        }
+
+        .detail-box {
+            border: 1px solid rgba(103, 133, 182, 0.28);
+            border-radius: 10px;
+            padding: 10px;
+            background: rgba(10, 19, 31, 0.74);
+        }
+
+        .detail-box .k { color: var(--text-sub); font-size: 11px; }
+        .detail-box .v { color: #def1ff; font-family: var(--mono); margin-top: 6px; font-size: 13px; }
+
+        .reason-list {
+            border: 1px solid rgba(103, 133, 182, 0.28);
+            border-radius: 10px;
+            padding: 10px;
+            background: rgba(10, 19, 31, 0.74);
+            display: grid;
+            gap: 6px;
+            color: #c6d7ef;
+            font-size: 12px;
+            line-height: 1.5;
+        }
+
+        .policy-status {
+            border: 1px solid rgba(103, 133, 182, 0.28);
+            border-radius: 10px;
+            padding: 10px;
+            background: rgba(10, 19, 31, 0.74);
+            display: grid;
+            gap: 7px;
+        }
+
+        .policy-line {
+            display: flex;
+            justify-content: space-between;
+            color: var(--text-sub);
+            font-size: 12px;
+        }
+
+        .policy-line strong { font-family: var(--mono); color: #e4f2ff; }
+
+        .ok { color: var(--buy); }
+        .warn { color: var(--warning); }
+        .bad { color: var(--sell); }
+
+        .btn-row {
+            display: grid;
+            grid-template-columns: repeat(3, minmax(0, 1fr));
+            gap: 8px;
+        }
+
+        .btn {
+            border: 1px solid rgba(114, 146, 197, 0.4);
+            border-radius: 10px;
+            background: rgba(14, 24, 40, 0.9);
+            color: #d6e7ff;
+            font-size: 12px;
+            padding: 9px 10px;
+            cursor: pointer;
+        }
+
+        .btn.primary {
+            background: linear-gradient(130deg, rgba(0, 194, 255, 0.26), rgba(0, 224, 182, 0.26));
+            border-color: rgba(0, 224, 182, 0.48);
+            color: #ecffff;
+        }
+
+        .hint {
+            border: 1px dashed rgba(105, 133, 181, 0.3);
+            border-radius: 10px;
+            padding: 10px;
+            color: #c2d7f3;
+            font-size: 12px;
+            line-height: 1.45;
+        }
+
+        .log-table {
+            border: 1px solid var(--line-soft);
+            border-radius: 14px;
+            background: var(--bg-card);
+            overflow: hidden;
+        }
+
+        .table-head,
+        .table-row {
+            display: grid;
+            grid-template-columns: 170px 150px 110px 110px 120px minmax(180px, 1fr) 140px;
+            gap: 10px;
+            align-items: center;
+            padding: 10px 14px;
+            font-size: 12px;
+        }
+
+        .table-head {
+            background: rgba(10, 18, 30, 0.95);
+            color: var(--text-sub);
+            border-bottom: 1px solid rgba(104, 132, 179, 0.24);
+        }
+
+        .table-row {
+            border-bottom: 1px solid rgba(97, 124, 169, 0.16);
+            color: #dbe9fb;
+        }
+
+        .table-row:last-child { border-bottom: none; }
+
+        .mono { font-family: var(--mono); }
+
+        @media (max-width: 1180px) {
+            .filter-row,
+            .kpi-grid,
+            .main-grid,
+            .btn-row,
+            .detail-grid {
+                grid-template-columns: 1fr;
+            }
+
+            .table-head,
+            .table-row {
+                grid-template-columns: repeat(2, minmax(0, 1fr));
+            }
+        }
+
+        @media (max-width: 760px) {
+            .topbar { flex-wrap: wrap; justify-content: center; }
+            .announcement { font-size: 13px; padding: 10px 12px; }
+        }
+    </style>
+    <link rel="stylesheet" href="styles/cotraining-unified.css">
+</head>
+<body class="cotraining-ui">
+    <div class="ambient-strip" aria-hidden="true"></div>
+
+    <a class="announcement" href="trading-test.html">
+        <span><strong>AI决策台演示</strong> ｜ 决策可解释、可校验、可追踪到订单</span>
+        <span class="cta">返回交易终端</span>
+    </a>
+
+    <header class="header">
+        <div class="topbar">
+            <a class="brand" href="index.html">
+                <span class="brand-mark">N</span>
+                <span>NovaX Futures</span>
+            </a>
+            <nav class="topnav" aria-label="主导航">
+                <a href="trading-test.html" data-route="/trade">交易终端</a>
+                <a href="http://localhost:3000/btc-dashboard.html" data-route="/btc-dashboard">BTC周期看板</a>
+                <a href="training.html" data-route="/training">模拟训练</a>
+                <a href="skills.html" data-route="/skills">策略工坊</a>
+                <a class="active" href="ai-console.html" data-route="/ai-console">AI决策台</a>
+                <a href="replay-lab.html" data-route="/replay-lab">复盘实验室</a>
+                <a href="arena-live.html" data-route="/arena/live">AI竞技场</a>
+                <a href="skillboard.html" data-route="/skillboard">Skill榜</a>
+                <a href="my-growth.html" data-route="/my-growth">我的成长</a>
+            </nav>
+            <div class="topbar-right">
+                <div class="status-chip">决策引擎:<strong id="engineState">online</strong></div>
+                <div class="utility-nav">
+                    <a class="utility-link" href="rules.html">规则</a>
+                    <a class="utility-link" href="developers.html">开发者</a>
+                    <a class="utility-link" href="profile-center.html">个人中心</a>
+                </div>
+            </div>
+        </div>
+
+        <section class="hero">
+            <h1>AI 决策台: <span>建议不是黑箱</span></h1>
+            <p>本页先用前端假数据模拟“候选决策 -> 风控预校验 -> 一键填单 -> 决策日志”链路，先确认信息密度和交互路径。</p>
+            <div class="filter-row">
+                <div class="field">
+                    <label for="symbolSel">交易对</label>
+                    <select id="symbolSel"><option>BTCUSDT</option><option>ETHUSDT</option><option>SOLUSDT</option></select>
+                </div>
+                <div class="field">
+                    <label for="intervalSel">周期</label>
+                    <select id="intervalSel"><option>1m</option><option>5m</option><option>15m</option><option>1h</option></select>
+                </div>
+                <div class="field">
+                    <label for="marketSel">市场状态</label>
+                    <select id="marketSel"><option>趋势</option><option>震荡</option><option>高波动</option></select>
+                </div>
+                <div class="field">
+                    <label for="strategySel">策略版本</label>
+                    <select id="strategySel"><option>ai-momentum-v1.2.3</option><option>ai-range-v0.9.7</option><option>ai-hybrid-v2.0.1</option></select>
+                </div>
+            </div>
+        </section>
+    </header>
+
+    <main class="layout">
+        <section class="kpi-grid">
+            <article class="kpi-card"><div class="label">候选建议数</div><div class="value accent" id="kpiSuggestions">4</div><div class="sub">每次刷新 2-5 条</div></article>
+            <article class="kpi-card"><div class="label">平均置信度</div><div class="value" id="kpiConfidence">57%</div><div class="sub">最近10次决策窗口</div></article>
+            <article class="kpi-card"><div class="label">校验通过率</div><div class="value buy" id="kpiPolicy">91%</div><div class="sub">风控预检查通过</div></article>
+            <article class="kpi-card"><div class="label">采纳填单率</div><div class="value sell" id="kpiApply">26%</div><div class="sub">人工最终确认前的采纳</div></article>
+        </section>
+
+        <section class="main-grid">
+            <article class="panel">
+                <div class="panel-head"><div class="panel-title">候选决策</div><span class="mono" id="decisionCount">4 条</span></div>
+                <div class="panel-body" id="decisionList"></div>
+            </article>
+
+            <article class="panel">
+                <div class="panel-head"><div class="panel-title">决策详情与执行面板</div><span class="mono" id="decisionIdText">decision_id: --</span></div>
+                <div class="panel-body">
+                    <div class="detail-grid">
+                        <div class="detail-box"><div class="k">方向</div><div class="v" id="detailAction">--</div></div>
+                        <div class="detail-box"><div class="k">置信度</div><div class="v" id="detailConfidence">--</div></div>
+                        <div class="detail-box"><div class="k">建议进场区间</div><div class="v" id="detailEntry">--</div></div>
+                        <div class="detail-box"><div class="k">风险暴露(执行后)</div><div class="v" id="detailExposure">--</div></div>
+                        <div class="detail-box"><div class="k">止损位</div><div class="v" id="detailStop">--</div></div>
+                        <div class="detail-box"><div class="k">止盈位</div><div class="v" id="detailTake">--</div></div>
+                    </div>
+
+                    <div class="reason-list" id="reasonList"></div>
+
+                    <div class="policy-status" id="policyBox">
+                        <div class="policy-line"><span>max_leverage</span><strong class="ok">PASS</strong></div>
+                        <div class="policy-line"><span>max_order_notional</span><strong class="ok">PASS</strong></div>
+                        <div class="policy-line"><span>max_daily_loss</span><strong class="ok">PASS</strong></div>
+                        <div class="policy-line"><span>risk_exposure_guard</span><strong class="warn">WARN</strong></div>
+                    </div>
+
+                    <div class="btn-row">
+                        <button class="btn primary" type="button" id="applyBtn">采纳建议并填单</button>
+                        <button class="btn" type="button" id="checkBtn">重新校验</button>
+                        <button class="btn" type="button" id="replayBtn">加入复盘实验室</button>
+                    </div>
+
+                    <div class="hint" id="hintText">提示: 一键填单只填参数，不直接下单。最终下单仍由用户确认。</div>
+                </div>
+            </article>
+        </section>
+
+        <section class="log-table">
+            <div class="table-head">
+                <span>decision_id</span>
+                <span>strategy_version</span>
+                <span>方向</span>
+                <span>置信度</span>
+                <span>状态</span>
+                <span>执行反馈</span>
+                <span>时间</span>
+            </div>
+            <div id="logRows"></div>
+        </section>
+    </main>
+
+    <script>
+        (function () {
+            const decisionListEl = document.getElementById('decisionList');
+            const decisionIdText = document.getElementById('decisionIdText');
+            const detailAction = document.getElementById('detailAction');
+            const detailConfidence = document.getElementById('detailConfidence');
+            const detailEntry = document.getElementById('detailEntry');
+            const detailExposure = document.getElementById('detailExposure');
+            const detailStop = document.getElementById('detailStop');
+            const detailTake = document.getElementById('detailTake');
+            const reasonList = document.getElementById('reasonList');
+            const policyBox = document.getElementById('policyBox');
+            const hintText = document.getElementById('hintText');
+            const logRows = document.getElementById('logRows');
+
+            const kpiSuggestions = document.getElementById('kpiSuggestions');
+            const kpiConfidence = document.getElementById('kpiConfidence');
+            const kpiPolicy = document.getElementById('kpiPolicy');
+            const kpiApply = document.getElementById('kpiApply');
+            const decisionCount = document.getElementById('decisionCount');
+
+            const applyBtn = document.getElementById('applyBtn');
+            const checkBtn = document.getElementById('checkBtn');
+            const replayBtn = document.getElementById('replayBtn');
+            const engineState = document.getElementById('engineState');
+
+            let selectedId = '';
+            let applyRate = 26;
+
+            const decisions = [
+                {
+                    decisionId: 'dec_20260302_1001',
+                    strategyVersion: 'ai-momentum-v1.2.3',
+                    action: 'OPEN_SHORT',
+                    confidence: 54,
+                    entryMin: 69470.79,
+                    entryMax: 69763.58,
+                    exposure: 40.6,
+                    stop: 70153.95,
+                    take: 68202.07,
+                    reasons: ['价格靠近24h区间上沿，倾向回撤确认。', '成交结构出现上冲衰减。', '风险暴露在阈值内，可小仓试错。']
+                },
+                {
+                    decisionId: 'dec_20260302_1002',
+                    strategyVersion: 'ai-range-v0.9.7',
+                    action: 'OPEN_LONG',
+                    confidence: 61,
+                    entryMin: 66120.2,
+                    entryMax: 66240.6,
+                    exposure: 35.2,
+                    stop: 65880.4,
+                    take: 66790.2,
+                    reasons: ['价格回落至区间中下部。', '主动买盘比上个窗口增强。', '止损距离合理，盈亏比约2.1。']
+                },
+                {
+                    decisionId: 'dec_20260302_1003',
+                    strategyVersion: 'ai-hybrid-v2.0.1',
+                    action: 'WAIT',
+                    confidence: 47,
+                    entryMin: 0,
+                    entryMax: 0,
+                    exposure: 31.4,
+                    stop: 0,
+                    take: 0,
+                    reasons: ['方向不清晰，等待突破后确认。', '波动率压缩，性价比偏低。', '建议减少试错频率。']
+                },
+                {
+                    decisionId: 'dec_20260302_1004',
+                    strategyVersion: 'ai-momentum-v1.2.3',
+                    action: 'OPEN_SHORT',
+                    confidence: 58,
+                    entryMin: 66510.1,
+                    entryMax: 66668.4,
+                    exposure: 44.7,
+                    stop: 67008.2,
+                    take: 65860.3,
+                    reasons: ['短周期顶背离，动能减弱。', '挂单簿卖墙加强。', '建议分两档入场，控制滑点。']
+                }
+            ];
+
+            let logs = [
+                { id: 'dec_20260302_0988', strategy: 'ai-momentum-v1.2.2', action: 'OPEN_LONG', conf: '63%', status: 'accepted', feedback: '已填单，用户调整后下单', time: '07:02:14' },
+                { id: 'dec_20260302_0989', strategy: 'ai-range-v0.9.7', action: 'WAIT', conf: '44%', status: 'expired', feedback: '用户未采纳', time: '07:03:57' },
+                { id: 'dec_20260302_0990', strategy: 'ai-hybrid-v2.0.1', action: 'OPEN_SHORT', conf: '57%', status: 'rejected', feedback: '风险暴露超阈值，策略阻断', time: '07:05:08' },
+                { id: 'dec_20260302_0991', strategy: 'ai-momentum-v1.2.3', action: 'OPEN_LONG', conf: '60%', status: 'accepted', feedback: '已采纳并加入复盘', time: '07:07:31' }
+            ];
+
+            function fmtPrice(v) {
+                return Number(v).toLocaleString('zh-CN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+            }
+
+            function actionLabel(action) {
+                if (action === 'OPEN_LONG') return '做多';
+                if (action === 'OPEN_SHORT') return '做空';
+                return '观望';
+            }
+
+            function renderDecisionList() {
+                decisionCount.textContent = `${decisions.length} 条`;
+                kpiSuggestions.textContent = String(decisions.length);
+                kpiConfidence.textContent = `${Math.round(decisions.reduce((a, b) => a + b.confidence, 0) / decisions.length)}%`;
+
+                decisionListEl.innerHTML = decisions.map((item) => {
+                    const active = item.decisionId === selectedId ? 'active' : '';
+                    const biasClass = item.action === 'OPEN_LONG' ? 'long' : item.action === 'OPEN_SHORT' ? 'short' : '';
+                    return `<div class="decision-item ${active}" data-id="${item.decisionId}">
+                        <div class="decision-head">
+                            <strong class="mono">${item.decisionId}</strong>
+                            <span class="decision-bias ${biasClass}">${actionLabel(item.action)}</span>
+                        </div>
+                        <div class="decision-meta">
+                            <span>置信度<strong>${item.confidence}%</strong></span>
+                            <span>执行后风险<strong>${item.exposure.toFixed(1)}%</strong></span>
+                            <span>进场区间<strong>${item.action === 'WAIT' ? '--' : `${fmtPrice(item.entryMin)}-${fmtPrice(item.entryMax)}`}</strong></span>
+                            <span>策略<strong>${item.strategyVersion}</strong></span>
+                        </div>
+                    </div>`;
+                }).join('');
+            }
+
+            function renderDetail(item) {
+                if (!item) return;
+                decisionIdText.textContent = `decision_id: ${item.decisionId}`;
+                detailAction.textContent = actionLabel(item.action);
+                detailConfidence.textContent = `${item.confidence}%`;
+                detailEntry.textContent = item.action === 'WAIT' ? '--' : `${fmtPrice(item.entryMin)} - ${fmtPrice(item.entryMax)}`;
+                detailExposure.textContent = `${item.exposure.toFixed(1)}%`;
+                detailStop.textContent = item.action === 'WAIT' ? '--' : fmtPrice(item.stop);
+                detailTake.textContent = item.action === 'WAIT' ? '--' : fmtPrice(item.take);
+                reasonList.innerHTML = item.reasons.map((reason) => `<div>• ${reason}</div>`).join('');
+
+                const policyLines = [
+                    { key: 'max_leverage', pass: true },
+                    { key: 'max_order_notional', pass: true },
+                    { key: 'max_daily_loss', pass: item.exposure < 48 },
+                    { key: 'risk_exposure_guard', pass: item.exposure < 42 }
+                ];
+
+                policyBox.innerHTML = policyLines.map((line) => {
+                    const cls = line.pass ? 'ok' : 'warn';
+                    return `<div class="policy-line"><span>${line.key}</span><strong class="${cls}">${line.pass ? 'PASS' : 'WARN'}</strong></div>`;
+                }).join('');
+            }
+
+            function renderLogs() {
+                logRows.innerHTML = logs.map((row) => {
+                    const color = row.status === 'accepted' ? 'var(--buy)' : row.status === 'rejected' ? 'var(--sell)' : 'var(--warning)';
+                    return `<div class="table-row">
+                        <span class="mono">${row.id}</span>
+                        <span>${row.strategy}</span>
+                        <span>${actionLabel(row.action)}</span>
+                        <span>${row.conf}</span>
+                        <span style="color:${color}">${row.status}</span>
+                        <span>${row.feedback}</span>
+                        <span class="mono">${row.time}</span>
+                    </div>`;
+                }).join('');
+            }
+
+            decisionListEl.addEventListener('click', (event) => {
+                const target = event.target;
+                if (!(target instanceof HTMLElement)) return;
+                const card = target.closest('.decision-item');
+                if (!card) return;
+                const id = card.getAttribute('data-id');
+                if (!id) return;
+                selectedId = id;
+                renderDecisionList();
+                renderDetail(decisions.find((item) => item.decisionId === id));
+            });
+
+            applyBtn.addEventListener('click', () => {
+                const current = decisions.find((item) => item.decisionId === selectedId);
+                if (!current) return;
+                applyRate = Math.min(95, applyRate + 1.5);
+                kpiApply.textContent = `${applyRate.toFixed(1)}%`;
+                hintText.textContent = `已采纳 ${current.decisionId} 并写入交易填单区（演示），仍需人工确认后下单。`;
+                logs = [{
+                    id: current.decisionId,
+                    strategy: current.strategyVersion,
+                    action: current.action,
+                    conf: `${current.confidence}%`,
+                    status: 'accepted',
+                    feedback: '采纳并填单（未自动执行）',
+                    time: new Date().toTimeString().slice(0, 8)
+                }].concat(logs).slice(0, 8);
+                renderLogs();
+            });
+
+            checkBtn.addEventListener('click', () => {
+                const health = Math.random() > 0.15;
+                engineState.textContent = health ? 'online' : 'degraded';
+                kpiPolicy.textContent = health ? '92%' : '87%';
+                hintText.textContent = health ? '已重新校验，当前风险护栏可执行。' : '校验完成：当前波动偏高，建议降杠杆。';
+            });
+
+            replayBtn.addEventListener('click', () => {
+                hintText.textContent = '该建议已加入复盘实验室（演示占位），用于后续归因分析。';
+            });
+
+            selectedId = decisions[0].decisionId;
+            renderDecisionList();
+            renderDetail(decisions[0]);
+            renderLogs();
+        })();
+    </script>
+</body>
+</html>

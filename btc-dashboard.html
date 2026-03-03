@@ -1,0 +1,1360 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>NovaX · BTC 周期看板</title>
+    <style>
+        :root {
+            --bg: #060d18;
+            --panel: rgba(9, 20, 35, 0.92);
+            --panel-soft: rgba(12, 27, 46, 0.72);
+            --panel-border: rgba(104, 141, 197, 0.24);
+            --text: #e5edf9;
+            --muted: #8fa3c4;
+            --accent: #53b9ff;
+            --green: #22c55e;
+            --red: #ff6b7a;
+            --orange: #f6a33b;
+            --yellow: #f0d060;
+            --max-width: 1320px;
+        }
+
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
+        body {
+            font-family: "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+            color: var(--text);
+            background:
+                radial-gradient(1100px 420px at 12% -4%, rgba(54, 130, 246, 0.2), transparent 70%),
+                radial-gradient(900px 360px at 96% 2%, rgba(14, 203, 129, 0.12), transparent 72%),
+                linear-gradient(160deg, #040a13 0%, #071323 56%, #07162a 100%);
+            min-height: 100vh;
+            padding: 20px;
+        }
+
+        .ambient-strip {
+            position: fixed;
+            inset: 0;
+            pointer-events: none;
+            background-image:
+                linear-gradient(rgba(255, 255, 255, 0.02) 1px, transparent 1px),
+                linear-gradient(90deg, rgba(255, 255, 255, 0.02) 1px, transparent 1px);
+            background-size: 32px 32px;
+            mask-image: radial-gradient(circle at center, black 40%, transparent 100%);
+            z-index: -1;
+        }
+
+        .announcement {
+            display: block;
+            width: min(var(--max-width), calc(100vw - 28px));
+            margin: 16px auto 10px;
+            padding: 12px 18px;
+            border: 1px solid rgba(0, 194, 255, 0.38);
+            border-radius: 999px;
+            background: linear-gradient(90deg, rgba(0, 194, 255, 0.12), rgba(0, 224, 182, 0.08));
+            color: #def7ff;
+            font-size: 15px;
+            letter-spacing: 0.1px;
+            line-height: 1.42;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 10px;
+            transition: transform 0.22s ease, border-color 0.22s ease;
+            backdrop-filter: blur(8px);
+            text-decoration: none;
+        }
+
+        .announcement:hover {
+            transform: translateY(-1px);
+            border-color: rgba(0, 224, 182, 0.5);
+        }
+
+        .announcement strong {
+            color: #ffffff;
+            font-weight: 600;
+        }
+
+        .announcement .cta {
+            color: var(--accent);
+            font-weight: 700;
+            white-space: nowrap;
+        }
+
+        .header {
+            width: min(var(--max-width), calc(100vw - 28px));
+            margin: 0 auto 0;
+            display: grid;
+            gap: 10px;
+        }
+
+        .topbar {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 18px;
+            padding: 10px 2px 2px;
+            flex-wrap: wrap;
+        }
+
+        .brand {
+            display: inline-flex;
+            align-items: center;
+            gap: 10px;
+            color: #e5edf9;
+            text-decoration: none;
+            font-weight: 700;
+            letter-spacing: 0.2px;
+            white-space: nowrap;
+        }
+
+        .brand-mark {
+            width: 30px;
+            height: 30px;
+            border-radius: 10px;
+            background: linear-gradient(135deg, #00c2ff, #00e0b6);
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            color: #03141b;
+            font-weight: 700;
+            font-size: 14px;
+            flex: 0 0 auto;
+        }
+
+        .topnav {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            flex-wrap: wrap;
+            color: #8fa3c4;
+            font-size: 12px;
+            min-width: 0;
+        }
+
+        .topnav a {
+            color: inherit;
+            text-decoration: none;
+            transition: color 0.2s ease;
+            cursor: pointer;
+            white-space: nowrap;
+        }
+
+        .topnav a:hover {
+            color: #d5e6ff;
+        }
+
+        .topnav a.active {
+            color: #d7ecff;
+            font-weight: 600;
+        }
+
+        .header-right {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            min-width: 0;
+            margin-left: auto;
+        }
+
+        .status-strip {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            flex-wrap: wrap;
+            justify-content: flex-end;
+        }
+
+        .user-pill {
+            border-radius: 999px;
+            border: 1px solid rgba(104, 141, 197, 0.24);
+            background: rgba(12, 18, 30, 0.76);
+            color: #8fa3c4;
+            font-size: 11px;
+            white-space: nowrap;
+            padding: 6px 10px;
+        }
+
+        .profile-entry {
+            border-radius: 999px;
+            border: 1px solid rgba(0, 194, 255, 0.46);
+            background: linear-gradient(120deg, rgba(0, 194, 255, 0.18), rgba(0, 224, 182, 0.18));
+            color: #e9fbff;
+            font-size: 12px;
+            font-weight: 600;
+            white-space: nowrap;
+            padding: 6px 12px;
+            text-decoration: none;
+            transition: border-color 0.18s ease, transform 0.18s ease;
+        }
+
+        .profile-entry:hover {
+            border-color: rgba(0, 224, 182, 0.58);
+            transform: translateY(-1px);
+        }
+
+        .container {
+            max-width: 1320px;
+            margin: 0 auto;
+            display: grid;
+            gap: 12px;
+        }
+
+        .grid-5 {
+            display: grid;
+            gap: 12px;
+            grid-template-columns: repeat(5, minmax(0, 1fr));
+        }
+
+        .grid-4 {
+            display: grid;
+            gap: 12px;
+            grid-template-columns: repeat(4, minmax(0, 1fr));
+        }
+
+        .grid-3 {
+            display: grid;
+            gap: 12px;
+            grid-template-columns: repeat(3, minmax(0, 1fr));
+        }
+
+        .card {
+            background: linear-gradient(160deg, rgba(10, 22, 39, 0.95), rgba(8, 19, 34, 0.95));
+            border: 1px solid var(--panel-border);
+            border-radius: 16px;
+            padding: 14px;
+            box-shadow: 0 12px 26px rgba(0, 0, 0, 0.24);
+        }
+
+        .metric-label {
+            color: var(--muted);
+            font-size: 12px;
+            margin-bottom: 6px;
+        }
+
+        .metric-value {
+            font-size: 26px;
+            font-weight: 800;
+            line-height: 1.15;
+        }
+
+        .metric-sub {
+            margin-top: 6px;
+            color: var(--muted);
+            font-size: 12px;
+        }
+
+        .metric-value.price {
+            color: #f8b65a;
+        }
+
+        .metric-value.positive {
+            color: var(--green);
+        }
+
+        .metric-value.warning {
+            color: var(--orange);
+        }
+
+        .metric-value.negative {
+            color: var(--red);
+        }
+
+        .double-line {
+            line-height: 1.28;
+        }
+
+        .gauge-card {
+            display: grid;
+            grid-template-columns: 170px 1fr;
+            gap: 16px;
+            align-items: center;
+        }
+
+        .gauge-wrap {
+            position: relative;
+            width: 160px;
+            height: 92px;
+            margin: 0 auto;
+        }
+
+        .gauge-arc {
+            width: 160px;
+            height: 82px;
+            border-radius: 82px 82px 0 0;
+            background: conic-gradient(from 180deg at 50% 100%, #e85f6a 0deg, #f6a33b 60deg, #f0d060 100deg, #44d181 180deg);
+            clip-path: inset(0 0 0 0);
+        }
+
+        .gauge-center {
+            position: absolute;
+            left: 20px;
+            top: 20px;
+            width: 120px;
+            height: 62px;
+            border-radius: 62px 62px 0 0;
+            background: rgba(8, 19, 33, 0.98);
+            border: 1px solid rgba(122, 149, 189, 0.25);
+            border-bottom: none;
+        }
+
+        .gauge-needle {
+            position: absolute;
+            left: 79px;
+            bottom: 0;
+            width: 2px;
+            height: 62px;
+            border-radius: 2px;
+            background: #f4f8ff;
+            transform-origin: bottom center;
+            transform: rotate(-90deg);
+            transition: transform 0.6s ease;
+        }
+
+        .gauge-needle::after {
+            content: "";
+            position: absolute;
+            left: -4px;
+            bottom: -4px;
+            width: 10px;
+            height: 10px;
+            border-radius: 50%;
+            background: #f5f9ff;
+        }
+
+        .gauge-value {
+            position: absolute;
+            left: 0;
+            right: 0;
+            bottom: 6px;
+            text-align: center;
+            font-size: 24px;
+            font-weight: 800;
+        }
+
+        .gauge-meta {
+            display: flex;
+            justify-content: space-between;
+            color: var(--muted);
+            font-size: 10px;
+            margin-top: 4px;
+        }
+
+        .control-row {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            flex-wrap: wrap;
+            margin-top: 10px;
+            color: var(--muted);
+            font-size: 12px;
+        }
+
+        .control-row input[type="range"] {
+            width: 220px;
+        }
+
+        .table-card {
+            overflow: hidden;
+        }
+
+        .table-title {
+            font-size: 13px;
+            color: var(--muted);
+            margin-bottom: 8px;
+        }
+
+        .table-wrap {
+            overflow: auto;
+            border: 1px solid rgba(115, 141, 179, 0.18);
+            border-radius: 12px;
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            min-width: 720px;
+        }
+
+        th,
+        td {
+            text-align: left;
+            padding: 10px;
+            border-bottom: 1px solid rgba(105, 131, 167, 0.16);
+            font-size: 12px;
+            white-space: nowrap;
+        }
+
+        th {
+            color: #a7bbda;
+            font-size: 11px;
+            text-transform: uppercase;
+            letter-spacing: 0.4px;
+            background: rgba(15, 30, 50, 0.7);
+        }
+
+        td.model {
+            color: #dce9ff;
+            font-weight: 600;
+        }
+
+        .badge {
+            border-radius: 999px;
+            padding: 3px 8px;
+            font-size: 11px;
+            font-weight: 700;
+            display: inline-flex;
+            align-items: center;
+            gap: 4px;
+        }
+
+        .badge.green {
+            background: rgba(34, 197, 94, 0.2);
+            color: #8af0ad;
+            border: 1px solid rgba(34, 197, 94, 0.34);
+        }
+
+        .badge.red {
+            background: rgba(255, 107, 122, 0.18);
+            color: #ffb3bd;
+            border: 1px solid rgba(255, 107, 122, 0.34);
+        }
+
+        .footer {
+            color: var(--muted);
+            font-size: 12px;
+            text-align: center;
+            padding: 8px 0 2px;
+        }
+
+        @media (max-width: 1200px) {
+            .grid-5 {
+                grid-template-columns: repeat(3, minmax(0, 1fr));
+            }
+
+            .grid-4 {
+                grid-template-columns: repeat(2, minmax(0, 1fr));
+            }
+        }
+
+        @media (max-width: 860px) {
+            body {
+                padding: 12px;
+            }
+
+            .grid-5,
+            .grid-4,
+            .grid-3 {
+                grid-template-columns: 1fr;
+            }
+
+            .gauge-card {
+                grid-template-columns: 1fr;
+            }
+
+            .header-right {
+                width: 100%;
+            }
+
+            .status-strip {
+                justify-content: flex-start;
+            }
+        }
+    </style>
+    <link rel="stylesheet" href="styles/cotraining-unified.css">
+</head>
+<body class="cotraining-ui">
+    <div class="ambient-strip" aria-hidden="true"></div>
+
+    <a class="announcement" href="trading-test.html">
+        <span><strong>BTC 周期看板</strong> ｜ 数据源与 `https://btc.x.fish/` 保持一致，直接调用同一批接口</span>
+        <span class="cta">返回交易终端</span>
+    </a>
+
+    <header class="header">
+        <div class="topbar">
+            <a class="brand" href="index.html">
+                <span class="brand-mark">N</span>
+                <span>NovaX Futures</span>
+            </a>
+            <nav class="topnav" aria-label="主导航">
+                <a href="trading-test.html" data-route="/trade">交易终端</a>
+                <a class="active" href="btc-dashboard.html" data-route="/btc-dashboard">BTC周期看板</a>
+                <a href="training.html" data-route="/training">模拟训练</a>
+                <a href="skills.html" data-route="/skills">策略工坊</a>
+                <a href="ai-console.html" data-route="/ai-console">AI决策台</a>
+                <a href="replay-lab.html" data-route="/replay-lab">复盘实验室</a>
+                <a href="arena-live.html" data-route="/arena/live">AI竞技场</a>
+                <a href="skillboard.html" data-route="/skillboard">Skill榜</a>
+                <a href="my-growth.html" data-route="/my-growth">我的成长</a>
+            </nav>
+            <div class="header-right">
+                <div class="status-strip">
+                    <span id="apiStatus" class="user-pill">接口状态: 初始化中</span>
+                    <span id="lastUpdate" class="user-pill">最近更新: --</span>
+                    <div class="utility-nav">
+                        <a class="utility-link" href="rules.html">规则</a>
+                        <a class="utility-link" href="developers.html">开发者</a>
+                        <a id="profileCenterEntry" class="profile-entry" href="profile-center.html">个人中心</a>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </header>
+
+    <main class="container">
+        <section class="grid-5">
+            <article class="card">
+                <div class="metric-label">BTC 价格</div>
+                <div class="metric-value price" id="btcPrice">--</div>
+                <div class="metric-sub" id="btcChange">24h --</div>
+            </article>
+            <article class="card">
+                <div class="metric-label">网络哈希率</div>
+                <div class="metric-value" id="hashrate">-- EH/s</div>
+                <div class="metric-sub" id="difficulty">难度 --</div>
+            </article>
+            <article class="card">
+                <div class="metric-label">关机价区间</div>
+                <div class="metric-value" id="shutdownRange">-- ~ --</div>
+                <div class="metric-sub">按当前电费与难度估算</div>
+            </article>
+            <article class="card">
+                <div class="metric-label">盈利矿机</div>
+                <div class="metric-value" id="profitCount">-- / --</div>
+                <div class="metric-sub">当前 BTC 价格对比关机价</div>
+            </article>
+            <article class="card">
+                <div class="metric-label">AHR999 指数</div>
+                <div class="metric-value" id="ahr999">--</div>
+                <div class="metric-sub" id="ahr999Hint">--</div>
+            </article>
+        </section>
+
+        <section class="grid-4">
+            <article class="card">
+                <div class="metric-label">200 周均线 (200WMA)</div>
+                <div class="metric-value" id="wma200">--</div>
+                <div class="metric-sub double-line">
+                    价格 / 200WMA: <span id="wmaRatio">--</span><br>
+                    <span id="wmaHint">--</span>
+                </div>
+            </article>
+            <article class="card">
+                <div class="metric-label">Balanced Price</div>
+                <div class="metric-value" id="balancedPrice">--</div>
+                <div class="metric-sub double-line">
+                    价格 / BP: <span id="balancedRatio">--</span><br>
+                    <span id="balancedHint">--</span>
+                </div>
+            </article>
+            <article class="card">
+                <div class="metric-label">MVRV Ratio</div>
+                <div class="metric-value" id="mvrv">--</div>
+                <div class="metric-sub" id="mvrvHint">--</div>
+            </article>
+            <article class="card">
+                <div class="metric-label">减半倒计时</div>
+                <div class="metric-value" id="halvingDays">-- 天</div>
+                <div class="metric-sub double-line">
+                    区块高度 <span id="halvingHeight">--</span><br>
+                    预计日期 <span id="halvingDate">--</span>
+                </div>
+            </article>
+        </section>
+
+        <section class="grid-3">
+            <article class="card">
+                <div class="metric-label">MSTR mNAV (EV)</div>
+                <div class="metric-value" id="mstrMnav">--</div>
+                <div class="metric-sub" id="mstrDetail">--</div>
+            </article>
+            <article class="card">
+                <div class="metric-label">SBET mNAV</div>
+                <div class="metric-value" id="sbetMnav">--</div>
+                <div class="metric-sub" id="sbetDetail">--</div>
+            </article>
+            <article class="card">
+                <div class="metric-label">BMNR mNAV</div>
+                <div class="metric-value" id="bmnrMnav">--</div>
+                <div class="metric-sub" id="bmnrDetail">--</div>
+            </article>
+        </section>
+
+        <section class="card gauge-card">
+            <div>
+                <div class="gauge-wrap">
+                    <div class="gauge-arc"></div>
+                    <div class="gauge-center"></div>
+                    <div class="gauge-needle" id="fngNeedle"></div>
+                    <div class="gauge-value" id="fngValue">--</div>
+                </div>
+                <div class="gauge-meta"><span>0</span><span>50</span><span>100</span></div>
+            </div>
+            <div>
+                <div class="metric-label">恐惧与贪婪指数</div>
+                <div class="metric-value" id="fngStatus">--</div>
+                <div class="metric-sub" id="fngDesc">加载中...</div>
+                <div class="control-row">
+                    <span>电费</span>
+                    <input id="electricity" type="range" min="0.02" max="0.15" step="0.005" value="0.06">
+                    <strong id="electricityText">$0.060 / kWh</strong>
+                </div>
+            </div>
+        </section>
+
+        <section class="card table-card">
+            <div class="table-title">矿机关机价明细</div>
+            <div class="table-wrap">
+                <table>
+                    <thead>
+                        <tr>
+                            <th>矿机型号</th>
+                            <th>算力</th>
+                            <th>功耗</th>
+                            <th>功耗比</th>
+                            <th>关机价</th>
+                            <th>状态</th>
+                        </tr>
+                    </thead>
+                    <tbody id="minerTableBody">
+                        <tr><td colspan="6" style="color:#8fa3c4">等待数据...</td></tr>
+                    </tbody>
+                </table>
+            </div>
+        </section>
+
+        <section class="footer">
+            数据接口与 <code>https://btc.x.fish/</code> 保持一致: Binance / OKX / CoinGecko / mempool.space / alternative.me / looknode-proxy
+        </section>
+    </main>
+
+    <script>
+        (() => {
+            'use strict';
+
+            const BLOCK_REWARD = 3.125;
+            const HALVING_TARGET = 1_050_000;
+
+            const API = {
+                binanceTicker: 'https://api.binance.com/api/v3/ticker/24hr?symbol=BTCUSDT',
+                okxTicker: 'https://www.okx.com/api/v5/market/ticker?instId=BTC-USDT',
+                coingeckoTicker: 'https://api.coingecko.com/api/v3/simple/price?ids=bitcoin&vs_currencies=usd&include_24hr_change=true',
+                blockchainTicker: 'https://blockchain.info/ticker',
+                mempoolHashrate: 'https://mempool.space/api/v1/mining/hashrate/3d',
+                mempoolHeight: 'https://mempool.space/api/blocks/tip/height',
+                fearGreed: 'https://api.alternative.me/fng/?limit=1',
+                mvrv: 'https://looknode-proxy.corms-cushier-0l.workers.dev/mCapRealizedRatio',
+                balancedPrice: 'https://looknode-proxy.corms-cushier-0l.workers.dev/balancedPrice',
+                mnav: 'https://looknode-proxy.corms-cushier-0l.workers.dev/mnav',
+                binanceWeeklyKline: 'https://api.binance.com/api/v3/klines?symbol=BTCUSDT&interval=1w&limit=200',
+                okxWeeklyKline: 'https://www.okx.com/api/v5/market/candles?instId=BTC-USDT&bar=1W&limit=200',
+                binanceDailyKline: 'https://api.binance.com/api/v3/klines?symbol=BTCUSDT&interval=1d&limit=200',
+                okxDailyKline: 'https://www.okx.com/api/v5/market/candles?instId=BTC-USDT&bar=1D&limit=200'
+            };
+
+            const MINERS = [
+                { model: 'Antminer U3S23 Hyd.', hashrate: 1160, power: 11020 },
+                { model: 'Antminer S23 Hyd.', hashrate: 380, power: 5428 },
+                { model: 'Whatsminer M73', hashrate: 512, power: 7424 },
+                { model: 'SEALMINER A2 Pro Hyd', hashrate: 500, power: 7450 },
+                { model: 'Whatsminer M70', hashrate: 310, power: 5270 },
+                { model: 'Antminer S21+ Hyd.', hashrate: 319, power: 4785 },
+                { model: 'Whatsminer M66S', hashrate: 298, power: 5067 },
+                { model: 'Antminer S21 Hyd.', hashrate: 335, power: 5360 },
+                { model: 'Antminer S21 Pro', hashrate: 234, power: 3510 },
+                { model: 'Antminer S21', hashrate: 200, power: 3500 },
+                { model: 'Whatsminer M63S', hashrate: 390, power: 7215 },
+                { model: 'Whatsminer M60S', hashrate: 186, power: 3422 },
+                { model: 'Antminer T21', hashrate: 190, power: 3610 },
+                { model: 'Whatsminer M56S++', hashrate: 230, power: 5290 },
+                { model: 'Antminer S19 XP Hyd.', hashrate: 255, power: 5304 },
+                { model: 'Antminer S19 XP', hashrate: 140, power: 3010 },
+                { model: 'Whatsminer M50S++', hashrate: 150, power: 3276 },
+                { model: 'Whatsminer M50S+', hashrate: 140, power: 3080 },
+                { model: 'Avalon A1466', hashrate: 150, power: 3350 },
+                { model: 'Whatsminer M50', hashrate: 118, power: 3276 },
+                { model: 'Antminer S19j Pro+', hashrate: 122, power: 3355 },
+                { model: 'Antminer S19 Pro', hashrate: 110, power: 3250 },
+                { model: 'Antminer S19j Pro', hashrate: 104, power: 3068 }
+            ].filter((miner) => (miner.power / miner.hashrate) <= 29.5);
+
+            const CACHE_PREFIX = 'novax_btc_dash_';
+
+            const ui = {
+                apiStatus: document.getElementById('apiStatus'),
+                lastUpdate: document.getElementById('lastUpdate'),
+                btcPrice: document.getElementById('btcPrice'),
+                btcChange: document.getElementById('btcChange'),
+                hashrate: document.getElementById('hashrate'),
+                difficulty: document.getElementById('difficulty'),
+                shutdownRange: document.getElementById('shutdownRange'),
+                profitCount: document.getElementById('profitCount'),
+                ahr999: document.getElementById('ahr999'),
+                ahr999Hint: document.getElementById('ahr999Hint'),
+                wma200: document.getElementById('wma200'),
+                wmaRatio: document.getElementById('wmaRatio'),
+                wmaHint: document.getElementById('wmaHint'),
+                balancedPrice: document.getElementById('balancedPrice'),
+                balancedRatio: document.getElementById('balancedRatio'),
+                balancedHint: document.getElementById('balancedHint'),
+                mvrv: document.getElementById('mvrv'),
+                mvrvHint: document.getElementById('mvrvHint'),
+                halvingDays: document.getElementById('halvingDays'),
+                halvingHeight: document.getElementById('halvingHeight'),
+                halvingDate: document.getElementById('halvingDate'),
+                fngNeedle: document.getElementById('fngNeedle'),
+                fngValue: document.getElementById('fngValue'),
+                fngStatus: document.getElementById('fngStatus'),
+                fngDesc: document.getElementById('fngDesc'),
+                electricity: document.getElementById('electricity'),
+                electricityText: document.getElementById('electricityText'),
+                minerTableBody: document.getElementById('minerTableBody'),
+                mstrMnav: document.getElementById('mstrMnav'),
+                mstrDetail: document.getElementById('mstrDetail'),
+                sbetMnav: document.getElementById('sbetMnav'),
+                sbetDetail: document.getElementById('sbetDetail'),
+                bmnrMnav: document.getElementById('bmnrMnav'),
+                bmnrDetail: document.getElementById('bmnrDetail')
+            };
+
+            const state = {
+                currentPrice: NaN,
+                currentDifficulty: NaN,
+                electricity: 0.06
+            };
+
+            function formatMoney(value, digits = 0) {
+                const num = Number(value);
+                if (!Number.isFinite(num)) return '--';
+                return '$' + num.toLocaleString('en-US', { maximumFractionDigits: digits, minimumFractionDigits: digits });
+            }
+
+            function formatCompact(value) {
+                const num = Number(value);
+                if (!Number.isFinite(num)) return '--';
+                if (Math.abs(num) >= 1e12) return (num / 1e12).toFixed(2) + 'T';
+                if (Math.abs(num) >= 1e9) return (num / 1e9).toFixed(2) + 'B';
+                if (Math.abs(num) >= 1e6) return (num / 1e6).toFixed(2) + 'M';
+                return num.toLocaleString('en-US');
+            }
+
+            function setStatus(text, type = 'ok') {
+                ui.apiStatus.textContent = `接口状态: ${text}`;
+                if (type === 'ok') {
+                    ui.apiStatus.style.color = '#9be9be';
+                    ui.apiStatus.style.borderColor = 'rgba(28, 203, 146, 0.48)';
+                    ui.apiStatus.style.background = 'rgba(16, 65, 54, 0.44)';
+                } else if (type === 'warn') {
+                    ui.apiStatus.style.color = '#f6d290';
+                    ui.apiStatus.style.borderColor = 'rgba(246, 163, 59, 0.4)';
+                    ui.apiStatus.style.background = 'rgba(68, 44, 18, 0.36)';
+                } else {
+                    ui.apiStatus.style.color = '#ffb3bd';
+                    ui.apiStatus.style.borderColor = 'rgba(255, 122, 122, 0.34)';
+                    ui.apiStatus.style.background = 'rgba(84, 24, 24, 0.36)';
+                }
+            }
+
+            function touchUpdateTime() {
+                const time = new Date().toLocaleTimeString('zh-CN', { hour12: false });
+                ui.lastUpdate.textContent = `最近更新: ${time}`;
+            }
+
+            function cacheSet(key, value) {
+                try {
+                    localStorage.setItem(CACHE_PREFIX + key, JSON.stringify({ t: Date.now(), v: value }));
+                } catch (_) {
+                }
+            }
+
+            function cacheGet(key, maxAgeMs) {
+                try {
+                    const raw = localStorage.getItem(CACHE_PREFIX + key);
+                    if (!raw) return null;
+                    const parsed = JSON.parse(raw);
+                    if (!parsed || typeof parsed !== 'object') return null;
+                    if ((Date.now() - Number(parsed.t || 0)) > maxAgeMs) return null;
+                    return parsed.v;
+                } catch (_) {
+                    return null;
+                }
+            }
+
+            function fetchTimeout(url, timeoutMs = 8000) {
+                const controller = new AbortController();
+                const timer = setTimeout(() => controller.abort('timeout'), timeoutMs);
+                return fetch(url, { signal: controller.signal })
+                    .finally(() => clearTimeout(timer));
+            }
+
+            async function fetchPrice() {
+                try {
+                    const response = await fetchTimeout(API.binanceTicker, 5000);
+                    const payload = await response.json();
+                    return {
+                        price: Number(payload.lastPrice),
+                        change: Number(payload.priceChangePercent)
+                    };
+                } catch (_) {
+                }
+
+                try {
+                    const response = await fetchTimeout(API.okxTicker, 5000);
+                    const payload = await response.json();
+                    const item = payload?.data?.[0];
+                    const last = Number(item?.last);
+                    const open24 = Number(item?.open24h);
+                    const change = open24 > 0 ? ((last - open24) / open24) * 100 : NaN;
+                    return { price: last, change };
+                } catch (_) {
+                }
+
+                try {
+                    const response = await fetchTimeout(API.coingeckoTicker, 5000);
+                    const payload = await response.json();
+                    return {
+                        price: Number(payload?.bitcoin?.usd),
+                        change: Number(payload?.bitcoin?.usd_24h_change)
+                    };
+                } catch (_) {
+                }
+
+                try {
+                    const response = await fetchTimeout(API.blockchainTicker, 5000);
+                    const payload = await response.json();
+                    return {
+                        price: Number(payload?.USD?.last),
+                        change: NaN
+                    };
+                } catch (_) {
+                    return null;
+                }
+            }
+
+            async function refreshMarketBase() {
+                try {
+                    const [priceResult, hashResult] = await Promise.allSettled([
+                        fetchPrice(),
+                        fetchTimeout(API.mempoolHashrate, 8000).then((response) => response.json())
+                    ]);
+
+                    let changed = false;
+
+                    if (priceResult.status === 'fulfilled' && priceResult.value && Number.isFinite(priceResult.value.price)) {
+                        state.currentPrice = priceResult.value.price;
+                        ui.btcPrice.textContent = formatMoney(state.currentPrice, 0);
+                        const change = Number(priceResult.value.change);
+                        if (Number.isFinite(change)) {
+                            const arrow = change >= 0 ? '↑' : '↓';
+                            const color = change >= 0 ? '#7ee0a7' : '#ff9aa6';
+                            ui.btcChange.innerHTML = `24h <span style="color:${color}">${arrow}${Math.abs(change).toFixed(2)}%</span>`;
+                        } else {
+                            ui.btcChange.textContent = '24h --';
+                        }
+                        cacheSet('price', priceResult.value);
+                        changed = true;
+                    }
+
+                    if (hashResult.status === 'fulfilled' && hashResult.value) {
+                        const hashrate = Number(hashResult.value.currentHashrate);
+                        const difficulty = Number(hashResult.value.currentDifficulty);
+                        if (Number.isFinite(hashrate) && Number.isFinite(difficulty)) {
+                            state.currentDifficulty = difficulty;
+                            ui.hashrate.textContent = (hashrate / 1e18).toFixed(1) + ' EH/s';
+                            ui.difficulty.textContent = '难度 ' + formatCompact(difficulty);
+                            cacheSet('hash', { hashrate, difficulty });
+                            changed = true;
+                        }
+                    }
+
+                    if (changed) {
+                        updateMiningPanel();
+                        setStatus('在线', 'ok');
+                        touchUpdateTime();
+                    } else {
+                        setStatus('部分接口失败', 'warn');
+                    }
+                } catch (_) {
+                    setStatus('接口异常', 'error');
+                }
+            }
+
+            function calcShutdownPrice(hashrateTh, powerW, difficulty, electricityUsd) {
+                const btcPerDay = (86400 * hashrateTh * 1e12 * BLOCK_REWARD) / (difficulty * Math.pow(2, 32));
+                const costPerDay = (powerW * 24 / 1000) * electricityUsd;
+                return costPerDay / btcPerDay;
+            }
+
+            function percentile(values, p) {
+                if (!values.length) return NaN;
+                const sorted = [...values].sort((a, b) => a - b);
+                const index = (p / 100) * (sorted.length - 1);
+                const lo = Math.floor(index);
+                const hi = Math.ceil(index);
+                if (lo === hi) return sorted[lo];
+                return sorted[lo] + (sorted[hi] - sorted[lo]) * (index - lo);
+            }
+
+            function updateMiningPanel() {
+                if (!Number.isFinite(state.currentPrice) || !Number.isFinite(state.currentDifficulty)) {
+                    return;
+                }
+
+                const rows = MINERS.map((miner) => {
+                    const shutdown = calcShutdownPrice(miner.hashrate, miner.power, state.currentDifficulty, state.electricity);
+                    const profitable = state.currentPrice > shutdown;
+                    return {
+                        ...miner,
+                        shutdown,
+                        efficient: (miner.power / miner.hashrate).toFixed(1),
+                        profitable
+                    };
+                }).sort((a, b) => a.shutdown - b.shutdown);
+
+                const shutdownList = rows.map((item) => item.shutdown);
+                const minShutdown = Math.min(...shutdownList);
+                const maxShutdown = Math.max(...shutdownList);
+                const profitableCount = rows.filter((item) => item.profitable).length;
+
+                ui.shutdownRange.textContent = `${formatMoney(minShutdown, 0)} ~ ${formatMoney(maxShutdown, 0)}`;
+                ui.profitCount.textContent = `${profitableCount} / ${rows.length}`;
+
+                const p50 = percentile(shutdownList, 50);
+                ui.shutdownRange.title = `P25 ${formatMoney(percentile(shutdownList, 25), 0)} | P50 ${formatMoney(p50, 0)} | P75 ${formatMoney(percentile(shutdownList, 75), 0)} | P90 ${formatMoney(percentile(shutdownList, 90), 0)}`;
+
+                ui.minerTableBody.innerHTML = rows.map((item) => {
+                    const badgeClass = item.profitable ? 'green' : 'red';
+                    const badgeText = item.profitable ? '盈利' : '亏损';
+                    return `
+                        <tr>
+                            <td class="model">${escapeHtml(item.model)}</td>
+                            <td>${item.hashrate} TH/s</td>
+                            <td>${item.power} W</td>
+                            <td>${item.efficient} W/TH</td>
+                            <td>${formatMoney(item.shutdown, 0)}</td>
+                            <td><span class="badge ${badgeClass}">${badgeText}</span></td>
+                        </tr>
+                    `;
+                }).join('');
+            }
+
+            function applyFng(value) {
+                if (!Number.isFinite(value)) return;
+                const angle = (value / 100) * 180 - 90;
+                ui.fngNeedle.style.transform = `rotate(${angle}deg)`;
+                ui.fngValue.textContent = String(value);
+
+                let label = '中性';
+                let desc = '市场情绪中性';
+                let color = '#f0d060';
+
+                if (value <= 20) {
+                    label = '极度恐惧';
+                    desc = '市场极度恐慌，可能接近价值区。';
+                    color = '#ff8a98';
+                } else if (value <= 40) {
+                    label = '恐惧';
+                    desc = '风险偏好偏弱，资金更谨慎。';
+                    color = '#f6a33b';
+                } else if (value <= 60) {
+                    label = '中性';
+                    desc = '情绪与估值处于均衡状态。';
+                    color = '#f0d060';
+                } else if (value <= 80) {
+                    label = '贪婪';
+                    desc = '追涨情绪上升，注意回撤风险。';
+                    color = '#5cdb86';
+                } else {
+                    label = '极度贪婪';
+                    desc = '市场过热，优先考虑仓位管理。';
+                    color = '#33cb72';
+                }
+
+                ui.fngStatus.textContent = label;
+                ui.fngStatus.style.color = color;
+                ui.fngValue.style.color = color;
+                ui.fngDesc.textContent = desc;
+            }
+
+            async function refreshFearGreed() {
+                try {
+                    const response = await fetchTimeout(API.fearGreed, 8000);
+                    const payload = await response.json();
+                    const value = Number(payload?.data?.[0]?.value);
+                    applyFng(value);
+                    cacheSet('fng', value);
+                    touchUpdateTime();
+                } catch (_) {
+                    setStatus('恐惧贪婪接口失败', 'warn');
+                }
+            }
+
+            function applyWma200(wma200) {
+                if (!Number.isFinite(wma200)) return;
+                ui.wma200.textContent = formatMoney(wma200, 0);
+                if (!Number.isFinite(state.currentPrice)) return;
+
+                const ratio = state.currentPrice / wma200;
+                ui.wmaRatio.textContent = ratio.toFixed(2) + 'x';
+                if (ratio < 1) {
+                    ui.wmaRatio.style.color = '#ff9aa6';
+                    ui.wmaHint.textContent = '低于 200WMA，历史极端区。';
+                } else if (ratio < 1.5) {
+                    ui.wmaRatio.style.color = '#85e0aa';
+                    ui.wmaHint.textContent = '接近 200WMA，偏底部区。';
+                } else if (ratio < 3) {
+                    ui.wmaRatio.style.color = '#f0d060';
+                    ui.wmaHint.textContent = '正常周期范围。';
+                } else {
+                    ui.wmaRatio.style.color = '#ff9aa6';
+                    ui.wmaHint.textContent = '显著高于 200WMA，注意过热。';
+                }
+            }
+
+            async function refreshWma200() {
+                try {
+                    let closes = [];
+                    try {
+                        const response = await fetchTimeout(API.binanceWeeklyKline, 8000);
+                        const payload = await response.json();
+                        closes = payload.map((kline) => Number(kline[4]));
+                    } catch (_) {
+                        const response = await fetchTimeout(API.okxWeeklyKline, 8000);
+                        const payload = await response.json();
+                        closes = payload?.data?.map((kline) => Number(kline[4])).reverse() || [];
+                    }
+
+                    if (!closes.length) return;
+                    const wma200 = closes.reduce((sum, value) => sum + value, 0) / closes.length;
+                    applyWma200(wma200);
+                    cacheSet('wma200', wma200);
+                    touchUpdateTime();
+                } catch (_) {
+                    setStatus('200WMA 接口失败', 'warn');
+                }
+            }
+
+            function applyBalancedPrice(value) {
+                if (!Number.isFinite(value)) return;
+                ui.balancedPrice.textContent = formatMoney(value, 0);
+                if (!Number.isFinite(state.currentPrice)) return;
+
+                const ratio = state.currentPrice / value;
+                ui.balancedRatio.textContent = ratio.toFixed(2) + 'x';
+                if (ratio < 1) {
+                    ui.balancedRatio.style.color = '#ff9aa6';
+                    ui.balancedHint.textContent = '低于 BP，历史低估区。';
+                } else if (ratio < 1.5) {
+                    ui.balancedRatio.style.color = '#85e0aa';
+                    ui.balancedHint.textContent = '接近 BP，偏价值区。';
+                } else if (ratio < 3) {
+                    ui.balancedRatio.style.color = '#f0d060';
+                    ui.balancedHint.textContent = '周期中性。';
+                } else {
+                    ui.balancedRatio.style.color = '#ff9aa6';
+                    ui.balancedHint.textContent = '远高于 BP，估值偏热。';
+                }
+            }
+
+            async function refreshBalancedPrice() {
+                try {
+                    const response = await fetchTimeout(API.balancedPrice, 10000);
+                    const payload = await response.json();
+                    const list = payload?.data;
+                    if (!Array.isArray(list) || !list.length) return;
+                    const value = Number(list[list.length - 1].v);
+                    applyBalancedPrice(value);
+                    cacheSet('bp', value);
+                    touchUpdateTime();
+                } catch (_) {
+                    setStatus('Balanced Price 接口失败', 'warn');
+                }
+            }
+
+            function applyMvrv(value) {
+                if (!Number.isFinite(value)) return;
+                ui.mvrv.textContent = value.toFixed(2);
+
+                if (value < 1) {
+                    ui.mvrv.style.color = '#86e2aa';
+                    ui.mvrvHint.textContent = 'MVRV < 1，历史低估区。';
+                } else if (value < 2) {
+                    ui.mvrv.style.color = '#86e2aa';
+                    ui.mvrvHint.textContent = '正常偏低，定投友好。';
+                } else if (value < 3.5) {
+                    ui.mvrv.style.color = '#f0d060';
+                    ui.mvrvHint.textContent = '正常偏高，风险上升。';
+                } else {
+                    ui.mvrv.style.color = '#ff9aa6';
+                    ui.mvrvHint.textContent = '高位过热区，谨慎追涨。';
+                }
+            }
+
+            async function refreshMvrv() {
+                try {
+                    const response = await fetchTimeout(API.mvrv, 10000);
+                    const payload = await response.json();
+                    const list = payload?.data;
+                    if (!Array.isArray(list) || !list.length) return;
+                    const value = Number(list[list.length - 1].v);
+                    applyMvrv(value);
+                    cacheSet('mvrv', value);
+                    touchUpdateTime();
+                } catch (_) {
+                    setStatus('MVRV 接口失败', 'warn');
+                }
+            }
+
+            function applyHalving(data) {
+                if (!data) return;
+                ui.halvingDays.textContent = `${data.days} 天`;
+                ui.halvingHeight.textContent = Number(data.height).toLocaleString('en-US');
+                ui.halvingDate.textContent = data.date;
+            }
+
+            async function refreshHalving() {
+                try {
+                    const response = await fetchTimeout(API.mempoolHeight, 8000);
+                    const height = Number(await response.json());
+                    if (!Number.isFinite(height)) return;
+
+                    const halvingInterval = 210000;
+                    const nextHalving = Math.ceil(height / halvingInterval) * halvingInterval;
+                    const remainBlocks = nextHalving - height;
+                    const days = Math.round((remainBlocks * 10) / (60 * 24));
+                    const estimate = new Date(Date.now() + days * 86400000);
+                    const date = `${estimate.getFullYear()}-${String(estimate.getMonth() + 1).padStart(2, '0')}-${String(estimate.getDate()).padStart(2, '0')}`;
+
+                    applyHalving({ days, height, date });
+                    cacheSet('halving', { days, height, date });
+                    touchUpdateTime();
+                } catch (_) {
+                    setStatus('减半接口失败', 'warn');
+                }
+            }
+
+            function applyAhr999(value) {
+                if (!Number.isFinite(value)) return;
+                ui.ahr999.textContent = value.toFixed(2);
+
+                if (value < 0.45) {
+                    ui.ahr999.style.color = '#86e2aa';
+                    ui.ahr999Hint.textContent = '抄底区间';
+                } else if (value < 1.2) {
+                    ui.ahr999.style.color = '#86e2aa';
+                    ui.ahr999Hint.textContent = '定投区间';
+                } else if (value < 5) {
+                    ui.ahr999.style.color = '#f0d060';
+                    ui.ahr999Hint.textContent = '观望区间';
+                } else {
+                    ui.ahr999.style.color = '#ff9aa6';
+                    ui.ahr999Hint.textContent = '泡沫区间';
+                }
+            }
+
+            async function refreshAhr999() {
+                if (!Number.isFinite(state.currentPrice) || state.currentPrice <= 0) return;
+
+                try {
+                    let closes = [];
+                    let lastTs = Date.now();
+
+                    try {
+                        const response = await fetchTimeout(API.binanceDailyKline, 8000);
+                        const payload = await response.json();
+                        closes = payload.map((kline) => Number(kline[4]));
+                        lastTs = Number(payload[payload.length - 1][0]);
+                    } catch (_) {
+                        const response = await fetchTimeout(API.okxDailyKline, 8000);
+                        const payload = await response.json();
+                        closes = payload?.data?.map((kline) => Number(kline[4])).reverse() || [];
+                        if (payload?.data?.length) {
+                            lastTs = Number(payload.data[0][0]);
+                        }
+                    }
+
+                    if (!closes.length) return;
+
+                    const dma200 = closes.reduce((sum, value) => sum + value, 0) / closes.length;
+                    const genesisTs = new Date('2009-01-03').getTime();
+                    const coinDays = Math.floor((lastTs - genesisTs) / 86400000);
+                    const expPrice = Math.pow(10, 5.84 * Math.log10(coinDays) - 17.01);
+                    const ahr = (state.currentPrice / dma200) * (state.currentPrice / expPrice);
+
+                    applyAhr999(ahr);
+                    cacheSet('ahr999', ahr);
+                    touchUpdateTime();
+                } catch (_) {
+                    setStatus('AHR999 接口失败', 'warn');
+                }
+            }
+
+            function applyMnavText(el, value) {
+                if (!Number.isFinite(value)) {
+                    el.textContent = '--';
+                    el.style.color = '#e5edf9';
+                    return;
+                }
+
+                el.textContent = value.toFixed(2) + 'x';
+                if (value < 1) {
+                    el.style.color = '#86e2aa';
+                } else if (value < 2) {
+                    el.style.color = '#f0d060';
+                } else {
+                    el.style.color = '#ff9aa6';
+                }
+            }
+
+            async function refreshMnav() {
+                try {
+                    if (!Number.isFinite(state.currentPrice) || state.currentPrice <= 0) {
+                        const cachePrice = cacheGet('price', 86400000);
+                        if (cachePrice && Number.isFinite(cachePrice.price)) {
+                            state.currentPrice = Number(cachePrice.price);
+                        }
+                    }
+
+                    const response = await fetchTimeout(API.mnav, 15000);
+                    const payload = await response.json();
+                    if (!payload || payload.error) return;
+
+                    const btcPrice = Number.isFinite(state.currentPrice) ? state.currentPrice : 65000;
+                    const ethPrice = Number(payload.eth_price);
+
+                    const mstr = payload.mstr;
+                    if (mstr && Number.isFinite(Number(mstr.btc_holdings)) && Number.isFinite(Number(mstr.stock_price))) {
+                        const btcValue = Number(mstr.btc_holdings) * btcPrice;
+                        const mCap = Number(mstr.stock_price) * Number(mstr.shares);
+                        const evMnav = (mCap + Number(mstr.debt) + Number(mstr.pref)) / (btcValue + Number(mstr.cash));
+                        applyMnavText(ui.mstrMnav, evMnav);
+                        ui.mstrDetail.textContent = `BTC ${Number(mstr.btc_holdings).toLocaleString('en-US')} | $${mstr.stock_price}`;
+                    }
+
+                    const sbet = payload.sbet;
+                    if (sbet && Number.isFinite(Number(sbet.eth_holdings)) && Number.isFinite(Number(sbet.market_cap)) && ethPrice > 0) {
+                        const nav = Number(sbet.eth_holdings) * ethPrice;
+                        const mnav = Number(sbet.market_cap) / nav;
+                        applyMnavText(ui.sbetMnav, mnav);
+                        ui.sbetDetail.textContent = `ETH ${Number(sbet.eth_holdings).toLocaleString('en-US')} | $${sbet.stock_price || '--'}`;
+                    } else if (sbet && Number.isFinite(Number(sbet.fd_mnav))) {
+                        applyMnavText(ui.sbetMnav, Number(sbet.fd_mnav));
+                        ui.sbetDetail.textContent = `ETH ${Number(sbet.eth_holdings || 0).toLocaleString('en-US')} | FD mNAV`;
+                    }
+
+                    const bmnr = payload.bmnr;
+                    if (bmnr && Number.isFinite(Number(bmnr.eth_holdings)) && Number.isFinite(Number(bmnr.stock_price)) && ethPrice > 0) {
+                        const nav = Number(bmnr.eth_holdings) * ethPrice;
+                        const mCap = Number(bmnr.stock_price) * Number(bmnr.shares);
+                        const mnav = mCap / nav;
+                        applyMnavText(ui.bmnrMnav, mnav);
+                        ui.bmnrDetail.textContent = `ETH ${Number(bmnr.eth_holdings).toLocaleString('en-US')} | $${bmnr.stock_price}`;
+                    }
+
+                    cacheSet('mnav', payload);
+                    touchUpdateTime();
+                } catch (_) {
+                    setStatus('mNAV 接口失败', 'warn');
+                }
+            }
+
+            function restoreFromCache() {
+                const cachePrice = cacheGet('price', 86400000);
+                if (cachePrice && Number.isFinite(cachePrice.price)) {
+                    state.currentPrice = Number(cachePrice.price);
+                    ui.btcPrice.textContent = formatMoney(state.currentPrice, 0);
+                    const change = Number(cachePrice.change);
+                    if (Number.isFinite(change)) {
+                        const arrow = change >= 0 ? '↑' : '↓';
+                        const color = change >= 0 ? '#7ee0a7' : '#ff9aa6';
+                        ui.btcChange.innerHTML = `24h <span style="color:${color}">${arrow}${Math.abs(change).toFixed(2)}%</span>`;
+                    }
+                }
+
+                const cacheHash = cacheGet('hash', 86400000);
+                if (cacheHash && Number.isFinite(cacheHash.difficulty)) {
+                    state.currentDifficulty = Number(cacheHash.difficulty);
+                    ui.hashrate.textContent = (Number(cacheHash.hashrate) / 1e18).toFixed(1) + ' EH/s';
+                    ui.difficulty.textContent = '难度 ' + formatCompact(cacheHash.difficulty);
+                }
+
+                const cacheFng = cacheGet('fng', 7200000);
+                if (Number.isFinite(cacheFng)) applyFng(Number(cacheFng));
+
+                const cacheWma = cacheGet('wma200', 86400000);
+                if (Number.isFinite(cacheWma)) applyWma200(Number(cacheWma));
+
+                const cacheBp = cacheGet('bp', 86400000);
+                if (Number.isFinite(cacheBp)) applyBalancedPrice(Number(cacheBp));
+
+                const cacheMvrv = cacheGet('mvrv', 86400000);
+                if (Number.isFinite(cacheMvrv)) applyMvrv(Number(cacheMvrv));
+
+                const cacheHalving = cacheGet('halving', 86400000);
+                if (cacheHalving) applyHalving(cacheHalving);
+
+                const cacheAhr = cacheGet('ahr999', 86400000);
+                if (Number.isFinite(cacheAhr)) applyAhr999(Number(cacheAhr));
+
+                if (Number.isFinite(state.currentPrice) && Number.isFinite(state.currentDifficulty)) {
+                    updateMiningPanel();
+                }
+            }
+
+            function bindEvents() {
+                ui.electricity.addEventListener('input', () => {
+                    const value = Number(ui.electricity.value);
+                    state.electricity = Number.isFinite(value) ? value : 0.06;
+                    ui.electricityText.textContent = '$' + state.electricity.toFixed(3) + ' / kWh';
+                    if (Number.isFinite(state.currentPrice) && Number.isFinite(state.currentDifficulty)) {
+                        updateMiningPanel();
+                    }
+                });
+            }
+
+            function escapeHtml(text) {
+                return String(text)
+                    .replaceAll('&', '&amp;')
+                    .replaceAll('<', '&lt;')
+                    .replaceAll('>', '&gt;')
+                    .replaceAll('"', '&quot;')
+                    .replaceAll("'", '&#39;');
+            }
+
+            async function init() {
+                restoreFromCache();
+                bindEvents();
+
+                setStatus('加载中', 'warn');
+                await refreshMarketBase();
+                await Promise.allSettled([
+                    refreshFearGreed(),
+                    refreshWma200(),
+                    refreshBalancedPrice(),
+                    refreshMvrv(),
+                    refreshHalving(),
+                    refreshAhr999(),
+                    refreshMnav()
+                ]);
+
+                setInterval(refreshMarketBase, 15000);
+                setInterval(refreshFearGreed, 600000);
+                setInterval(refreshAhr999, 300000);
+                setInterval(refreshWma200, 300000);
+                setInterval(refreshHalving, 600000);
+                setInterval(refreshBalancedPrice, 3600000);
+                setInterval(refreshMvrv, 3600000);
+                setInterval(refreshMnav, 3600000);
+            }
+
+            init();
+        })();
+    </script>
+</body>
+</html>

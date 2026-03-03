@@ -1,0 +1,624 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>NovaX · 我的成长</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&family=Noto+Sans+SC:wght@400;500;700&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --bg-main: #05070c;
+            --bg-card: rgba(11, 16, 28, 0.82);
+            --line-soft: rgba(160, 188, 226, 0.24);
+            --text-main: #f2f7ff;
+            --text-sub: #8fa5c6;
+            --text-dim: #6f85a8;
+            --accent: #00c2ff;
+            --accent-2: #00e0b6;
+            --buy: #1ccb92;
+            --sell: #ff6e6e;
+            --warning: #ffb347;
+            --max-width: 1400px;
+            --mono: "IBM Plex Mono", Consolas, monospace;
+        }
+
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+
+        body {
+            min-height: 100vh;
+            color: var(--text-main);
+            font-family: "Noto Sans SC", "Space Grotesk", sans-serif;
+            background:
+                radial-gradient(800px 520px at -10% -15%, rgba(0, 194, 255, 0.16), transparent 70%),
+                radial-gradient(900px 480px at 110% 20%, rgba(0, 224, 182, 0.14), transparent 74%),
+                radial-gradient(1200px 700px at 50% 120%, rgba(80, 123, 255, 0.12), transparent 78%),
+                linear-gradient(150deg, #04060b 0%, #080b14 50%, #05070c 100%);
+            overflow-x: hidden;
+        }
+
+        a { color: inherit; text-decoration: none; }
+
+        .ambient-strip {
+            position: fixed;
+            inset: 0;
+            pointer-events: none;
+            z-index: -1;
+        }
+
+        .ambient-strip::before,
+        .ambient-strip::after {
+            content: "";
+            position: absolute;
+            width: 45vw;
+            height: 45vw;
+            filter: blur(110px);
+            opacity: 0.34;
+        }
+
+        .ambient-strip::before {
+            top: -16vw;
+            left: -8vw;
+            background: radial-gradient(circle, rgba(0, 188, 255, 0.38) 0%, transparent 72%);
+        }
+
+        .ambient-strip::after {
+            right: -12vw;
+            bottom: -24vw;
+            background: radial-gradient(circle, rgba(0, 224, 182, 0.34) 0%, transparent 72%);
+        }
+
+        .announcement {
+            width: min(var(--max-width), calc(100vw - 28px));
+            margin: 16px auto 10px;
+            padding: 12px 18px;
+            border: 1px solid rgba(0, 194, 255, 0.38);
+            border-radius: 999px;
+            background: linear-gradient(90deg, rgba(0, 194, 255, 0.12), rgba(0, 224, 182, 0.08));
+            color: #def7ff;
+            font-size: 15px;
+            line-height: 1.42;
+            display: flex;
+            justify-content: space-between;
+            gap: 10px;
+        }
+
+        .announcement .cta { color: #00e0b6; font-weight: 700; white-space: nowrap; }
+
+        .header,
+        .layout {
+            width: min(var(--max-width), calc(100vw - 28px));
+            margin: 0 auto;
+        }
+
+        .header { display: grid; gap: 10px; }
+
+        .topbar {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 18px;
+            padding: 10px 2px 2px;
+        }
+
+        .brand {
+            display: inline-flex;
+            align-items: center;
+            gap: 10px;
+            font-family: "Space Grotesk", sans-serif;
+            font-weight: 700;
+            letter-spacing: 0.2px;
+            white-space: nowrap;
+        }
+
+        .brand-mark {
+            width: 30px;
+            height: 30px;
+            border-radius: 10px;
+            background: linear-gradient(135deg, #00c2ff, #00e0b6);
+            color: #03141b;
+            font-family: "Space Grotesk", sans-serif;
+            font-weight: 700;
+            display: grid;
+            place-items: center;
+            font-size: 14px;
+        }
+
+        .topnav {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            flex-wrap: wrap;
+            color: var(--text-sub);
+            font-size: 12px;
+        }
+
+        .topnav a:hover { color: #d5e6ff; }
+        .topnav a.active { color: #d7ecff; font-weight: 600; }
+
+        .status-chip {
+            border: 1px solid var(--line-soft);
+            border-radius: 999px;
+            padding: 8px 12px;
+            font-size: 12px;
+            color: var(--text-sub);
+            background: rgba(8, 14, 27, 0.9);
+            white-space: nowrap;
+        }
+
+        .status-chip strong { color: #e8f2ff; margin-left: 6px; }
+
+        .hero {
+            border: 1px solid var(--line-soft);
+            border-radius: 16px;
+            background:
+                radial-gradient(460px 220px at 80% 40%, rgba(0, 224, 182, 0.08), transparent 78%),
+                linear-gradient(160deg, rgba(8, 15, 28, 0.94), rgba(6, 11, 20, 0.98));
+            padding: 16px 18px;
+            display: grid;
+            grid-template-columns: 1.2fr 1fr;
+            gap: 16px;
+            align-items: end;
+        }
+
+        .hero h1 {
+            font-family: "Space Grotesk", sans-serif;
+            font-size: clamp(26px, 3.8vw, 36px);
+            line-height: 1.1;
+            margin-bottom: 8px;
+        }
+
+        .hero h1 span {
+            background: linear-gradient(120deg, #00c2ff, #00e0b6 72%);
+            -webkit-background-clip: text;
+            background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+
+        .hero p { color: var(--text-sub); font-size: 14px; line-height: 1.7; }
+
+        .hero-card {
+            border: 1px solid rgba(112, 143, 193, 0.3);
+            border-radius: 12px;
+            padding: 10px;
+            background: rgba(10, 18, 30, 0.88);
+            display: grid;
+            gap: 8px;
+        }
+
+        .hero-card .k { color: var(--text-sub); font-size: 11px; }
+        .hero-card .v { font-family: var(--mono); font-size: 20px; color: #dff0ff; }
+
+        .layout {
+            margin-top: 12px;
+            margin-bottom: 28px;
+            display: grid;
+            gap: 12px;
+        }
+
+        .kpi-grid {
+            display: grid;
+            grid-template-columns: repeat(4, minmax(0, 1fr));
+            gap: 12px;
+        }
+
+        .kpi-card {
+            border: 1px solid var(--line-soft);
+            border-radius: 14px;
+            background: linear-gradient(160deg, rgba(9, 15, 27, 0.94), rgba(8, 13, 23, 0.96));
+            padding: 14px;
+        }
+
+        .kpi-card .label { color: var(--text-sub); font-size: 11px; margin-bottom: 8px; }
+        .kpi-card .value { font-family: var(--mono); font-size: 22px; }
+        .kpi-card .sub { color: var(--text-dim); margin-top: 6px; font-size: 12px; }
+
+        .main-grid {
+            display: grid;
+            grid-template-columns: minmax(0, 1fr) 360px;
+            gap: 12px;
+            align-items: start;
+        }
+
+        .panel {
+            border: 1px solid var(--line-soft);
+            border-radius: 14px;
+            background: var(--bg-card);
+            overflow: hidden;
+        }
+
+        .panel-head {
+            padding: 12px 14px;
+            border-bottom: 1px solid rgba(105, 133, 181, 0.2);
+            background: rgba(9, 16, 27, 0.94);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .panel-title { font-size: 13px; font-weight: 600; }
+        .panel-body { padding: 14px; display: grid; gap: 12px; }
+
+        .ability-grid {
+            display: grid;
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+            gap: 10px;
+        }
+
+        .ability-card {
+            border: 1px solid rgba(103, 133, 182, 0.3);
+            border-radius: 10px;
+            padding: 10px;
+            background: rgba(10, 19, 31, 0.76);
+            display: grid;
+            gap: 8px;
+        }
+
+        .ability-card h4 {
+            font-size: 12px;
+            color: #d6e8ff;
+            display: flex;
+            justify-content: space-between;
+        }
+
+        .track {
+            height: 8px;
+            border-radius: 999px;
+            background: rgba(94, 124, 175, 0.26);
+            overflow: hidden;
+        }
+
+        .fill {
+            height: 100%;
+            border-radius: 999px;
+            background: linear-gradient(120deg, rgba(0, 194, 255, 0.8), rgba(0, 224, 182, 0.84));
+        }
+
+        .timeline {
+            display: grid;
+            gap: 10px;
+        }
+
+        .timeline-item {
+            border: 1px solid rgba(103, 133, 182, 0.3);
+            border-radius: 10px;
+            padding: 10px;
+            background: rgba(10, 19, 31, 0.76);
+            display: grid;
+            grid-template-columns: 90px minmax(0, 1fr);
+            gap: 10px;
+        }
+
+        .time {
+            color: var(--text-sub);
+            font-size: 12px;
+            font-family: var(--mono);
+        }
+
+        .event {
+            color: #d7e8ff;
+            font-size: 13px;
+            line-height: 1.5;
+        }
+
+        .tag {
+            width: fit-content;
+            border-radius: 999px;
+            border: 1px solid rgba(102, 133, 182, 0.34);
+            padding: 2px 8px;
+            font-size: 11px;
+            color: #bfd5f3;
+            margin-top: 5px;
+        }
+
+        .plan-list {
+            display: grid;
+            gap: 8px;
+        }
+
+        .plan-item {
+            border: 1px solid rgba(103, 133, 182, 0.3);
+            border-radius: 10px;
+            padding: 10px;
+            background: rgba(10, 19, 31, 0.76);
+            display: grid;
+            gap: 6px;
+        }
+
+        .plan-title {
+            font-size: 13px;
+            color: #e3f0ff;
+        }
+
+        .plan-meta {
+            display: flex;
+            justify-content: space-between;
+            color: var(--text-sub);
+            font-size: 12px;
+        }
+
+        .plan-meta strong {
+            font-family: var(--mono);
+            color: #dff1ff;
+        }
+
+        .period-tabs {
+            display: flex;
+            gap: 8px;
+            flex-wrap: wrap;
+        }
+
+        .period-btn {
+            border: 1px solid rgba(102, 133, 182, 0.38);
+            border-radius: 999px;
+            background: rgba(11, 21, 36, 0.82);
+            color: #cce1ff;
+            font-size: 12px;
+            padding: 7px 11px;
+            cursor: pointer;
+        }
+
+        .period-btn.active {
+            background: linear-gradient(130deg, rgba(0, 194, 255, 0.24), rgba(0, 224, 182, 0.24));
+            border-color: rgba(0, 224, 182, 0.48);
+            color: #f0fffe;
+        }
+
+        @media (max-width: 1180px) {
+            .hero,
+            .main-grid,
+            .kpi-grid,
+            .ability-grid {
+                grid-template-columns: 1fr;
+            }
+
+            .timeline-item {
+                grid-template-columns: 1fr;
+            }
+        }
+
+        @media (max-width: 760px) {
+            .topbar { flex-wrap: wrap; justify-content: center; }
+            .announcement { font-size: 13px; padding: 10px 12px; }
+        }
+    </style>
+    <link rel="stylesheet" href="styles/cotraining-unified.css">
+</head>
+<body class="cotraining-ui">
+    <div class="ambient-strip" aria-hidden="true"></div>
+
+    <a class="announcement" href="trading-test.html">
+        <span><strong>我的成长面板</strong> ｜ 让用户看到自己变强的路径，不只是收益数字</span>
+        <span class="cta">回到交易终端</span>
+    </a>
+
+    <header class="header">
+        <div class="topbar">
+            <a class="brand" href="index.html">
+                <span class="brand-mark">N</span>
+                <span>NovaX Futures</span>
+            </a>
+            <nav class="topnav" aria-label="主导航">
+                <a href="trading-test.html" data-route="/trade">交易终端</a>
+                <a href="http://localhost:3000/btc-dashboard.html" data-route="/btc-dashboard">BTC周期看板</a>
+                <a href="training.html" data-route="/training">模拟训练</a>
+                <a href="skills.html" data-route="/skills">策略工坊</a>
+                <a href="ai-console.html" data-route="/ai-console">AI决策台</a>
+                <a href="replay-lab.html" data-route="/replay-lab">复盘实验室</a>
+                <a href="arena-live.html" data-route="/arena/live">AI竞技场</a>
+                <a href="skillboard.html" data-route="/skillboard">Skill榜</a>
+                <a class="active" href="my-growth.html" data-route="/my-growth">我的成长</a>
+            </nav>
+            <div class="topbar-right">
+                <div class="status-chip">当前等级:<strong>Pro</strong></div>
+                <div class="utility-nav">
+                    <a class="utility-link" href="rules.html">规则</a>
+                    <a class="utility-link" href="developers.html">开发者</a>
+                    <a class="utility-link" href="profile-center.html">个人中心</a>
+                </div>
+            </div>
+        </div>
+
+        <section class="hero">
+            <div>
+                <h1>我的成长: <span>把交易能力做成可见曲线</span></h1>
+                <p>用能力雷达、关键事件时间轴和下周行动建议，把“我该如何变强”从抽象建议变成具体动作。</p>
+            </div>
+            <div class="hero-card">
+                <div class="k">当前 Skill Score</div>
+                <div class="v" id="heroScore">85.5</div>
+                <div style="display:flex;justify-content:space-between;color:var(--text-sub);font-size:12px">
+                    <span>周变化</span><strong id="heroDelta" style="color:var(--buy)">+2.3</strong>
+                </div>
+            </div>
+        </section>
+    </header>
+
+    <main class="layout">
+        <section class="kpi-grid">
+            <article class="kpi-card"><div class="label">连续纪律天数</div><div class="value" id="kpiDiscipline">12 天</div><div class="sub">连续止损执行达标</div></article>
+            <article class="kpi-card"><div class="label">周训练闭环</div><div class="value" id="kpiLoop">3 次</div><div class="sub">交易 -> 复盘 -> 调整</div></article>
+            <article class="kpi-card"><div class="label">策略稳定性</div><div class="value" id="kpiStable">87.2</div><div class="sub">波动区间内回撤受控</div></article>
+            <article class="kpi-card"><div class="label">人机协作增益</div><div class="value" id="kpiGain">+1.4R</div><div class="sub">采纳AI建议后的净改善</div></article>
+        </section>
+
+        <section class="main-grid">
+            <article class="panel">
+                <div class="panel-head">
+                    <div class="panel-title">能力画像</div>
+                    <div class="period-tabs" id="periodTabs">
+                        <button class="period-btn active" data-period="week">周</button>
+                        <button class="period-btn" data-period="month">月</button>
+                        <button class="period-btn" data-period="quarter">季</button>
+                    </div>
+                </div>
+                <div class="panel-body">
+                    <div class="ability-grid" id="abilityGrid"></div>
+
+                    <div>
+                        <div style="font-size:12px;color:var(--text-sub);margin-bottom:8px">成长时间轴</div>
+                        <div class="timeline" id="timeline"></div>
+                    </div>
+                </div>
+            </article>
+
+            <aside class="panel">
+                <div class="panel-head"><div class="panel-title">下周行动计划</div><span class="status-chip">v2 计划</span></div>
+                <div class="panel-body">
+                    <div class="plan-list" id="planList"></div>
+                </div>
+            </aside>
+        </section>
+    </main>
+
+    <script>
+        (function () {
+            const abilityGrid = document.getElementById('abilityGrid');
+            const timelineEl = document.getElementById('timeline');
+            const planList = document.getElementById('planList');
+            const periodBtns = document.querySelectorAll('.period-btn');
+            const heroScore = document.getElementById('heroScore');
+            const heroDelta = document.getElementById('heroDelta');
+            const kpiDiscipline = document.getElementById('kpiDiscipline');
+            const kpiLoop = document.getElementById('kpiLoop');
+            const kpiStable = document.getElementById('kpiStable');
+            const kpiGain = document.getElementById('kpiGain');
+
+            const dataset = {
+                week: {
+                    score: 85.5,
+                    delta: +2.3,
+                    disciplineDays: 12,
+                    loop: 3,
+                    stable: 87.2,
+                    gain: '+1.4R',
+                    abilities: [
+                        { key: '方向判断', value: 84.1 },
+                        { key: '仓位纪律', value: 88.6 },
+                        { key: '止损执行', value: 91.3 },
+                        { key: '执行一致性', value: 86.7 },
+                        { key: '策略稳定性', value: 83.9 },
+                        { key: '复盘质量', value: 82.8 }
+                    ],
+                    timeline: [
+                        { time: '03-02 06:42', text: '采纳 AI 做空建议，按计划止盈，收益 +0.56R', tag: '执行良好' },
+                        { time: '03-01 22:10', text: '复盘后将止损从 1.2% 下调到 0.9%', tag: '参数优化' },
+                        { time: '03-01 14:37', text: '连续两笔亏损后触发冷却，避免第三笔冲动交易', tag: '纪律达标' },
+                        { time: '02-28 09:25', text: '完成趋势训练任务，Skill +1.1', tag: '训练完成' }
+                    ],
+                    plans: [
+                        { title: '减少追价行为', impact: '预计回撤改善', value: '-0.6%' },
+                        { title: '固定止损模板', impact: '提升执行一致性', value: '+2.0' },
+                        { title: '每周2次复盘', impact: '提高策略稳定', value: '+1.4' }
+                    ]
+                },
+                month: {
+                    score: 83.2,
+                    delta: +4.8,
+                    disciplineDays: 28,
+                    loop: 11,
+                    stable: 84.6,
+                    gain: '+3.8R',
+                    abilities: [
+                        { key: '方向判断', value: 80.8 },
+                        { key: '仓位纪律', value: 85.2 },
+                        { key: '止损执行', value: 89.1 },
+                        { key: '执行一致性', value: 83.9 },
+                        { key: '策略稳定性', value: 82.2 },
+                        { key: '复盘质量', value: 84.4 }
+                    ],
+                    timeline: [
+                        { time: '03-02', text: '本月首次达到 Skill 85+ 区间', tag: '里程碑' },
+                        { time: '02-25', text: '完成 4 次训练闭环，过度交易次数下降', tag: '行为改善' },
+                        { time: '02-18', text: '将杠杆上限从 20x 收敛到 12x', tag: '风控升级' },
+                        { time: '02-10', text: '接入AI建议填单流程并建立日志', tag: '人机协作' }
+                    ],
+                    plans: [
+                        { title: '扩大高胜率场景仓位', impact: '提升收益质量', value: '+1.8' },
+                        { title: '保留冷却机制', impact: '控制回撤尾部风险', value: '-0.5%' },
+                        { title: '复盘加入执行偏差指标', impact: '强化纪律执行', value: '+1.2' }
+                    ]
+                },
+                quarter: {
+                    score: 79.6,
+                    delta: +9.1,
+                    disciplineDays: 61,
+                    loop: 26,
+                    stable: 80.7,
+                    gain: '+7.5R',
+                    abilities: [
+                        { key: '方向判断', value: 77.6 },
+                        { key: '仓位纪律', value: 81.3 },
+                        { key: '止损执行', value: 86.8 },
+                        { key: '执行一致性', value: 79.5 },
+                        { key: '策略稳定性', value: 78.2 },
+                        { key: '复盘质量', value: 81.0 }
+                    ],
+                    timeline: [
+                        { time: 'Q1-W9', text: '从“只看盈亏”转为“按Skill维度训练”', tag: '方法升级' },
+                        { time: 'Q1-W7', text: '开始执行每周规则复盘，违规率下降', tag: '规则执行' },
+                        { time: 'Q1-W4', text: '接入AI建议并保留人工确认', tag: '协作机制' },
+                        { time: 'Q1-W1', text: '完成首轮模拟训练体系', tag: '基础搭建' }
+                    ],
+                    plans: [
+                        { title: '聚焦单一交易对训练', impact: '提升样本一致性', value: '+1.5' },
+                        { title: '增加波动日专项训练', impact: '减少极端回撤', value: '-0.8%' },
+                        { title: '建立策略版本A/B记录', impact: '提高迭代效率', value: '+1.9' }
+                    ]
+                }
+            };
+
+            let period = 'week';
+
+            function renderAbilities(list) {
+                abilityGrid.innerHTML = list.map((item) => `<div class="ability-card">
+                    <h4><span>${item.key}</span><span>${item.value.toFixed(1)}</span></h4>
+                    <div class="track"><div class="fill" style="width:${Math.max(0, Math.min(100, item.value))}%"></div></div>
+                </div>`).join('');
+            }
+
+            function renderTimeline(list) {
+                timelineEl.innerHTML = list.map((item) => `<div class="timeline-item">
+                    <div class="time">${item.time}</div>
+                    <div class="event">${item.text}<div class="tag">${item.tag}</div></div>
+                </div>`).join('');
+            }
+
+            function renderPlans(list) {
+                planList.innerHTML = list.map((item) => `<div class="plan-item">
+                    <div class="plan-title">${item.title}</div>
+                    <div class="plan-meta"><span>${item.impact}</span><strong>${item.value}</strong></div>
+                </div>`).join('');
+            }
+
+            function render() {
+                const data = dataset[period];
+                heroScore.textContent = data.score.toFixed(1);
+                heroDelta.textContent = `${data.delta >= 0 ? '+' : ''}${data.delta.toFixed(1)}`;
+                heroDelta.style.color = data.delta >= 0 ? 'var(--buy)' : 'var(--sell)';
+                kpiDiscipline.textContent = `${data.disciplineDays} 天`;
+                kpiLoop.textContent = `${data.loop} 次`;
+                kpiStable.textContent = data.stable.toFixed(1);
+                kpiGain.textContent = data.gain;
+
+                renderAbilities(data.abilities);
+                renderTimeline(data.timeline);
+                renderPlans(data.plans);
+            }
+
+            periodBtns.forEach((btn) => {
+                btn.addEventListener('click', () => {
+                    periodBtns.forEach((b) => b.classList.remove('active'));
+                    btn.classList.add('active');
+                    period = btn.dataset.period || 'week';
+                    render();
+                });
+            });
+
+            render();
+        })();
+    </script>
+</body>
+</html>

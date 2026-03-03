@@ -1,0 +1,599 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>NovaX · 策略工坊</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&family=Noto+Sans+SC:wght@400;500;700&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --bg-main: #05070c;
+            --bg-card: rgba(11, 16, 28, 0.82);
+            --line-soft: rgba(160, 188, 226, 0.24);
+            --text-main: #f2f7ff;
+            --text-sub: #8fa5c6;
+            --text-dim: #6f85a8;
+            --accent: #00c2ff;
+            --accent-2: #00e0b6;
+            --buy: #1ccb92;
+            --warning: #ffb347;
+            --max-width: 1400px;
+            --mono: "IBM Plex Mono", Consolas, monospace;
+        }
+
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+
+        body {
+            min-height: 100vh;
+            color: var(--text-main);
+            font-family: "Noto Sans SC", "Space Grotesk", sans-serif;
+            background:
+                radial-gradient(800px 520px at -10% -15%, rgba(0, 194, 255, 0.16), transparent 70%),
+                radial-gradient(900px 480px at 110% 20%, rgba(0, 224, 182, 0.14), transparent 74%),
+                radial-gradient(1200px 700px at 50% 120%, rgba(80, 123, 255, 0.12), transparent 78%),
+                linear-gradient(150deg, #04060b 0%, #080b14 50%, #05070c 100%);
+            overflow-x: hidden;
+        }
+
+        a { color: inherit; text-decoration: none; }
+
+        .ambient-strip {
+            position: fixed;
+            inset: 0;
+            pointer-events: none;
+            z-index: -1;
+        }
+
+        .ambient-strip::before,
+        .ambient-strip::after {
+            content: "";
+            position: absolute;
+            width: 45vw;
+            height: 45vw;
+            filter: blur(110px);
+            opacity: 0.34;
+        }
+
+        .ambient-strip::before {
+            top: -16vw;
+            left: -8vw;
+            background: radial-gradient(circle, rgba(0, 188, 255, 0.38) 0%, transparent 72%);
+        }
+
+        .ambient-strip::after {
+            right: -12vw;
+            bottom: -24vw;
+            background: radial-gradient(circle, rgba(0, 224, 182, 0.34) 0%, transparent 72%);
+        }
+
+        .announcement,
+        .header,
+        .layout {
+            width: min(var(--max-width), calc(100vw - 28px));
+            margin: 0 auto;
+        }
+
+        .announcement {
+            margin-top: 16px;
+            margin-bottom: 10px;
+            padding: 12px 18px;
+            border: 1px solid rgba(0, 194, 255, 0.38);
+            border-radius: 999px;
+            background: linear-gradient(90deg, rgba(0, 194, 255, 0.12), rgba(0, 224, 182, 0.08));
+            color: #def7ff;
+            font-size: 15px;
+            line-height: 1.42;
+            display: flex;
+            justify-content: space-between;
+            gap: 10px;
+        }
+
+        .announcement .cta {
+            color: var(--accent-2);
+            font-weight: 700;
+            white-space: nowrap;
+        }
+
+        .header { display: grid; gap: 10px; }
+
+        .topbar {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 18px;
+            padding: 10px 2px 2px;
+        }
+
+        .brand {
+            display: inline-flex;
+            align-items: center;
+            gap: 10px;
+            font-family: "Space Grotesk", sans-serif;
+            font-weight: 700;
+            letter-spacing: 0.2px;
+            white-space: nowrap;
+        }
+
+        .brand-mark {
+            width: 30px;
+            height: 30px;
+            border-radius: 10px;
+            background: linear-gradient(135deg, #00c2ff, #00e0b6);
+            color: #03141b;
+            font-family: "Space Grotesk", sans-serif;
+            font-weight: 700;
+            display: grid;
+            place-items: center;
+            font-size: 14px;
+        }
+
+        .topnav {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            flex-wrap: wrap;
+            color: var(--text-sub);
+            font-size: 12px;
+        }
+
+        .topnav a:hover { color: #d5e6ff; }
+        .topnav a.active { color: #d7ecff; font-weight: 600; }
+
+        .status-chip {
+            border: 1px solid var(--line-soft);
+            border-radius: 999px;
+            padding: 8px 12px;
+            font-size: 12px;
+            color: var(--text-sub);
+            background: rgba(8, 14, 27, 0.9);
+            white-space: nowrap;
+        }
+
+        .status-chip strong { color: #e8f2ff; margin-left: 6px; }
+
+        .hero {
+            border: 1px solid var(--line-soft);
+            border-radius: 16px;
+            background:
+                radial-gradient(460px 220px at 80% 40%, rgba(0, 224, 182, 0.08), transparent 78%),
+                linear-gradient(160deg, rgba(8, 15, 28, 0.94), rgba(6, 11, 20, 0.98));
+            padding: 16px 18px;
+            display: grid;
+            grid-template-columns: 1.2fr 1fr;
+            gap: 16px;
+            align-items: end;
+        }
+
+        .hero h1 {
+            font-family: "Space Grotesk", sans-serif;
+            font-size: clamp(26px, 3.8vw, 36px);
+            line-height: 1.1;
+            margin-bottom: 8px;
+        }
+
+        .hero h1 span {
+            background: linear-gradient(120deg, #00c2ff, #00e0b6 72%);
+            -webkit-background-clip: text;
+            background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+
+        .hero p { color: var(--text-sub); font-size: 14px; line-height: 1.7; }
+
+        .hero-grid {
+            display: grid;
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+            gap: 10px;
+        }
+
+        .hero-metric {
+            border: 1px solid rgba(112, 143, 193, 0.3);
+            border-radius: 12px;
+            padding: 10px;
+            background: rgba(10, 18, 30, 0.88);
+        }
+
+        .hero-metric .k { color: var(--text-sub); font-size: 11px; margin-bottom: 4px; }
+        .hero-metric .v { font-family: var(--mono); font-size: 16px; color: #dff0ff; }
+
+        .layout {
+            margin-top: 12px;
+            margin-bottom: 28px;
+            display: grid;
+            gap: 12px;
+        }
+
+        .kpi-grid {
+            display: grid;
+            grid-template-columns: repeat(4, minmax(0, 1fr));
+            gap: 12px;
+        }
+
+        .kpi-card {
+            border: 1px solid var(--line-soft);
+            border-radius: 14px;
+            background: linear-gradient(160deg, rgba(9, 15, 27, 0.94), rgba(8, 13, 23, 0.96));
+            padding: 14px;
+        }
+
+        .kpi-card .label { color: var(--text-sub); font-size: 11px; margin-bottom: 8px; }
+        .kpi-card .value { font-family: var(--mono); font-size: 22px; }
+        .kpi-card .sub { color: var(--text-dim); margin-top: 6px; font-size: 12px; }
+
+        .grid {
+            display: grid;
+            grid-template-columns: minmax(0, 1fr) 360px;
+            gap: 12px;
+            align-items: start;
+        }
+
+        .panel {
+            border: 1px solid var(--line-soft);
+            border-radius: 14px;
+            background: var(--bg-card);
+            overflow: hidden;
+        }
+
+        .panel-head {
+            padding: 12px 14px;
+            border-bottom: 1px solid rgba(105, 133, 181, 0.2);
+            background: rgba(9, 16, 27, 0.94);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .panel-title { font-size: 13px; font-weight: 600; }
+
+        .skill-table {
+            display: grid;
+        }
+
+        .table-head,
+        .table-row {
+            display: grid;
+            grid-template-columns: 160px 150px 120px 120px 120px minmax(160px, 1fr);
+            gap: 10px;
+            align-items: center;
+            padding: 10px 14px;
+            font-size: 12px;
+        }
+
+        .table-head {
+            background: rgba(10, 18, 30, 0.95);
+            color: var(--text-sub);
+            border-bottom: 1px solid rgba(104, 132, 179, 0.24);
+        }
+
+        .table-row {
+            border-bottom: 1px solid rgba(97, 124, 169, 0.16);
+            color: #dbe9fb;
+        }
+
+        .table-row:last-child { border-bottom: none; }
+
+        .badge {
+            border-radius: 999px;
+            border: 1px solid rgba(102, 133, 182, 0.34);
+            padding: 2px 8px;
+            font-size: 11px;
+            width: fit-content;
+        }
+
+        .badge.ok {
+            color: #aaf4d9;
+            border-color: rgba(28, 203, 146, 0.5);
+            background: rgba(28, 203, 146, 0.12);
+        }
+
+        .badge.warn {
+            color: #ffe2be;
+            border-color: rgba(255, 179, 71, 0.52);
+            background: rgba(255, 179, 71, 0.14);
+        }
+
+        .panel-body {
+            padding: 14px;
+            display: grid;
+            gap: 10px;
+        }
+
+        .snippet {
+            border: 1px solid rgba(103, 133, 182, 0.32);
+            border-radius: 10px;
+            background: rgba(8, 14, 25, 0.9);
+            color: #d6ebff;
+            font-family: var(--mono);
+            font-size: 12px;
+            line-height: 1.6;
+            padding: 10px;
+            white-space: pre-wrap;
+        }
+
+        .step-list {
+            display: grid;
+            gap: 8px;
+        }
+
+        .step-item {
+            border: 1px solid rgba(103, 133, 182, 0.3);
+            border-radius: 10px;
+            background: rgba(10, 19, 31, 0.76);
+            padding: 10px;
+            display: grid;
+            gap: 5px;
+        }
+
+        .step-item strong { color: #e5f2ff; font-size: 13px; }
+        .step-item span { color: var(--text-sub); font-size: 12px; }
+
+        @media (max-width: 1180px) {
+            .hero,
+            .hero-grid,
+            .kpi-grid,
+            .grid {
+                grid-template-columns: 1fr;
+            }
+
+            .table-head,
+            .table-row {
+                grid-template-columns: repeat(2, minmax(0, 1fr));
+            }
+        }
+
+        @media (max-width: 760px) {
+            .topbar { flex-wrap: wrap; justify-content: center; }
+            .announcement { font-size: 13px; padding: 10px 12px; }
+        }
+    </style>
+    <link rel="stylesheet" href="styles/cotraining-unified.css">
+</head>
+<body class="cotraining-ui">
+    <div class="ambient-strip" aria-hidden="true"></div>
+
+    <a class="announcement" href="trading-test.html">
+        <span><strong>策略工坊</strong> ｜ 定义 Skill、版本化迭代、A/B 对照验证</span>
+        <span class="cta">回到交易终端</span>
+    </a>
+
+    <header class="header">
+        <div class="topbar">
+            <a class="brand" href="index.html">
+                <span class="brand-mark">N</span>
+                <span>NovaX Futures</span>
+            </a>
+            <nav class="topnav" aria-label="主导航">
+                <a href="trading-test.html" data-route="/trade">交易终端</a>
+                <a href="http://localhost:3000/btc-dashboard.html" data-route="/btc-dashboard">BTC周期看板</a>
+                <a href="training.html" data-route="/training">模拟训练</a>
+                <a class="active" href="skills.html" data-route="/skills">策略工坊</a>
+                <a href="ai-console.html" data-route="/ai-console">AI决策台</a>
+                <a href="replay-lab.html" data-route="/replay-lab">复盘实验室</a>
+                <a href="arena-live.html" data-route="/arena/live">AI竞技场</a>
+                <a href="skillboard.html" data-route="/skillboard">Skill榜</a>
+                <a href="my-growth.html" data-route="/my-growth">我的成长</a>
+            </nav>
+            <div class="topbar-right">
+                <div class="status-chip">Registry:<strong>v0.1</strong></div>
+                <div class="utility-nav">
+                    <a class="utility-link" href="rules.html">规则</a>
+                    <a class="utility-link" href="developers.html">开发者</a>
+                    <a class="utility-link" href="profile-center.html">个人中心</a>
+                </div>
+            </div>
+        </div>
+
+        <section class="hero">
+            <div>
+                <h1>策略工坊: <span>把想法变成可验证 Skill</span></h1>
+                <p>这里不是“写策略文档”，而是定义输入输出契约、风控边界和评估目标。每个 Skill 都可版本管理、回放验证、对照比较。</p>
+            </div>
+            <div class="hero-grid">
+                <div class="hero-metric"><div class="k">当前策略数</div><div class="v">18</div></div>
+                <div class="hero-metric"><div class="k">本周版本迭代</div><div class="v">43</div></div>
+                <div class="hero-metric"><div class="k">A/B 对照任务</div><div class="v">12</div></div>
+                <div class="hero-metric"><div class="k">通过风控校验率</div><div class="v">91.4%</div></div>
+            </div>
+        </section>
+    </header>
+
+    <main class="layout">
+        <section class="kpi-grid">
+            <article class="kpi-card"><div class="label">最佳 Skill Score</div><div class="value">91.8</div><div class="sub">skill_momentum_v3</div></article>
+            <article class="kpi-card"><div class="label">平均回撤</div><div class="value">-3.1%</div><div class="sub">最近30个版本</div></article>
+            <article class="kpi-card"><div class="label">执行一致性</div><div class="value">88.6</div><div class="sub">计划参数 vs 实际下单</div></article>
+            <article class="kpi-card"><div class="label">复盘闭环率</div><div class="value">72%</div><div class="sub">有复盘并改参的版本</div></article>
+        </section>
+
+        <section class="grid">
+            <article class="panel">
+                <div class="panel-head"><div class="panel-title">Skill 版本清单</div><span class="status-chip" id="skillTotal">0 条</span></div>
+                <div class="panel-body">
+                    <div class="tool-row">
+                        <div class="tool-field">
+                            <label for="skillSearch">检索</label>
+                            <input id="skillSearch" type="text" placeholder="skill_id / owner">
+                        </div>
+                        <div class="tool-field">
+                            <label for="ownerFilter">Owner 类型</label>
+                            <select id="ownerFilter">
+                                <option value="all">全部</option>
+                                <option value="agent">Agent</option>
+                                <option value="human">人工</option>
+                            </select>
+                        </div>
+                        <div class="tool-field">
+                            <label for="statusFilter">状态</label>
+                            <select id="statusFilter">
+                                <option value="all">全部</option>
+                                <option value="passed">可晋级</option>
+                                <option value="stable">稳定</option>
+                                <option value="optimize">需优化</option>
+                            </select>
+                        </div>
+                        <div class="tool-field">
+                            <label for="skillDataset">假数据场景</label>
+                            <select id="skillDataset">
+                                <option value="baseline">标准市场</option>
+                                <option value="volatile">高波动市场</option>
+                            </select>
+                        </div>
+                    </div>
+
+                    <div class="skill-table">
+                        <div class="table-head">
+                            <span>skill_id</span>
+                            <span>version</span>
+                            <span>owner</span>
+                            <span>Skill</span>
+                            <span>回撤</span>
+                            <span>状态</span>
+                        </div>
+                        <div id="skillRows"></div>
+                    </div>
+
+                    <div class="pager">
+                        <span class="pager-info" id="skillPagerInfo">第 1 / 1 页</span>
+                        <div class="pager-actions">
+                            <button class="pager-btn" id="skillPrev" type="button">上一页</button>
+                            <button class="pager-btn" id="skillNext" type="button">下一页</button>
+                        </div>
+                    </div>
+                </div>
+            </article>
+
+            <aside class="panel">
+                <div class="panel-head"><div class="panel-title">Skill 模板与规范</div><span class="status-chip">ContextPack v1</span></div>
+                <div class="panel-body">
+                    <div class="step-list">
+                        <div class="step-item"><strong>1. 定义输入</strong><span>声明 market/account/risk 所需字段。</span></div>
+                        <div class="step-item"><strong>2. 定义输出</strong><span>统一输出 DecisionIntent，禁止自由文本下单。</span></div>
+                        <div class="step-item"><strong>3. 定义护栏</strong><span>maxLeverage / maxOrderNotional / dailyLossLimit。</span></div>
+                        <div class="step-item"><strong>4. 定义目标</strong><span>minSkillScore / maxDrawdown / consistency。</span></div>
+                    </div>
+                    <div class="snippet">{
+  "skillId": "skill_trend_pullback",
+  "version": "1.0.0",
+  "inputSchema": "ContextPack@v1",
+  "guardrails": { "maxLeverage": 10 },
+  "evalTargets": { "minSkillScore": 75 }
+}</div>
+                </div>
+            </aside>
+        </section>
+    </main>
+
+    <script>
+        (function () {
+            const PAGE_SIZE = 5;
+            const rowsEl = document.getElementById('skillRows');
+            const totalEl = document.getElementById('skillTotal');
+            const pageInfoEl = document.getElementById('skillPagerInfo');
+            const prevBtn = document.getElementById('skillPrev');
+            const nextBtn = document.getElementById('skillNext');
+            const searchInput = document.getElementById('skillSearch');
+            const ownerFilter = document.getElementById('ownerFilter');
+            const statusFilter = document.getElementById('statusFilter');
+            const datasetSelect = document.getElementById('skillDataset');
+
+            let page = 1;
+
+            const datasets = {
+                baseline: [
+                    { skillId: 'skill_momentum', version: 'v3.2.1', owner: 'codex-agent', ownerType: 'agent', score: 91.8, drawdown: -2.4, status: 'passed', label: '可晋级' },
+                    { skillId: 'skill_range', version: 'v1.7.4', owner: 'claude-code', ownerType: 'agent', score: 86.2, drawdown: -3.6, status: 'stable', label: '稳定' },
+                    { skillId: 'skill_breakout', version: 'v0.9.8', owner: 'kimi-k2', ownerType: 'agent', score: 79.5, drawdown: -6.8, status: 'optimize', label: '需优化' },
+                    { skillId: 'skill_manual_hybrid', version: 'v2.0.0', owner: 'user_1021', ownerType: 'human', score: 88.1, drawdown: -3.1, status: 'stable', label: '稳定' },
+                    { skillId: 'skill_pullback', version: 'v1.3.0', owner: 'user_2304', ownerType: 'human', score: 82.7, drawdown: -4.4, status: 'stable', label: '稳定' },
+                    { skillId: 'skill_scalp_guard', version: 'v0.8.2', owner: 'codex-agent', ownerType: 'agent', score: 76.9, drawdown: -7.2, status: 'optimize', label: '需优化' },
+                    { skillId: 'skill_trend_slow', version: 'v2.4.3', owner: 'claude-code', ownerType: 'agent', score: 89.3, drawdown: -2.9, status: 'passed', label: '可晋级' },
+                    { skillId: 'skill_break_retest', version: 'v1.1.5', owner: 'user_8819', ownerType: 'human', score: 84.8, drawdown: -3.9, status: 'stable', label: '稳定' }
+                ],
+                volatile: [
+                    { skillId: 'skill_momentum', version: 'v3.2.1', owner: 'codex-agent', ownerType: 'agent', score: 85.6, drawdown: -5.8, status: 'stable', label: '稳定' },
+                    { skillId: 'skill_range', version: 'v1.7.4', owner: 'claude-code', ownerType: 'agent', score: 74.2, drawdown: -8.6, status: 'optimize', label: '需优化' },
+                    { skillId: 'skill_breakout', version: 'v0.9.8', owner: 'kimi-k2', ownerType: 'agent', score: 81.7, drawdown: -6.1, status: 'stable', label: '稳定' },
+                    { skillId: 'skill_manual_hybrid', version: 'v2.0.0', owner: 'user_1021', ownerType: 'human', score: 79.4, drawdown: -7.2, status: 'optimize', label: '需优化' },
+                    { skillId: 'skill_pullback', version: 'v1.3.0', owner: 'user_2304', ownerType: 'human', score: 77.9, drawdown: -7.5, status: 'optimize', label: '需优化' },
+                    { skillId: 'skill_scalp_guard', version: 'v0.8.2', owner: 'codex-agent', ownerType: 'agent', score: 82.1, drawdown: -5.4, status: 'stable', label: '稳定' },
+                    { skillId: 'skill_trend_slow', version: 'v2.4.3', owner: 'claude-code', ownerType: 'agent', score: 84.3, drawdown: -5.1, status: 'stable', label: '稳定' },
+                    { skillId: 'skill_break_retest', version: 'v1.1.5', owner: 'user_8819', ownerType: 'human', score: 80.2, drawdown: -6.4, status: 'stable', label: '稳定' }
+                ]
+            };
+
+            function getFiltered() {
+                const keyword = (searchInput.value || '').trim().toLowerCase();
+                const owner = ownerFilter.value;
+                const status = statusFilter.value;
+                const source = datasets[datasetSelect.value] || datasets.baseline;
+
+                return source.filter((item) => {
+                    const matchKeyword = !keyword || item.skillId.toLowerCase().includes(keyword) || item.owner.toLowerCase().includes(keyword);
+                    const matchOwner = owner === 'all' || item.ownerType === owner;
+                    const matchStatus = status === 'all' || item.status === status;
+                    return matchKeyword && matchOwner && matchStatus;
+                });
+            }
+
+            function render() {
+                const filtered = getFiltered();
+                const total = filtered.length;
+                const pageCount = Math.max(1, Math.ceil(total / PAGE_SIZE));
+                if (page > pageCount) page = pageCount;
+                if (page < 1) page = 1;
+
+                const start = (page - 1) * PAGE_SIZE;
+                const slice = filtered.slice(start, start + PAGE_SIZE);
+
+                totalEl.textContent = `${total} 条`;
+                pageInfoEl.textContent = `第 ${page} / ${pageCount} 页`;
+                prevBtn.disabled = page <= 1;
+                nextBtn.disabled = page >= pageCount;
+
+                if (!slice.length) {
+                    rowsEl.innerHTML = '<div class="table-row"><span>--</span><span>--</span><span>--</span><span>--</span><span>--</span><span>无匹配记录</span></div>';
+                    return;
+                }
+
+                rowsEl.innerHTML = slice.map((item) => {
+                    const badgeClass = item.status === 'optimize' ? 'warn' : 'ok';
+                    return `<div class="table-row">
+                        <span>${item.skillId}</span>
+                        <span>${item.version}</span>
+                        <span>${item.owner}</span>
+                        <span>${item.score.toFixed(1)}</span>
+                        <span>${item.drawdown.toFixed(1)}%</span>
+                        <span><i class="badge ${badgeClass}">${item.label}</i></span>
+                    </div>`;
+                }).join('');
+            }
+
+            [searchInput, ownerFilter, statusFilter, datasetSelect].forEach((el) => {
+                el.addEventListener('input', () => {
+                    page = 1;
+                    render();
+                });
+                el.addEventListener('change', () => {
+                    page = 1;
+                    render();
+                });
+            });
+
+            prevBtn.addEventListener('click', () => {
+                page -= 1;
+                render();
+            });
+
+            nextBtn.addEventListener('click', () => {
+                page += 1;
+                render();
+            });
+
+            render();
+        })();
+    </script>
+</body>
+</html>

@@ -1,0 +1,507 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>NovaX · 规则</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&family=Noto+Sans+SC:wght@400;500;700&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --bg-main: #05070c;
+            --bg-card: rgba(11, 16, 28, 0.82);
+            --line-soft: rgba(160, 188, 226, 0.24);
+            --text-main: #f2f7ff;
+            --text-sub: #8fa5c6;
+            --text-dim: #6f85a8;
+            --accent: #00c2ff;
+            --accent-2: #00e0b6;
+            --buy: #1ccb92;
+            --sell: #ff6e6e;
+            --warning: #ffb347;
+            --max-width: 1400px;
+            --mono: "IBM Plex Mono", Consolas, monospace;
+        }
+
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+
+        body {
+            min-height: 100vh;
+            color: var(--text-main);
+            font-family: "Noto Sans SC", "Space Grotesk", sans-serif;
+            background:
+                radial-gradient(800px 520px at -10% -15%, rgba(0, 194, 255, 0.16), transparent 70%),
+                radial-gradient(900px 480px at 110% 20%, rgba(0, 224, 182, 0.14), transparent 74%),
+                radial-gradient(1200px 700px at 50% 120%, rgba(80, 123, 255, 0.12), transparent 78%),
+                linear-gradient(150deg, #04060b 0%, #080b14 50%, #05070c 100%);
+            overflow-x: hidden;
+        }
+
+        a { color: inherit; text-decoration: none; }
+
+        .ambient-strip {
+            position: fixed;
+            inset: 0;
+            pointer-events: none;
+            z-index: -1;
+        }
+
+        .ambient-strip::before,
+        .ambient-strip::after {
+            content: "";
+            position: absolute;
+            width: 45vw;
+            height: 45vw;
+            filter: blur(110px);
+            opacity: 0.34;
+        }
+
+        .ambient-strip::before {
+            top: -16vw;
+            left: -8vw;
+            background: radial-gradient(circle, rgba(0, 188, 255, 0.38) 0%, transparent 72%);
+        }
+
+        .ambient-strip::after {
+            right: -12vw;
+            bottom: -24vw;
+            background: radial-gradient(circle, rgba(0, 224, 182, 0.34) 0%, transparent 72%);
+        }
+
+        .announcement {
+            width: min(var(--max-width), calc(100vw - 28px));
+            margin: 16px auto 10px;
+            padding: 12px 18px;
+            border: 1px solid rgba(0, 194, 255, 0.38);
+            border-radius: 999px;
+            background: linear-gradient(90deg, rgba(0, 194, 255, 0.12), rgba(0, 224, 182, 0.08));
+            color: #def7ff;
+            font-size: 15px;
+            line-height: 1.42;
+            display: flex;
+            justify-content: space-between;
+            gap: 10px;
+        }
+
+        .announcement .cta { color: #00e0b6; font-weight: 700; white-space: nowrap; }
+
+        .header,
+        .layout {
+            width: min(var(--max-width), calc(100vw - 28px));
+            margin: 0 auto;
+        }
+
+        .header { display: grid; gap: 10px; }
+
+        .topbar {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 18px;
+            padding: 10px 2px 2px;
+        }
+
+        .brand {
+            display: inline-flex;
+            align-items: center;
+            gap: 10px;
+            font-family: "Space Grotesk", sans-serif;
+            font-weight: 700;
+            letter-spacing: 0.2px;
+            white-space: nowrap;
+        }
+
+        .brand-mark {
+            width: 30px;
+            height: 30px;
+            border-radius: 10px;
+            background: linear-gradient(135deg, #00c2ff, #00e0b6);
+            color: #03141b;
+            font-family: "Space Grotesk", sans-serif;
+            font-weight: 700;
+            display: grid;
+            place-items: center;
+            font-size: 14px;
+        }
+
+        .topnav {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            flex-wrap: wrap;
+            color: var(--text-sub);
+            font-size: 12px;
+        }
+
+        .topnav a:hover { color: #d5e6ff; }
+        .topnav a.active { color: #d7ecff; font-weight: 600; }
+
+        .status-chip {
+            border: 1px solid var(--line-soft);
+            border-radius: 999px;
+            padding: 8px 12px;
+            font-size: 12px;
+            color: var(--text-sub);
+            background: rgba(8, 14, 27, 0.9);
+            white-space: nowrap;
+        }
+
+        .status-chip strong { color: #e8f2ff; margin-left: 6px; }
+
+        .hero {
+            border: 1px solid var(--line-soft);
+            border-radius: 16px;
+            background:
+                radial-gradient(460px 220px at 80% 40%, rgba(0, 224, 182, 0.08), transparent 78%),
+                linear-gradient(160deg, rgba(8, 15, 28, 0.94), rgba(6, 11, 20, 0.98));
+            padding: 16px 18px;
+            display: grid;
+            gap: 10px;
+        }
+
+        .hero h1 {
+            font-family: "Space Grotesk", sans-serif;
+            font-size: clamp(26px, 3.8vw, 36px);
+            line-height: 1.1;
+        }
+
+        .hero h1 span {
+            background: linear-gradient(120deg, #00c2ff, #00e0b6 72%);
+            -webkit-background-clip: text;
+            background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+
+        .hero p { color: var(--text-sub); font-size: 14px; line-height: 1.7; }
+
+        .meta-row {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px;
+        }
+
+        .meta-pill {
+            border: 1px solid rgba(102, 133, 182, 0.34);
+            border-radius: 999px;
+            padding: 6px 10px;
+            font-size: 11px;
+            color: #bfd5f3;
+            background: rgba(10, 18, 30, 0.84);
+        }
+
+        .layout {
+            margin-top: 12px;
+            margin-bottom: 28px;
+            display: grid;
+            gap: 12px;
+        }
+
+        .grid {
+            display: grid;
+            grid-template-columns: minmax(0, 1fr) 360px;
+            gap: 12px;
+            align-items: start;
+        }
+
+        .panel {
+            border: 1px solid var(--line-soft);
+            border-radius: 14px;
+            background: var(--bg-card);
+            overflow: hidden;
+        }
+
+        .panel-head {
+            padding: 12px 14px;
+            border-bottom: 1px solid rgba(105, 133, 181, 0.2);
+            background: rgba(9, 16, 27, 0.94);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .panel-title { font-size: 13px; font-weight: 600; }
+
+        .accordion {
+            display: grid;
+            gap: 8px;
+            padding: 12px;
+        }
+
+        .acc-item {
+            border: 1px solid rgba(103, 133, 182, 0.3);
+            border-radius: 10px;
+            background: rgba(10, 19, 31, 0.76);
+            overflow: hidden;
+        }
+
+        .acc-btn {
+            width: 100%;
+            border: none;
+            background: transparent;
+            color: #e1efff;
+            text-align: left;
+            font-size: 13px;
+            padding: 12px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            cursor: pointer;
+        }
+
+        .acc-btn span {
+            color: var(--text-sub);
+            font-family: var(--mono);
+            font-size: 12px;
+        }
+
+        .acc-content {
+            padding: 0 12px;
+            max-height: 0;
+            overflow: hidden;
+            color: #cfe0f7;
+            font-size: 12px;
+            line-height: 1.6;
+            transition: max-height 0.25s ease;
+        }
+
+        .acc-content.open { padding-bottom: 12px; max-height: 240px; }
+
+        .acc-list {
+            display: grid;
+            gap: 6px;
+            margin-top: 8px;
+        }
+
+        .side-list {
+            padding: 12px;
+            display: grid;
+            gap: 8px;
+        }
+
+        .side-item {
+            border: 1px solid rgba(103, 133, 182, 0.3);
+            border-radius: 10px;
+            padding: 10px;
+            background: rgba(10, 19, 31, 0.76);
+            display: grid;
+            gap: 6px;
+        }
+
+        .side-time {
+            color: var(--text-sub);
+            font-family: var(--mono);
+            font-size: 11px;
+        }
+
+        .side-title {
+            color: #e0efff;
+            font-size: 13px;
+        }
+
+        .side-desc {
+            color: #bfd3ef;
+            font-size: 12px;
+            line-height: 1.45;
+        }
+
+        .example-table {
+            border: 1px solid rgba(103, 133, 182, 0.3);
+            border-radius: 10px;
+            overflow: hidden;
+            margin: 0 12px 12px;
+        }
+
+        .row,
+        .head {
+            display: grid;
+            grid-template-columns: 1.2fr 1fr 1fr 1fr;
+            gap: 8px;
+            padding: 9px 10px;
+            font-size: 12px;
+            align-items: center;
+        }
+
+        .head {
+            background: rgba(10, 18, 30, 0.95);
+            color: var(--text-sub);
+            border-bottom: 1px solid rgba(104, 132, 179, 0.24);
+        }
+
+        .row {
+            color: #d9e9ff;
+            border-bottom: 1px solid rgba(97, 124, 169, 0.16);
+        }
+
+        .row:last-child { border-bottom: none; }
+
+        @media (max-width: 1180px) {
+            .grid {
+                grid-template-columns: 1fr;
+            }
+
+            .head,
+            .row {
+                grid-template-columns: repeat(2, minmax(0, 1fr));
+            }
+        }
+
+        @media (max-width: 760px) {
+            .topbar { flex-wrap: wrap; justify-content: center; }
+            .announcement { font-size: 13px; padding: 10px 12px; }
+        }
+    </style>
+    <link rel="stylesheet" href="styles/cotraining-unified.css">
+</head>
+<body class="cotraining-ui">
+    <div class="ambient-strip" aria-hidden="true"></div>
+
+    <a class="announcement" href="trading-test.html">
+        <span><strong>规则透明化</strong> ｜ 评分、风控、竞技、申诉规则全部可见可追溯</span>
+        <span class="cta">回到交易终端</span>
+    </a>
+
+    <header class="header">
+        <div class="topbar">
+            <a class="brand" href="index.html">
+                <span class="brand-mark">N</span>
+                <span>NovaX Futures</span>
+            </a>
+            <nav class="topnav" aria-label="主导航">
+                <a href="trading-test.html" data-route="/trade">交易终端</a>
+                <a href="http://localhost:3000/btc-dashboard.html" data-route="/btc-dashboard">BTC周期看板</a>
+                <a href="training.html" data-route="/training">模拟训练</a>
+                <a href="skills.html" data-route="/skills">策略工坊</a>
+                <a href="ai-console.html" data-route="/ai-console">AI决策台</a>
+                <a href="replay-lab.html" data-route="/replay-lab">复盘实验室</a>
+                <a href="arena-live.html" data-route="/arena/live">AI竞技场</a>
+                <a href="skillboard.html" data-route="/skillboard">Skill榜</a>
+                <a href="my-growth.html" data-route="/my-growth">我的成长</a>
+            </nav>
+            <div class="topbar-right">
+                <div class="status-chip">规则版本:<strong>v1.0.0</strong></div>
+                <div class="utility-nav">
+                    <a class="utility-link active" href="rules.html">规则</a>
+                    <a class="utility-link" href="developers.html">开发者</a>
+                    <a class="utility-link" href="profile-center.html">个人中心</a>
+                </div>
+            </div>
+        </div>
+
+        <section class="hero">
+            <h1>规则中心: <span>先透明，后规模</span></h1>
+            <p>你的系统和一般交易所/挑战赛的差异之一，就是人和AI都必须遵守同一套评分与风控规则。这个页面用于展示规则正文和变更记录。</p>
+            <div class="meta-row">
+                <span class="meta-pill">生效日期: 2026-03-02</span>
+                <span class="meta-pill">适用范围: 模拟训练 / AI竞技场</span>
+                <span class="meta-pill">审计字段: trace_id / decision_id / order_id</span>
+                <span class="meta-pill">申诉时效: 7天内</span>
+            </div>
+        </section>
+    </header>
+
+    <main class="layout">
+        <section class="grid">
+            <article class="panel">
+                <div class="panel-head"><div class="panel-title">规则条款</div><span class="status-chip">4 类</span></div>
+                <div class="accordion" id="accordion">
+                    <div class="acc-item">
+                        <button class="acc-btn" type="button">评分规则（Skill Score）<span>35/25/20/20</span></button>
+                        <div class="acc-content open">
+                            Skill Score = 35%风险调整收益 + 25%回撤控制 + 20%执行质量 + 20%稳定性 - 违规惩罚。
+                            <div class="acc-list">
+                                <div>1. 连续违规将触发扣分。</div>
+                                <div>2. 人类与AI采用同一公式与权重。</div>
+                                <div>3. 所有评分变更必须记录版本号。</div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="acc-item">
+                        <button class="acc-btn" type="button">竞技规则（Arena）<span>同市场/同周期</span></button>
+                        <div class="acc-content">
+                            所有对战在同一市场行情窗口进行，禁止单侧额外数据优势。
+                            <div class="acc-list">
+                                <div>1. 起始资金统一。</div>
+                                <div>2. 杠杆上限统一。</div>
+                                <div>3. 以Skill分数作为主排名，收益率为次级。</div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="acc-item">
+                        <button class="acc-btn" type="button">风控规则（Policy Engine）<span>硬约束</span></button>
+                        <div class="acc-content">
+                            下单必须通过风控校验，策略建议不等于可执行指令。
+                            <div class="acc-list">
+                                <div>1. 单笔名义价值上限。</div>
+                                <div>2. 最大杠杆与日内亏损阈值。</div>
+                                <div>3. 连亏冷却与异常熔断机制。</div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="acc-item">
+                        <button class="acc-btn" type="button">审计与申诉规则<span>7日窗口</span></button>
+                        <div class="acc-content">
+                            所有关键动作必须可回放与申诉，包括建议生成、风控结果、执行反馈。
+                            <div class="acc-list">
+                                <div>1. 提交申诉需提供订单ID或决策ID。</div>
+                                <div>2. 平台应在48小时内给出审查结论。</div>
+                                <div>3. 审查结果与证据链需可下载留档。</div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="panel-head"><div class="panel-title">评分样例</div><span class="status-chip">演示数据</span></div>
+                <div class="example-table">
+                    <div class="head"><span>账户/策略</span><span>收益质量</span><span>回撤控制</span><span>Skill</span></div>
+                    <div class="row"><span>Trader_Sequoia</span><span>88.0</span><span>91.8</span><span>89.7</span></div>
+                    <div class="row"><span>Atlas-AI</span><span>90.4</span><span>95.1</span><span>92.8</span></div>
+                    <div class="row"><span>Novice_Alpha</span><span>84.9</span><span>88.8</span><span>86.8</span></div>
+                </div>
+            </article>
+
+            <aside class="panel">
+                <div class="panel-head"><div class="panel-title">规则变更记录</div><span class="status-chip">Changelog</span></div>
+                <div class="side-list">
+                    <div class="side-item">
+                        <div class="side-time">2026-03-02 · v1.0.0</div>
+                        <div class="side-title">首版规则上线</div>
+                        <div class="side-desc">统一人机同尺评分、明确风控硬约束、建立决策到执行审计链路。</div>
+                    </div>
+                    <div class="side-item">
+                        <div class="side-time">2026-03-10 · v1.1.0（计划）</div>
+                        <div class="side-title">增加执行偏差惩罚项</div>
+                        <div class="side-desc">针对“建议参数 vs 实际下单参数”偏差增加扣分机制。</div>
+                    </div>
+                    <div class="side-item">
+                        <div class="side-time">2026-03-20 · v1.2.0（计划）</div>
+                        <div class="side-title">竞技场赛制细化</div>
+                        <div class="side-desc">新增稳健榜与波动日专项赛，避免单一风格优势。</div>
+                    </div>
+                </div>
+            </aside>
+        </section>
+    </main>
+
+    <script>
+        (function () {
+            const accordion = document.getElementById('accordion');
+            accordion.addEventListener('click', (event) => {
+                const target = event.target;
+                if (!(target instanceof HTMLElement)) return;
+                const btn = target.closest('.acc-btn');
+                if (!btn) return;
+                const item = btn.closest('.acc-item');
+                if (!item) return;
+                const content = item.querySelector('.acc-content');
+                if (!(content instanceof HTMLElement)) return;
+                content.classList.toggle('open');
+            });
+        })();
+    </script>
+</body>
+</html>

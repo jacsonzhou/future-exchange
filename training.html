@@ -1,0 +1,1012 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>NovaX · 模拟训练</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&family=Noto+Sans+SC:wght@400;500;700&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --bg-main: #05070c;
+            --bg-card: rgba(11, 16, 28, 0.82);
+            --bg-card-strong: rgba(15, 22, 36, 0.96);
+            --line-soft: rgba(160, 188, 226, 0.24);
+            --line-strong: rgba(160, 188, 226, 0.44);
+            --text-main: #f2f7ff;
+            --text-sub: #8fa5c6;
+            --text-dim: #6f85a8;
+            --accent: #00c2ff;
+            --accent-2: #00e0b6;
+            --buy: #1ccb92;
+            --sell: #ff6e6e;
+            --warning: #ffb347;
+            --radius-xl: 20px;
+            --radius-lg: 14px;
+            --radius-sm: 10px;
+            --max-width: 1400px;
+            --mono: "IBM Plex Mono", Consolas, monospace;
+        }
+
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
+        body {
+            min-height: 100vh;
+            color: var(--text-main);
+            font-family: "Noto Sans SC", "Space Grotesk", sans-serif;
+            background:
+                radial-gradient(800px 520px at -10% -15%, rgba(0, 194, 255, 0.16), transparent 70%),
+                radial-gradient(900px 480px at 110% 20%, rgba(0, 224, 182, 0.14), transparent 74%),
+                radial-gradient(1200px 700px at 50% 120%, rgba(80, 123, 255, 0.12), transparent 78%),
+                linear-gradient(150deg, #04060b 0%, #080b14 50%, #05070c 100%);
+            overflow-x: hidden;
+        }
+
+        a {
+            color: inherit;
+            text-decoration: none;
+        }
+
+        .ambient-strip {
+            position: fixed;
+            inset: 0;
+            pointer-events: none;
+            z-index: -1;
+        }
+
+        .ambient-strip::before,
+        .ambient-strip::after {
+            content: "";
+            position: absolute;
+            width: 45vw;
+            height: 45vw;
+            filter: blur(110px);
+            opacity: 0.34;
+        }
+
+        .ambient-strip::before {
+            top: -16vw;
+            left: -8vw;
+            background: radial-gradient(circle, rgba(0, 188, 255, 0.38) 0%, transparent 72%);
+        }
+
+        .ambient-strip::after {
+            right: -12vw;
+            bottom: -24vw;
+            background: radial-gradient(circle, rgba(0, 224, 182, 0.34) 0%, transparent 72%);
+        }
+
+        .announcement {
+            width: min(var(--max-width), calc(100vw - 28px));
+            margin: 16px auto 10px;
+            padding: 12px 18px;
+            border: 1px solid rgba(0, 194, 255, 0.38);
+            border-radius: 999px;
+            background: linear-gradient(90deg, rgba(0, 194, 255, 0.12), rgba(0, 224, 182, 0.08));
+            color: #def7ff;
+            font-size: 15px;
+            letter-spacing: 0.1px;
+            line-height: 1.42;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 10px;
+            backdrop-filter: blur(8px);
+        }
+
+        .announcement .cta {
+            color: var(--accent-2);
+            font-weight: 700;
+            white-space: nowrap;
+        }
+
+        .header {
+            width: min(var(--max-width), calc(100vw - 28px));
+            margin: 0 auto;
+            display: grid;
+            gap: 10px;
+        }
+
+        .topbar {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 18px;
+            padding: 10px 2px 2px;
+        }
+
+        .brand {
+            display: inline-flex;
+            align-items: center;
+            gap: 10px;
+            font-family: "Space Grotesk", sans-serif;
+            font-weight: 700;
+            letter-spacing: 0.2px;
+            white-space: nowrap;
+        }
+
+        .brand-mark {
+            width: 30px;
+            height: 30px;
+            border-radius: 10px;
+            background: linear-gradient(135deg, #00c2ff, #00e0b6);
+            color: #03141b;
+            font-family: "Space Grotesk", sans-serif;
+            font-weight: 700;
+            display: grid;
+            place-items: center;
+            font-size: 14px;
+            flex: 0 0 auto;
+        }
+
+        .topnav {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            flex-wrap: wrap;
+            color: var(--text-sub);
+            font-size: 12px;
+            min-width: 0;
+        }
+
+        .topnav a {
+            color: inherit;
+            transition: color 0.2s ease;
+            white-space: nowrap;
+        }
+
+        .topnav a:hover {
+            color: #d5e6ff;
+        }
+
+        .topnav a.active {
+            color: #d7ecff;
+            font-weight: 600;
+        }
+
+        .status-chip {
+            border: 1px solid var(--line-soft);
+            border-radius: 999px;
+            padding: 8px 12px;
+            font-size: 12px;
+            color: var(--text-sub);
+            background: rgba(8, 14, 27, 0.9);
+            white-space: nowrap;
+        }
+
+        .status-chip strong {
+            color: #e8f2ff;
+            margin-left: 6px;
+        }
+
+        .hero {
+            border: 1px solid var(--line-soft);
+            border-radius: 16px;
+            background:
+                radial-gradient(460px 220px at 80% 40%, rgba(0, 224, 182, 0.08), transparent 78%),
+                linear-gradient(160deg, rgba(8, 15, 28, 0.94), rgba(6, 11, 20, 0.98));
+            padding: 18px 20px;
+            display: grid;
+            grid-template-columns: 1.3fr 1fr;
+            gap: 20px;
+            align-items: end;
+        }
+
+        .hero h1 {
+            font-family: "Space Grotesk", sans-serif;
+            font-size: clamp(28px, 4vw, 40px);
+            line-height: 1.08;
+            letter-spacing: 0.2px;
+            margin-bottom: 10px;
+        }
+
+        .hero h1 span {
+            background: linear-gradient(120deg, #00c2ff, #00e0b6 72%);
+            -webkit-background-clip: text;
+            background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+
+        .hero p {
+            color: var(--text-sub);
+            line-height: 1.7;
+            font-size: 14px;
+            max-width: 760px;
+        }
+
+        .hero-metrics {
+            display: grid;
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+            gap: 10px;
+        }
+
+        .hero-metric {
+            border: 1px solid rgba(112, 143, 193, 0.3);
+            border-radius: 12px;
+            padding: 10px;
+            background: rgba(10, 18, 30, 0.88);
+        }
+
+        .hero-metric .k {
+            display: block;
+            color: var(--text-sub);
+            font-size: 11px;
+            margin-bottom: 4px;
+        }
+
+        .hero-metric .v {
+            font-family: var(--mono);
+            font-size: 16px;
+            color: #dff0ff;
+        }
+
+        .layout {
+            width: min(var(--max-width), calc(100vw - 28px));
+            margin: 12px auto 32px;
+            display: grid;
+            gap: 12px;
+        }
+
+        .kpi-grid {
+            display: grid;
+            grid-template-columns: repeat(4, minmax(0, 1fr));
+            gap: 12px;
+        }
+
+        .kpi-card {
+            border: 1px solid var(--line-soft);
+            border-radius: 14px;
+            background: linear-gradient(160deg, rgba(9, 15, 27, 0.94), rgba(8, 13, 23, 0.96));
+            padding: 14px;
+        }
+
+        .kpi-card .label {
+            color: var(--text-sub);
+            font-size: 11px;
+            margin-bottom: 8px;
+        }
+
+        .kpi-card .value {
+            font-family: var(--mono);
+            font-size: 24px;
+            font-weight: 600;
+        }
+
+        .kpi-card .sub {
+            color: var(--text-dim);
+            margin-top: 6px;
+            font-size: 12px;
+        }
+
+        .value.buy {
+            color: var(--buy);
+        }
+
+        .value.sell {
+            color: var(--sell);
+        }
+
+        .value.accent {
+            color: var(--accent);
+        }
+
+        .main-grid {
+            display: grid;
+            grid-template-columns: 300px minmax(0, 1fr) 330px;
+            gap: 12px;
+            align-items: start;
+        }
+
+        .panel {
+            border: 1px solid var(--line-soft);
+            border-radius: 14px;
+            background: var(--bg-card);
+            box-shadow: 0 14px 34px rgba(0, 0, 0, 0.2);
+            overflow: hidden;
+        }
+
+        .panel-head {
+            padding: 12px 14px;
+            border-bottom: 1px solid rgba(105, 133, 181, 0.2);
+            background: rgba(9, 16, 27, 0.94);
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 10px;
+        }
+
+        .panel-title {
+            font-size: 13px;
+            font-weight: 600;
+            letter-spacing: 0.2px;
+        }
+
+        .panel-body {
+            padding: 14px;
+            display: grid;
+            gap: 12px;
+        }
+
+        .task-item {
+            border: 1px solid rgba(105, 133, 181, 0.26);
+            border-radius: 10px;
+            padding: 10px;
+            background: rgba(10, 18, 31, 0.84);
+            display: grid;
+            gap: 6px;
+        }
+
+        .task-item.active {
+            border-color: rgba(0, 224, 182, 0.5);
+            box-shadow: inset 0 0 0 1px rgba(0, 224, 182, 0.18);
+        }
+
+        .task-name {
+            font-size: 13px;
+            color: #e6f1ff;
+        }
+
+        .task-desc {
+            color: var(--text-sub);
+            font-size: 12px;
+            line-height: 1.5;
+        }
+
+        .task-tag {
+            width: fit-content;
+            border-radius: 999px;
+            border: 1px solid rgba(100, 129, 178, 0.3);
+            color: #bfd5f3;
+            font-size: 11px;
+            padding: 2px 8px;
+        }
+
+        .btn-row {
+            display: grid;
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+            gap: 8px;
+        }
+
+        .btn {
+            border: 1px solid rgba(114, 146, 197, 0.4);
+            border-radius: 10px;
+            background: rgba(14, 24, 40, 0.9);
+            color: #d6e7ff;
+            font-size: 12px;
+            padding: 9px 10px;
+            cursor: pointer;
+        }
+
+        .btn.primary {
+            background: linear-gradient(130deg, rgba(0, 194, 255, 0.26), rgba(0, 224, 182, 0.26));
+            border-color: rgba(0, 224, 182, 0.48);
+            color: #ecffff;
+        }
+
+        .btn:disabled {
+            opacity: 0.45;
+            cursor: not-allowed;
+        }
+
+        .chart-box {
+            height: 280px;
+            border: 1px solid rgba(102, 130, 176, 0.28);
+            border-radius: 12px;
+            background:
+                linear-gradient(180deg, rgba(10, 18, 31, 0.7), rgba(10, 18, 31, 0.88)),
+                repeating-linear-gradient(0deg, rgba(255, 255, 255, 0.03) 0 1px, transparent 1px 35px),
+                repeating-linear-gradient(90deg, rgba(255, 255, 255, 0.03) 0 1px, transparent 1px 50px);
+            position: relative;
+            overflow: hidden;
+        }
+
+        .price-line {
+            position: absolute;
+            left: 0;
+            right: 0;
+            top: 48%;
+            border-top: 1px dashed rgba(0, 224, 182, 0.56);
+        }
+
+        .candles {
+            position: absolute;
+            inset: 12px;
+            display: grid;
+            grid-template-columns: repeat(42, minmax(0, 1fr));
+            gap: 4px;
+            align-items: end;
+        }
+
+        .candle {
+            border-radius: 3px 3px 0 0;
+            background: rgba(72, 195, 255, 0.36);
+        }
+
+        .candle.buy {
+            background: rgba(28, 203, 146, 0.64);
+        }
+
+        .candle.sell {
+            background: rgba(255, 110, 110, 0.62);
+        }
+
+        .mid-metrics {
+            display: grid;
+            grid-template-columns: repeat(4, minmax(0, 1fr));
+            gap: 10px;
+        }
+
+        .mid-metric {
+            border: 1px solid rgba(103, 133, 182, 0.3);
+            border-radius: 10px;
+            padding: 8px;
+            background: rgba(10, 19, 31, 0.78);
+        }
+
+        .mid-metric .k {
+            color: var(--text-sub);
+            font-size: 11px;
+        }
+
+        .mid-metric .v {
+            font-family: var(--mono);
+            font-size: 14px;
+            margin-top: 6px;
+            color: #def1ff;
+        }
+
+        .coach-card {
+            border: 1px solid rgba(103, 133, 182, 0.3);
+            border-radius: 12px;
+            padding: 12px;
+            background: rgba(9, 17, 29, 0.86);
+            display: grid;
+            gap: 8px;
+        }
+
+        .coach-row {
+            display: flex;
+            align-items: baseline;
+            justify-content: space-between;
+            gap: 10px;
+            font-size: 12px;
+            color: var(--text-sub);
+        }
+
+        .coach-row strong {
+            color: #e6f2ff;
+            font-family: var(--mono);
+            font-size: 13px;
+        }
+
+        .coach-bias {
+            width: fit-content;
+            border-radius: 999px;
+            font-size: 11px;
+            padding: 4px 9px;
+            font-weight: 600;
+        }
+
+        .coach-bias.long {
+            color: #b6ffe7;
+            border: 1px solid rgba(28, 203, 146, 0.45);
+            background: rgba(28, 203, 146, 0.14);
+        }
+
+        .coach-bias.short {
+            color: #ffd6d6;
+            border: 1px solid rgba(255, 110, 110, 0.45);
+            background: rgba(255, 110, 110, 0.14);
+        }
+
+        .coach-bias.wait {
+            color: #ffe6bd;
+            border: 1px solid rgba(255, 179, 71, 0.45);
+            background: rgba(255, 179, 71, 0.14);
+        }
+
+        .reason-list {
+            display: grid;
+            gap: 6px;
+            font-size: 12px;
+            color: #c6d7ef;
+            line-height: 1.45;
+        }
+
+        .session-table {
+            border: 1px solid var(--line-soft);
+            border-radius: 14px;
+            background: var(--bg-card);
+            overflow: hidden;
+        }
+
+        .table-head,
+        .table-row {
+            display: grid;
+            grid-template-columns: 130px 120px 120px 120px minmax(180px, 1fr) 120px;
+            gap: 10px;
+            align-items: center;
+            padding: 10px 14px;
+            font-size: 12px;
+        }
+
+        .table-head {
+            background: rgba(10, 18, 30, 0.95);
+            color: var(--text-sub);
+            border-bottom: 1px solid rgba(104, 132, 179, 0.24);
+        }
+
+        .table-row {
+            border-bottom: 1px solid rgba(97, 124, 169, 0.16);
+            color: #dbe9fb;
+        }
+
+        .table-row:last-child {
+            border-bottom: none;
+        }
+
+        .badge {
+            width: fit-content;
+            border-radius: 999px;
+            padding: 2px 8px;
+            font-size: 11px;
+            border: 1px solid rgba(101, 129, 174, 0.3);
+            color: #b8d2f5;
+        }
+
+        .badge.win {
+            border-color: rgba(28, 203, 146, 0.5);
+            color: #abffe0;
+        }
+
+        .badge.loss {
+            border-color: rgba(255, 110, 110, 0.5);
+            color: #ffd2d2;
+        }
+
+        @media (max-width: 1180px) {
+            .hero {
+                grid-template-columns: 1fr;
+            }
+
+            .kpi-grid {
+                grid-template-columns: repeat(2, minmax(0, 1fr));
+            }
+
+            .main-grid {
+                grid-template-columns: 1fr;
+            }
+
+            .table-head,
+            .table-row {
+                grid-template-columns: repeat(2, minmax(0, 1fr));
+            }
+        }
+
+        @media (max-width: 760px) {
+            .topbar {
+                flex-wrap: wrap;
+                justify-content: center;
+            }
+
+            .hero {
+                padding: 14px;
+            }
+
+            .kpi-grid,
+            .mid-metrics,
+            .btn-row {
+                grid-template-columns: 1fr;
+            }
+
+            .announcement {
+                font-size: 13px;
+                padding: 10px 12px;
+            }
+        }
+    </style>
+    <link rel="stylesheet" href="styles/cotraining-unified.css">
+</head>
+<body class="cotraining-ui">
+    <div class="ambient-strip" aria-hidden="true"></div>
+
+    <a class="announcement" href="trading-test.html">
+        <span><strong>模拟训练模式</strong> ｜ 先训练再实盘，保留风险约束与决策日志</span>
+        <span class="cta">返回交易终端</span>
+    </a>
+
+    <header class="header">
+        <div class="topbar">
+            <a class="brand" href="index.html">
+                <span class="brand-mark">N</span>
+                <span>NovaX Futures</span>
+            </a>
+            <nav class="topnav" aria-label="主导航">
+                <a href="trading-test.html" data-route="/trade">交易终端</a>
+                <a href="http://localhost:3000/btc-dashboard.html" data-route="/btc-dashboard">BTC周期看板</a>
+                <a class="active" href="training.html" data-route="/training">模拟训练</a>
+                <a href="skills.html" data-route="/skills">策略工坊</a>
+                <a href="ai-console.html" data-route="/ai-console">AI决策台</a>
+                <a href="replay-lab.html" data-route="/replay-lab">复盘实验室</a>
+                <a href="arena-live.html" data-route="/arena/live">AI竞技场</a>
+                <a href="skillboard.html" data-route="/skillboard">Skill榜</a>
+                <a href="my-growth.html" data-route="/my-growth">我的成长</a>
+            </nav>
+            <div class="topbar-right">
+                <div class="status-chip">训练状态:<strong id="trainingState">待开始</strong></div>
+                <div class="utility-nav">
+                    <a class="utility-link" href="rules.html">规则</a>
+                    <a class="utility-link" href="developers.html">开发者</a>
+                    <a class="utility-link" href="profile-center.html">个人中心</a>
+                </div>
+            </div>
+        </div>
+
+        <section class="hero">
+            <div>
+                <h1>模拟训练场: <span>先稳定，再放大</span></h1>
+                <p>
+                    通过任务化训练，把交易动作拆成“入场、止损、止盈、仓位控制”四段。
+                    本页展示的是前端演示版，不依赖服务端接口，目的是先确认页面交互和视觉信息层级。
+                </p>
+            </div>
+            <div class="hero-metrics">
+                <div class="hero-metric"><span class="k">训练模式</span><span class="v" id="modeText">趋势回撤训练</span></div>
+                <div class="hero-metric"><span class="k">会话计时</span><span class="v" id="timerText">00:00</span></div>
+                <div class="hero-metric"><span class="k">当前任务</span><span class="v" id="taskText">突破后回踩入场</span></div>
+                <div class="hero-metric"><span class="k">风险边界</span><span class="v">单笔 ≤ 0.8%</span></div>
+            </div>
+        </section>
+    </header>
+
+    <main class="layout">
+        <section class="kpi-grid">
+            <article class="kpi-card">
+                <div class="label">本轮 Skill Score</div>
+                <div class="value accent" id="scoreValue">84.6</div>
+                <div class="sub" id="scoreSub">较上轮 +1.2</div>
+            </article>
+            <article class="kpi-card">
+                <div class="label">训练完成度</div>
+                <div class="value buy" id="completionValue">68%</div>
+                <div class="sub">目标: 完成 3 笔结构化交易</div>
+            </article>
+            <article class="kpi-card">
+                <div class="label">风险暴露</div>
+                <div class="value" id="riskValue">38.4%</div>
+                <div class="sub">风控阈值: 55%</div>
+            </article>
+            <article class="kpi-card">
+                <div class="label">纪律执行</div>
+                <div class="value" id="disciplineValue">89.2</div>
+                <div class="sub">止损执行率 100%</div>
+            </article>
+        </section>
+
+        <section class="main-grid">
+            <article class="panel">
+                <div class="panel-head">
+                    <div class="panel-title">训练任务</div>
+                    <span class="task-tag" id="sessionBadge">Session A1</span>
+                </div>
+                <div class="panel-body" id="taskList">
+                    <div class="task-item active" data-task="突破后回踩入场">
+                        <div class="task-name">突破后回踩入场</div>
+                        <div class="task-desc">趋势方向下，等待回踩确认后再开仓，避免追高追低。</div>
+                        <span class="task-tag">完成条件: 2/3</span>
+                    </div>
+                    <div class="task-item" data-task="单笔亏损控制">
+                        <div class="task-name">单笔亏损控制</div>
+                        <div class="task-desc">单笔风险不得超过账户权益 0.8%，超限即判定失败。</div>
+                        <span class="task-tag">完成条件: 1/2</span>
+                    </div>
+                    <div class="task-item" data-task="连亏后冷却">
+                        <div class="task-name">连亏后冷却</div>
+                        <div class="task-desc">连续2笔亏损后必须停止 10 分钟，观察再决策。</div>
+                        <span class="task-tag">完成条件: 0/1</span>
+                    </div>
+                    <div class="btn-row">
+                        <button class="btn primary" id="startBtn" type="button">开始训练</button>
+                        <button class="btn" id="pauseBtn" type="button" disabled>暂停</button>
+                        <button class="btn" id="resetBtn" type="button">重置</button>
+                        <button class="btn primary" id="finishBtn" type="button" disabled>结束训练</button>
+                    </div>
+                </div>
+            </article>
+
+            <article class="panel">
+                <div class="panel-head">
+                    <div class="panel-title">训练执行面板（演示）</div>
+                    <span class="task-tag" id="symbolTag">BTCUSDT · 1m</span>
+                </div>
+                <div class="panel-body">
+                    <div class="chart-box">
+                        <div class="price-line"></div>
+                        <div id="candles" class="candles"></div>
+                    </div>
+                    <div class="mid-metrics">
+                        <div class="mid-metric"><div class="k">最新价</div><div class="v" id="lastPrice">66,320.5</div></div>
+                        <div class="mid-metric"><div class="k">24h 高</div><div class="v">66,889.0</div></div>
+                        <div class="mid-metric"><div class="k">24h 低</div><div class="v">65,210.2</div></div>
+                        <div class="mid-metric"><div class="k">成交流</div><div class="v" id="flowText">买盘 +2</div></div>
+                    </div>
+                </div>
+            </article>
+
+            <article class="panel">
+                <div class="panel-head">
+                    <div class="panel-title">AI 共训助手</div>
+                    <span class="task-tag" id="updatedAt">更新 --:--:--</span>
+                </div>
+                <div class="panel-body">
+                    <div class="coach-card">
+                        <span class="coach-bias short" id="biasBadge">建议做空</span>
+                        <div class="coach-row"><span>置信度</span><strong id="confidenceText">54%</strong></div>
+                        <div class="coach-row"><span>建议进场</span><strong id="entryText">69,470.79 - 69,763.58</strong></div>
+                        <div class="coach-row"><span>风险暴露</span><strong id="riskExposure">40.6%</strong></div>
+                        <div class="coach-row"><span>止损位</span><strong id="stopText">70,153.95</strong></div>
+                        <div class="coach-row"><span>止盈位</span><strong id="takeText">68,202.07</strong></div>
+                        <div class="reason-list" id="reasonList">
+                            <div>• 价格靠近 24h 区间上沿，倾向回撤确认。</div>
+                            <div>• 成交流偏向买盘（强度 2）。</div>
+                            <div>• 当前风险暴露 40.6%，建议按计划仓位执行。</div>
+                        </div>
+                        <div class="btn-row">
+                            <button class="btn primary" type="button" id="applyBtn">采纳建议并填单</button>
+                            <button class="btn" type="button" id="replayBtn">加入复盘实验室</button>
+                        </div>
+                    </div>
+                </div>
+            </article>
+        </section>
+
+        <section class="session-table">
+            <div class="table-head">
+                <span>时间</span>
+                <span>动作</span>
+                <span>方向</span>
+                <span>结果</span>
+                <span>备注</span>
+                <span>标签</span>
+            </div>
+            <div id="sessionRows"></div>
+        </section>
+    </main>
+
+    <script>
+        (function () {
+            const tasks = document.querySelectorAll('.task-item');
+            const timerText = document.getElementById('timerText');
+            const trainingState = document.getElementById('trainingState');
+            const taskText = document.getElementById('taskText');
+            const startBtn = document.getElementById('startBtn');
+            const pauseBtn = document.getElementById('pauseBtn');
+            const resetBtn = document.getElementById('resetBtn');
+            const finishBtn = document.getElementById('finishBtn');
+            const candlesEl = document.getElementById('candles');
+            const scoreValue = document.getElementById('scoreValue');
+            const scoreSub = document.getElementById('scoreSub');
+            const completionValue = document.getElementById('completionValue');
+            const riskValue = document.getElementById('riskValue');
+            const disciplineValue = document.getElementById('disciplineValue');
+            const lastPrice = document.getElementById('lastPrice');
+            const flowText = document.getElementById('flowText');
+            const updatedAt = document.getElementById('updatedAt');
+            const biasBadge = document.getElementById('biasBadge');
+            const confidenceText = document.getElementById('confidenceText');
+            const entryText = document.getElementById('entryText');
+            const riskExposure = document.getElementById('riskExposure');
+            const stopText = document.getElementById('stopText');
+            const takeText = document.getElementById('takeText');
+            const reasonList = document.getElementById('reasonList');
+            const sessionRows = document.getElementById('sessionRows');
+            const applyBtn = document.getElementById('applyBtn');
+            const replayBtn = document.getElementById('replayBtn');
+
+            let running = false;
+            let elapsed = 0;
+            let timer = null;
+            let pulseTimer = null;
+            let score = 84.6;
+            let completion = 68;
+            let risk = 38.4;
+            let discipline = 89.2;
+            let price = 66320.5;
+
+            const reasonPool = {
+                LONG: [
+                    '价格靠近 24h 区间下沿，反弹概率上升。',
+                    '主动买盘增强且量能同步放大。',
+                    '风险暴露仍处于控制区间，可尝试分批入场。'
+                ],
+                SHORT: [
+                    '价格靠近 24h 区间上沿，倾向回撤确认。',
+                    '成交流偏向卖盘，短周期动量转弱。',
+                    '当前风险暴露可控，建议按计划仓位执行。'
+                ],
+                WAIT: [
+                    '价格位于中位区间，方向不明。',
+                    '买卖流没有形成明显偏向。',
+                    '保持仓位纪律，等待更清晰信号。'
+                ]
+            };
+
+            function pad(v) {
+                return String(v).padStart(2, '0');
+            }
+
+            function formatTimer(sec) {
+                const m = Math.floor(sec / 60);
+                const s = sec % 60;
+                return `${pad(m)}:${pad(s)}`;
+            }
+
+            function formatPrice(value) {
+                return value.toLocaleString('zh-CN', { minimumFractionDigits: 1, maximumFractionDigits: 1 });
+            }
+
+            function nowTimeText() {
+                const d = new Date();
+                return `${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
+            }
+
+            function clamp(n, min, max) {
+                return Math.min(max, Math.max(min, n));
+            }
+
+            function renderCandles() {
+                candlesEl.innerHTML = '';
+                for (let i = 0; i < 42; i += 1) {
+                    const candle = document.createElement('div');
+                    const height = Math.round(12 + Math.random() * 86);
+                    candle.className = `candle ${Math.random() > 0.52 ? 'buy' : 'sell'}`;
+                    candle.style.height = `${height}%`;
+                    candlesEl.appendChild(candle);
+                }
+            }
+
+            function renderSessionRows() {
+                const rows = [
+                    { time: '07:10:22', action: '开仓', side: '做空', result: '+0.42R', note: '区间上沿回落，按计划入场', tag: '纪律' },
+                    { time: '07:13:40', action: '减仓', side: '做空', result: '+0.18R', note: '达到第一止盈位，部分止盈', tag: '执行' },
+                    { time: '07:18:05', action: '平仓', side: '做空', result: '+0.56R', note: '波动收敛，保护收益退出', tag: '稳健' },
+                    { time: '07:25:12', action: '开仓', side: '做多', result: '-0.31R', note: '信号确认不足，止损离场', tag: '复盘' }
+                ];
+
+                sessionRows.innerHTML = rows.map((row) => {
+                    const cls = row.result.startsWith('-') ? 'loss' : 'win';
+                    return `<div class="table-row">
+                        <span>${row.time}</span>
+                        <span>${row.action}</span>
+                        <span>${row.side}</span>
+                        <span style="color:${cls === 'win' ? 'var(--buy)' : 'var(--sell)'}">${row.result}</span>
+                        <span>${row.note}</span>
+                        <span><i class="badge ${cls}">${row.tag}</i></span>
+                    </div>`;
+                }).join('');
+            }
+
+            function renderCoach() {
+                const modeSeed = Math.random();
+                let action = 'WAIT';
+                if (modeSeed > 0.66) action = 'LONG';
+                else if (modeSeed > 0.28) action = 'SHORT';
+
+                const confidence = Math.round(clamp(48 + Math.random() * 24, 35, 78));
+                const entryMin = price * (action === 'LONG' ? 0.998 : action === 'SHORT' ? 1.002 : 1);
+                const entryMax = price * (action === 'LONG' ? 1.001 : action === 'SHORT' ? 1.005 : 1.0015);
+                const stop = price * (action === 'LONG' ? 0.994 : action === 'SHORT' ? 1.006 : 0.996);
+                const take = price * (action === 'LONG' ? 1.008 : action === 'SHORT' ? 0.992 : 1.004);
+                const exposure = clamp(risk + (Math.random() - 0.5) * 6, 26, 53);
+
+                biasBadge.className = `coach-bias ${action === 'LONG' ? 'long' : action === 'SHORT' ? 'short' : 'wait'}`;
+                biasBadge.textContent = action === 'LONG' ? '建议做多' : action === 'SHORT' ? '建议做空' : '建议观望';
+                confidenceText.textContent = `${confidence}%`;
+                entryText.textContent = `${formatPrice(entryMin)} - ${formatPrice(entryMax)}`;
+                riskExposure.textContent = `${exposure.toFixed(1)}%`;
+                stopText.textContent = formatPrice(stop);
+                takeText.textContent = formatPrice(take);
+                updatedAt.textContent = `更新 ${nowTimeText()}`;
+                reasonList.innerHTML = reasonPool[action].map((item) => `<div>• ${item}</div>`).join('');
+            }
+
+            function pulse() {
+                price = clamp(price + (Math.random() - 0.5) * 36, 65500, 67200);
+                score = clamp(score + (Math.random() - 0.5) * 0.9, 72, 97);
+                completion = clamp(completion + (Math.random() - 0.5) * 3.4, 40, 100);
+                risk = clamp(risk + (Math.random() - 0.5) * 3.8, 22, 57);
+                discipline = clamp(discipline + (Math.random() - 0.5) * 1.4, 70, 98);
+
+                lastPrice.textContent = formatPrice(price);
+                flowText.textContent = `买盘 ${Math.random() > 0.5 ? '+' : '-'}${Math.floor(Math.random() * 4)}`;
+
+                scoreValue.textContent = score.toFixed(1);
+                scoreSub.textContent = `较上轮 ${(Math.random() > 0.5 ? '+' : '-') + (Math.random() * 1.6).toFixed(2)}`;
+                completionValue.textContent = `${completion.toFixed(0)}%`;
+                riskValue.textContent = `${risk.toFixed(1)}%`;
+                disciplineValue.textContent = discipline.toFixed(1);
+
+                renderCandles();
+                renderCoach();
+            }
+
+            tasks.forEach((task) => {
+                task.addEventListener('click', () => {
+                    tasks.forEach((item) => item.classList.remove('active'));
+                    task.classList.add('active');
+                    taskText.textContent = task.dataset.task || taskText.textContent;
+                });
+            });
+
+            startBtn.addEventListener('click', () => {
+                if (running) return;
+                running = true;
+                trainingState.textContent = '进行中';
+                startBtn.disabled = true;
+                pauseBtn.disabled = false;
+                finishBtn.disabled = false;
+                timer = setInterval(() => {
+                    elapsed += 1;
+                    timerText.textContent = formatTimer(elapsed);
+                }, 1000);
+                pulseTimer = setInterval(pulse, 3500);
+            });
+
+            pauseBtn.addEventListener('click', () => {
+                if (!running) return;
+                running = false;
+                trainingState.textContent = '已暂停';
+                startBtn.disabled = false;
+                pauseBtn.disabled = true;
+                clearInterval(timer);
+                clearInterval(pulseTimer);
+            });
+
+            resetBtn.addEventListener('click', () => {
+                running = false;
+                elapsed = 0;
+                timerText.textContent = '00:00';
+                trainingState.textContent = '待开始';
+                startBtn.disabled = false;
+                pauseBtn.disabled = true;
+                finishBtn.disabled = true;
+                clearInterval(timer);
+                clearInterval(pulseTimer);
+                pulse();
+            });
+
+            finishBtn.addEventListener('click', () => {
+                running = false;
+                trainingState.textContent = '已完成';
+                startBtn.disabled = false;
+                pauseBtn.disabled = true;
+                finishBtn.disabled = true;
+                clearInterval(timer);
+                clearInterval(pulseTimer);
+                completionValue.textContent = '100%';
+                scoreSub.textContent = '训练完成，可进入复盘实验室';
+            });
+
+            applyBtn.addEventListener('click', () => {
+                score = clamp(score + 0.3, 0, 100);
+                scoreValue.textContent = score.toFixed(1);
+                scoreSub.textContent = '已采纳 AI 建议并填单（演示）';
+            });
+
+            replayBtn.addEventListener('click', () => {
+                scoreSub.textContent = '已加入复盘实验室队列（演示）';
+            });
+
+            renderCandles();
+            renderCoach();
+            renderSessionRows();
+            pulse();
+        })();
+    </script>
+</body>
+</html>

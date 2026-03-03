@@ -1,0 +1,1462 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>NovaX 个人中心</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&family=Noto+Sans+SC:wght@400;500;700&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --bg-main: #05070c;
+            --bg-card: rgba(11, 16, 28, 0.78);
+            --bg-card-strong: rgba(15, 22, 36, 0.96);
+            --bg-soft: rgba(20, 33, 52, 0.68);
+            --line-soft: rgba(160, 188, 226, 0.22);
+            --line-strong: rgba(160, 188, 226, 0.44);
+            --text-main: #f2f7ff;
+            --text-sub: #8fa5c6;
+            --text-dim: #6f85a8;
+            --accent: #00c2ff;
+            --accent-2: #00e0b6;
+            --buy: #1ccb92;
+            --sell: #ff6e6e;
+            --warning: #ffb347;
+            --danger: #ff8a8a;
+            --radius-xl: 20px;
+            --radius-lg: 14px;
+            --radius-sm: 10px;
+            --max-width: 1320px;
+            --mono: "IBM Plex Mono", Consolas, monospace;
+            --shadow-strong: 0 20px 44px rgba(0, 0, 0, 0.38);
+        }
+
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
+        a {
+            color: inherit;
+            text-decoration: none;
+        }
+
+        body {
+            min-height: 100vh;
+            color: var(--text-main);
+            font-family: "Noto Sans SC", "Space Grotesk", sans-serif;
+            background:
+                radial-gradient(800px 520px at -10% -15%, rgba(0, 194, 255, 0.16), transparent 70%),
+                radial-gradient(900px 480px at 110% 20%, rgba(0, 224, 182, 0.14), transparent 74%),
+                radial-gradient(1200px 700px at 50% 120%, rgba(80, 123, 255, 0.12), transparent 78%),
+                linear-gradient(150deg, #04060b 0%, #080b14 50%, #05070c 100%);
+            overflow-x: hidden;
+        }
+
+        .ambient-strip {
+            position: fixed;
+            inset: 0;
+            pointer-events: none;
+            z-index: -1;
+        }
+
+        .ambient-strip::before,
+        .ambient-strip::after {
+            content: "";
+            position: absolute;
+            width: 45vw;
+            height: 45vw;
+            filter: blur(110px);
+            opacity: 0.34;
+        }
+
+        .ambient-strip::before {
+            top: -16vw;
+            left: -8vw;
+            background: radial-gradient(circle, rgba(0, 188, 255, 0.38) 0%, transparent 72%);
+        }
+
+        .ambient-strip::after {
+            right: -12vw;
+            bottom: -24vw;
+            background: radial-gradient(circle, rgba(0, 224, 182, 0.34) 0%, transparent 72%);
+        }
+
+        .announcement {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            width: min(var(--max-width), calc(100vw - 28px));
+            margin: 16px auto 10px;
+            gap: 12px;
+            padding: 12px 18px;
+            border: 1px solid rgba(0, 194, 255, 0.38);
+            border-radius: 999px;
+            background: linear-gradient(90deg, rgba(0, 194, 255, 0.12), rgba(0, 224, 182, 0.08));
+            color: #def7ff;
+            font-size: 13px;
+            letter-spacing: 0.1px;
+            backdrop-filter: blur(8px);
+        }
+
+        .announcement strong {
+            color: #ffffff;
+            font-weight: 600;
+        }
+
+        .announcement .tag {
+            color: var(--accent-2);
+            font-weight: 700;
+            white-space: nowrap;
+        }
+
+        .layout {
+            width: min(var(--max-width), calc(100vw - 28px));
+            margin: 0 auto 32px;
+            display: grid;
+            gap: 16px;
+        }
+
+        .topbar {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 18px;
+            padding: 8px 2px;
+        }
+
+        .brand {
+            display: inline-flex;
+            align-items: center;
+            gap: 10px;
+            font-family: "Space Grotesk", sans-serif;
+            font-weight: 700;
+            letter-spacing: 0.2px;
+        }
+
+        .brand-mark {
+            width: 30px;
+            height: 30px;
+            border-radius: 10px;
+            background: linear-gradient(135deg, #00c2ff, #00e0b6);
+            color: #03141b;
+            display: grid;
+            place-items: center;
+            font-size: 14px;
+            font-weight: 700;
+        }
+
+        .topnav {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            flex-wrap: wrap;
+            color: var(--text-sub);
+            font-size: 12px;
+        }
+
+        .pill {
+            border: 1px solid var(--line-soft);
+            background: rgba(12, 18, 30, 0.76);
+            border-radius: 999px;
+            padding: 8px 12px;
+            color: var(--text-sub);
+        }
+
+        .panel {
+            border: 1px solid var(--line-soft);
+            border-radius: var(--radius-xl);
+            background: linear-gradient(160deg, rgba(10, 17, 30, 0.92), rgba(7, 12, 22, 0.98));
+            box-shadow: var(--shadow-strong);
+        }
+
+        .hero {
+            display: grid;
+            grid-template-columns: minmax(260px, 1fr) 2fr;
+            gap: 14px;
+            padding: 14px;
+        }
+
+        .hero-profile {
+            border: 1px solid var(--line-soft);
+            border-radius: var(--radius-lg);
+            background: var(--bg-card);
+            padding: 18px;
+            display: grid;
+            gap: 16px;
+        }
+
+        .avatar-row {
+            display: flex;
+            gap: 12px;
+            align-items: center;
+        }
+
+        .avatar {
+            width: 54px;
+            height: 54px;
+            border-radius: 16px;
+            background: linear-gradient(140deg, rgba(0, 194, 255, 0.45), rgba(0, 224, 182, 0.45));
+            border: 1px solid rgba(160, 188, 226, 0.4);
+            display: grid;
+            place-items: center;
+            color: #04121a;
+            font-family: "Space Grotesk", sans-serif;
+            font-weight: 700;
+            font-size: 20px;
+        }
+
+        .user-name {
+            font-size: 20px;
+            font-weight: 700;
+            line-height: 1.1;
+        }
+
+        .user-meta {
+            font-size: 12px;
+            color: var(--text-sub);
+            font-family: var(--mono);
+        }
+
+        .level-chip {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            border: 1px solid rgba(0, 224, 182, 0.36);
+            background: rgba(0, 224, 182, 0.1);
+            color: #9ff6de;
+            border-radius: 999px;
+            padding: 6px 10px;
+            font-size: 12px;
+            width: fit-content;
+        }
+
+        .status-list {
+            display: grid;
+            gap: 8px;
+            color: var(--text-sub);
+            font-size: 13px;
+        }
+
+        .status-item {
+            display: flex;
+            justify-content: space-between;
+            gap: 8px;
+            border-bottom: 1px dashed rgba(160, 188, 226, 0.22);
+            padding-bottom: 7px;
+        }
+
+        .status-item:last-child {
+            border-bottom: none;
+            padding-bottom: 0;
+        }
+
+        .status-item strong {
+            color: var(--text-main);
+            font-family: var(--mono);
+        }
+
+        .hero-stats {
+            border: 1px solid var(--line-soft);
+            border-radius: var(--radius-lg);
+            background: var(--bg-card);
+            padding: 16px;
+            display: grid;
+            grid-template-columns: repeat(4, minmax(140px, 1fr));
+            gap: 10px;
+        }
+
+        .stat-card {
+            border: 1px solid rgba(160, 188, 226, 0.2);
+            border-radius: 12px;
+            background: linear-gradient(180deg, rgba(14, 22, 36, 0.8), rgba(10, 17, 29, 0.96));
+            padding: 12px;
+            display: grid;
+            gap: 8px;
+            min-height: 96px;
+        }
+
+        .stat-label {
+            color: var(--text-sub);
+            font-size: 12px;
+        }
+
+        .stat-value {
+            font-family: var(--mono);
+            font-size: 20px;
+            font-weight: 600;
+            line-height: 1.2;
+        }
+
+        .stat-note {
+            color: var(--text-dim);
+            font-size: 12px;
+        }
+
+        .positive {
+            color: var(--buy);
+        }
+
+        .negative {
+            color: var(--sell);
+        }
+
+        .action-strip {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 10px;
+            align-items: center;
+            justify-content: space-between;
+            border: 1px solid var(--line-soft);
+            border-radius: var(--radius-lg);
+            padding: 12px 14px;
+            background: rgba(10, 17, 30, 0.78);
+        }
+
+        .action-title {
+            color: var(--text-sub);
+            font-size: 13px;
+        }
+
+        .actions {
+            display: flex;
+            gap: 8px;
+            flex-wrap: wrap;
+        }
+
+        .btn {
+            border: 1px solid rgba(160, 188, 226, 0.28);
+            border-radius: 10px;
+            background: rgba(14, 22, 36, 0.84);
+            color: #d9e9ff;
+            padding: 8px 12px;
+            font-size: 12px;
+            cursor: pointer;
+            transition: border-color 0.18s ease, transform 0.18s ease, background 0.18s ease;
+        }
+
+        .btn:hover {
+            border-color: rgba(0, 194, 255, 0.62);
+            transform: translateY(-1px);
+        }
+
+        .btn.primary {
+            border-color: rgba(0, 224, 182, 0.44);
+            background: linear-gradient(120deg, rgba(0, 194, 255, 0.2), rgba(0, 224, 182, 0.2));
+            color: #f5fffd;
+            font-weight: 600;
+        }
+
+        .workspace {
+            display: grid;
+            grid-template-columns: 240px minmax(0, 1fr);
+            gap: 14px;
+        }
+
+        .tab-menu {
+            border: 1px solid var(--line-soft);
+            border-radius: var(--radius-lg);
+            background: rgba(10, 17, 30, 0.78);
+            padding: 10px;
+            display: grid;
+            gap: 8px;
+            height: fit-content;
+            position: sticky;
+            top: 14px;
+        }
+
+        .tab-btn {
+            border: 1px solid transparent;
+            border-radius: 10px;
+            background: transparent;
+            color: var(--text-sub);
+            text-align: left;
+            padding: 10px 11px;
+            font-size: 13px;
+            cursor: pointer;
+            transition: all 0.18s ease;
+        }
+
+        .tab-btn.active {
+            border-color: rgba(0, 194, 255, 0.5);
+            background: rgba(0, 194, 255, 0.12);
+            color: #e9f7ff;
+        }
+
+        .tab-btn:hover {
+            border-color: rgba(160, 188, 226, 0.35);
+            color: #dceeff;
+        }
+
+        .tab-content {
+            border: 1px solid var(--line-soft);
+            border-radius: var(--radius-lg);
+            background: rgba(10, 17, 30, 0.78);
+            padding: 14px;
+            min-height: 520px;
+        }
+
+        .section {
+            display: none;
+            gap: 12px;
+        }
+
+        .section.active {
+            display: grid;
+        }
+
+        .section-head {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 10px;
+            padding-bottom: 10px;
+            border-bottom: 1px solid rgba(160, 188, 226, 0.2);
+        }
+
+        .section-title {
+            font-size: 18px;
+            font-weight: 700;
+            letter-spacing: 0.2px;
+        }
+
+        .section-sub {
+            color: var(--text-sub);
+            font-size: 12px;
+        }
+
+        .card-grid {
+            display: grid;
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+            gap: 10px;
+        }
+
+        .mini-card {
+            border: 1px solid rgba(160, 188, 226, 0.2);
+            border-radius: 12px;
+            background: rgba(15, 24, 40, 0.88);
+            padding: 12px;
+            display: grid;
+            gap: 8px;
+        }
+
+        .mini-card .title {
+            color: var(--text-sub);
+            font-size: 12px;
+        }
+
+        .mini-card .value {
+            font-family: var(--mono);
+            font-size: 16px;
+            font-weight: 600;
+        }
+
+        .table-wrap {
+            border: 1px solid rgba(160, 188, 226, 0.2);
+            border-radius: 12px;
+            overflow: auto;
+            background: rgba(11, 19, 32, 0.88);
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            min-width: 720px;
+        }
+
+        th,
+        td {
+            text-align: left;
+            padding: 11px 12px;
+            border-bottom: 1px solid rgba(160, 188, 226, 0.14);
+            font-size: 12px;
+            white-space: nowrap;
+        }
+
+        th {
+            color: var(--text-sub);
+            background: rgba(18, 28, 46, 0.78);
+            font-weight: 500;
+        }
+
+        td {
+            color: #d9e9ff;
+            font-family: var(--mono);
+        }
+
+        tr:last-child td {
+            border-bottom: none;
+        }
+
+        .filters {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px;
+            align-items: center;
+        }
+
+        .field,
+        .select {
+            border: 1px solid rgba(160, 188, 226, 0.28);
+            border-radius: 10px;
+            background: rgba(8, 16, 30, 0.9);
+            color: #dceeff;
+            font-size: 12px;
+            padding: 9px 10px;
+            outline: none;
+        }
+
+        .field:focus,
+        .select:focus {
+            border-color: rgba(0, 194, 255, 0.62);
+            box-shadow: 0 0 0 3px rgba(0, 194, 255, 0.12);
+        }
+
+        .form-grid {
+            display: grid;
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+            gap: 10px;
+        }
+
+        .form-item {
+            display: grid;
+            gap: 6px;
+        }
+
+        .form-item label {
+            font-size: 12px;
+            color: var(--text-sub);
+        }
+
+        .input {
+            border: 1px solid rgba(160, 188, 226, 0.26);
+            border-radius: 10px;
+            background: rgba(8, 16, 30, 0.9);
+            color: #dceeff;
+            font-size: 13px;
+            padding: 10px;
+        }
+
+        .input[readonly] {
+            color: #90a7ca;
+            background: rgba(8, 16, 30, 0.65);
+        }
+
+        .switch-list {
+            display: grid;
+            gap: 8px;
+        }
+
+        .switch-item {
+            border: 1px solid rgba(160, 188, 226, 0.2);
+            border-radius: 12px;
+            background: rgba(15, 24, 40, 0.88);
+            padding: 11px 12px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .switch-info {
+            display: grid;
+            gap: 3px;
+        }
+
+        .switch-info strong {
+            font-size: 13px;
+        }
+
+        .switch-info span {
+            font-size: 12px;
+            color: var(--text-sub);
+        }
+
+        .dot {
+            width: 10px;
+            height: 10px;
+            border-radius: 50%;
+            display: inline-block;
+            margin-right: 6px;
+        }
+
+        .dot.green {
+            background: var(--buy);
+            box-shadow: 0 0 0 4px rgba(28, 203, 146, 0.16);
+        }
+
+        .dot.orange {
+            background: var(--warning);
+            box-shadow: 0 0 0 4px rgba(255, 179, 71, 0.16);
+        }
+
+        .timeline {
+            border: 1px solid rgba(160, 188, 226, 0.2);
+            border-radius: 12px;
+            background: rgba(15, 24, 40, 0.88);
+            padding: 12px;
+            display: grid;
+            gap: 8px;
+        }
+
+        .timeline-item {
+            display: grid;
+            grid-template-columns: 90px 1fr;
+            gap: 10px;
+            font-size: 12px;
+            color: #d5e7ff;
+            border-bottom: 1px dashed rgba(160, 188, 226, 0.18);
+            padding-bottom: 7px;
+        }
+
+        .timeline-item:last-child {
+            border-bottom: none;
+            padding-bottom: 0;
+        }
+
+        .timeline-time {
+            color: var(--text-sub);
+            font-family: var(--mono);
+        }
+
+        .badge {
+            display: inline-flex;
+            align-items: center;
+            border: 1px solid rgba(160, 188, 226, 0.3);
+            border-radius: 999px;
+            color: #cae2ff;
+            font-size: 11px;
+            padding: 3px 8px;
+            margin-left: 6px;
+        }
+
+        .muted {
+            color: var(--text-sub);
+            font-size: 12px;
+        }
+
+        @media (max-width: 1180px) {
+            .hero {
+                grid-template-columns: 1fr;
+            }
+
+            .hero-stats {
+                grid-template-columns: repeat(2, minmax(0, 1fr));
+            }
+
+            .workspace {
+                grid-template-columns: 1fr;
+            }
+
+            .tab-menu {
+                position: static;
+                grid-template-columns: repeat(5, minmax(0, 1fr));
+                overflow: auto;
+            }
+
+            .tab-btn {
+                text-align: center;
+                white-space: nowrap;
+            }
+        }
+
+        @media (max-width: 760px) {
+            .announcement {
+                border-radius: 14px;
+                align-items: flex-start;
+                flex-direction: column;
+            }
+
+            .topbar {
+                flex-direction: column;
+                align-items: flex-start;
+            }
+
+            .hero-stats {
+                grid-template-columns: 1fr;
+            }
+
+            .card-grid,
+            .form-grid {
+                grid-template-columns: 1fr;
+            }
+        }
+    </style>
+    <link rel="stylesheet" href="styles/cotraining-unified.css">
+</head>
+<body class="cotraining-ui">
+<div class="ambient-strip"></div>
+
+<div class="announcement">
+    <div>
+        <strong>个人中心</strong>
+        <span id="announceText">正在连接用户中心服务...</span>
+    </div>
+    <div class="tag" id="announceTag">INIT</div>
+</div>
+
+<main class="layout">
+    <header class="topbar">
+        <a class="brand" id="backToTrading" href="trading-test.html">
+            <span class="brand-mark">N</span>
+            <span>NovaX · Personal Hub</span>
+        </a>
+        <nav class="topnav" aria-label="主导航">
+            <a href="trading-test.html" data-route="/trade">交易终端</a>
+            <a href="http://localhost:3000/btc-dashboard.html" data-route="/btc-dashboard">BTC周期看板</a>
+            <a href="training.html" data-route="/training">模拟训练</a>
+            <a href="skills.html" data-route="/skills">策略工坊</a>
+            <a href="ai-console.html" data-route="/ai-console">AI决策台</a>
+            <a href="replay-lab.html" data-route="/replay-lab">复盘实验室</a>
+            <a href="arena-live.html" data-route="/arena/live">AI竞技场</a>
+            <a href="skillboard.html" data-route="/skillboard">Skill榜</a>
+            <a href="my-growth.html" data-route="/my-growth">我的成长</a>
+        </nav>
+        <div class="topbar-right">
+            <span class="pill" id="pillTier">账户层级: --</span>
+            <span class="pill" id="pillAccount">主账户: --</span>
+            <span class="pill" id="pillLogin">最近登录: --</span>
+            <div class="utility-nav">
+                <a class="utility-link" href="rules.html">规则</a>
+                <a class="utility-link" href="developers.html">开发者</a>
+                <a class="utility-link active" href="profile-center.html">个人中心</a>
+            </div>
+        </div>
+    </header>
+
+    <section class="panel hero">
+        <article class="hero-profile">
+            <div class="avatar-row">
+                <div class="avatar" id="avatarText">--</div>
+                <div>
+                    <div class="user-name" id="profileUsername">--</div>
+                    <div class="user-meta" id="profileUid">UID: --</div>
+                </div>
+            </div>
+
+            <span class="level-chip" id="kycChip">KYC Lv.--</span>
+
+            <div class="status-list">
+                <div class="status-item"><span>手机号</span><strong id="statusPhone">--</strong></div>
+                <div class="status-item"><span>邮箱</span><strong id="statusEmail">--</strong></div>
+                <div class="status-item"><span>API Key</span><strong id="statusApiKey">--</strong></div>
+                <div class="status-item"><span>安全状态</span><strong id="statusSecurity"><span class="dot orange"></span>待校验</strong></div>
+            </div>
+        </article>
+
+        <article class="hero-stats">
+            <div class="stat-card">
+                <div class="stat-label">总权益 (USDT)</div>
+                <div class="stat-value" id="statEquity">--</div>
+                <div class="stat-note">含未实现盈亏</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-label">可用余额</div>
+                <div class="stat-value" id="statAvailable">--</div>
+                <div class="stat-note">可转出 / 可下单</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-label">仓位保证金</div>
+                <div class="stat-value" id="statMargin">--</div>
+                <div class="stat-note" id="statRiskNote">占用率 --</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-label">当日实现盈亏</div>
+                <div class="stat-value" id="statRealized">--</div>
+                <div class="stat-note" id="statFilledCount">累计成交 -- 笔</div>
+            </div>
+        </article>
+    </section>
+
+    <section class="action-strip">
+        <div class="action-title">快捷入口</div>
+        <div class="actions">
+            <button class="btn primary">划转资金</button>
+            <button class="btn">导出成交记录</button>
+            <button class="btn">修改登录密码</button>
+            <button class="btn">设置资金密码</button>
+            <button class="btn">管理 API Key</button>
+        </div>
+    </section>
+
+    <section class="workspace">
+        <aside class="tab-menu">
+            <button class="tab-btn active" data-tab="overview">总览</button>
+            <button class="tab-btn" data-tab="balances">资产余额</button>
+            <button class="tab-btn" data-tab="trades">历史交易</button>
+            <button class="tab-btn" data-tab="profile">个人信息</button>
+            <button class="tab-btn" data-tab="security">安全设置</button>
+        </aside>
+
+        <section class="tab-content">
+            <div class="section active" id="tab-overview">
+                <div class="section-head">
+                    <div>
+                        <div class="section-title">账户总览</div>
+                        <div class="section-sub">账号活跃、风控状态与最近行为摘要</div>
+                    </div>
+                    <button class="btn">刷新视图</button>
+                </div>
+
+                <div class="card-grid">
+                    <div class="mini-card">
+                        <div class="title">风险率</div>
+                        <div class="value" id="overviewRiskRate">--</div>
+                        <div class="muted">低于预警阈值 65%</div>
+                    </div>
+                    <div class="mini-card">
+                        <div class="title">可提余额</div>
+                        <div class="value" id="overviewWithdrawable">--</div>
+                        <div class="muted">T+0 可提额度</div>
+                    </div>
+                    <div class="mini-card">
+                        <div class="title">活动订单</div>
+                        <div class="value" id="overviewActiveOrders">--</div>
+                        <div class="muted">NEW / PARTIALLY_FILLED</div>
+                    </div>
+                    <div class="mini-card">
+                        <div class="title">未平仓合约</div>
+                        <div class="value" id="overviewPositions">--</div>
+                        <div class="muted" id="overviewPositionDetail">LONG -- / SHORT --</div>
+                    </div>
+                </div>
+
+                <div class="timeline" id="overviewTimeline">
+                    <div class="timeline-item">
+                        <div class="timeline-time">--</div>
+                        <div>等待数据加载</div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="section" id="tab-balances">
+                <div class="section-head">
+                    <div>
+                        <div class="section-title">资产余额</div>
+                        <div class="section-sub">由 user-core 聚合 snapshot-account-core 返回</div>
+                    </div>
+                    <div class="filters">
+                        <input class="field" id="balance-symbol" placeholder="搜索币种，例如 USDT">
+                        <select class="select" id="balance-type">
+                            <option value="ALL">全部账户</option>
+                            <option value="CONTRACT">合约账户</option>
+                            <option value="SPOT">现货账户</option>
+                            <option value="FUNDING">资金账户</option>
+                        </select>
+                    </div>
+                </div>
+
+                <div class="table-wrap">
+                    <table>
+                        <thead>
+                        <tr>
+                            <th>币种</th>
+                            <th>账户类型</th>
+                            <th>总余额</th>
+                            <th>可用</th>
+                            <th>冻结</th>
+                            <th>USDT 估值</th>
+                            <th>24H 变动</th>
+                        </tr>
+                        </thead>
+                        <tbody id="balance-tbody"></tbody>
+                    </table>
+                </div>
+            </div>
+
+            <div class="section" id="tab-trades">
+                <div class="section-head">
+                    <div>
+                        <div class="section-title">历史交易记录</div>
+                        <div class="section-sub">由 user-core 聚合 OMS 成交订单返回</div>
+                    </div>
+                    <div class="filters">
+                        <input class="field" id="trade-symbol" placeholder="交易对，例如 BTCUSDT">
+                        <select class="select" id="trade-side">
+                            <option value="ALL">全部方向</option>
+                            <option value="BUY">买入</option>
+                            <option value="SELL">卖出</option>
+                        </select>
+                    </div>
+                </div>
+
+                <div class="table-wrap">
+                    <table>
+                        <thead>
+                        <tr>
+                            <th>时间</th>
+                            <th>交易对</th>
+                            <th>方向</th>
+                            <th>价格</th>
+                            <th>数量</th>
+                            <th>成交额</th>
+                            <th>手续费</th>
+                            <th>已实现盈亏</th>
+                        </tr>
+                        </thead>
+                        <tbody id="trade-tbody"></tbody>
+                    </table>
+                </div>
+            </div>
+
+            <div class="section" id="tab-profile">
+                <div class="section-head">
+                    <div>
+                        <div class="section-title">个人信息</div>
+                        <div class="section-sub">支持邮箱/手机号修改并写回 user-core</div>
+                    </div>
+                    <button class="btn primary" id="toggle-edit">进入编辑</button>
+                </div>
+
+                <div class="form-grid" id="profile-form">
+                    <div class="form-item">
+                        <label>昵称</label>
+                        <input class="input editable" id="inputUsername" value="--" readonly>
+                    </div>
+                    <div class="form-item">
+                        <label>国家 / 地区</label>
+                        <input class="input editable" id="inputCountry" value="--" readonly>
+                    </div>
+                    <div class="form-item">
+                        <label>邮箱</label>
+                        <input class="input editable" id="inputEmail" value="--" readonly>
+                    </div>
+                    <div class="form-item">
+                        <label>手机号</label>
+                        <input class="input editable" id="inputPhone" value="--" readonly>
+                    </div>
+                    <div class="form-item">
+                        <label>时区</label>
+                        <input class="input editable" id="inputTimezone" value="--" readonly>
+                    </div>
+                    <div class="form-item">
+                        <label>默认语言</label>
+                        <input class="input editable" id="inputLanguage" value="--" readonly>
+                    </div>
+                </div>
+
+                <div class="actions">
+                    <button class="btn primary" id="save-profile" disabled>保存修改</button>
+                    <button class="btn" id="cancel-edit" disabled>取消</button>
+                </div>
+            </div>
+
+            <div class="section" id="tab-security">
+                <div class="section-head">
+                    <div>
+                        <div class="section-title">安全设置</div>
+                        <div class="section-sub">关键安全能力集中管理</div>
+                    </div>
+                    <button class="btn">查看登录设备</button>
+                </div>
+
+                <div class="switch-list">
+                    <div class="switch-item">
+                        <div class="switch-info">
+                            <strong><span class="dot green"></span>Google 2FA</strong>
+                            <span>用于登录和关键操作二次验证</span>
+                        </div>
+                        <button class="btn" id="btn2fa">待校验</button>
+                    </div>
+                    <div class="switch-item">
+                        <div class="switch-info">
+                            <strong><span class="dot orange"></span>资金密码</strong>
+                            <span>提币与内部划转需要验证</span>
+                        </div>
+                        <button class="btn">去设置</button>
+                    </div>
+                    <div class="switch-item">
+                        <div class="switch-info">
+                            <strong><span class="dot green"></span>提币白名单</strong>
+                            <span>仅允许提币到白名单地址</span>
+                        </div>
+                        <button class="btn" id="btnWhitelist">待校验</button>
+                    </div>
+                    <div class="switch-item">
+                        <div class="switch-info">
+                            <strong><span class="dot orange"></span>防钓鱼码</strong>
+                            <span>邮件中固定展示防伪识别码</span>
+                        </div>
+                        <button class="btn">去配置</button>
+                    </div>
+                </div>
+            </div>
+        </section>
+    </section>
+</main>
+
+<script>
+    const tabs = document.querySelectorAll(".tab-btn");
+    const sections = document.querySelectorAll(".section");
+
+    tabs.forEach((tab) => {
+        tab.addEventListener("click", () => {
+            const key = tab.dataset.tab;
+            tabs.forEach((btn) => btn.classList.remove("active"));
+            tab.classList.add("active");
+            sections.forEach((sec) => sec.classList.remove("active"));
+            document.getElementById("tab-" + key).classList.add("active");
+        });
+    });
+
+    const urlParams = new URLSearchParams(window.location.search || "");
+    const host = window.location.hostname || "localhost";
+    const config = {
+        apiGateway: urlParams.get("gateway") || localStorage.getItem("fx_gateway") || `http://${host}:8082`,
+        symbol: (urlParams.get("symbol") || "BTCUSDT").toUpperCase(),
+        interval: urlParams.get("interval") || "1h"
+    };
+
+    const state = {
+        token: normalizeToken(localStorage.getItem("token")),
+        balances: [],
+        trades: [],
+        overview: null,
+        profileInfo: null,
+        editing: false
+    };
+
+    const ui = {
+        announceText: document.getElementById("announceText"),
+        announceTag: document.getElementById("announceTag"),
+        backToTrading: document.getElementById("backToTrading"),
+        pillTier: document.getElementById("pillTier"),
+        pillAccount: document.getElementById("pillAccount"),
+        pillLogin: document.getElementById("pillLogin"),
+        avatarText: document.getElementById("avatarText"),
+        profileUsername: document.getElementById("profileUsername"),
+        profileUid: document.getElementById("profileUid"),
+        kycChip: document.getElementById("kycChip"),
+        statusPhone: document.getElementById("statusPhone"),
+        statusEmail: document.getElementById("statusEmail"),
+        statusApiKey: document.getElementById("statusApiKey"),
+        statusSecurity: document.getElementById("statusSecurity"),
+        statEquity: document.getElementById("statEquity"),
+        statAvailable: document.getElementById("statAvailable"),
+        statMargin: document.getElementById("statMargin"),
+        statRiskNote: document.getElementById("statRiskNote"),
+        statRealized: document.getElementById("statRealized"),
+        statFilledCount: document.getElementById("statFilledCount"),
+        overviewRiskRate: document.getElementById("overviewRiskRate"),
+        overviewWithdrawable: document.getElementById("overviewWithdrawable"),
+        overviewActiveOrders: document.getElementById("overviewActiveOrders"),
+        overviewPositions: document.getElementById("overviewPositions"),
+        overviewPositionDetail: document.getElementById("overviewPositionDetail"),
+        overviewTimeline: document.getElementById("overviewTimeline"),
+        balanceSymbol: document.getElementById("balance-symbol"),
+        balanceType: document.getElementById("balance-type"),
+        balanceTbody: document.getElementById("balance-tbody"),
+        tradeSymbol: document.getElementById("trade-symbol"),
+        tradeSide: document.getElementById("trade-side"),
+        tradeTbody: document.getElementById("trade-tbody"),
+        toggleEdit: document.getElementById("toggle-edit"),
+        saveProfile: document.getElementById("save-profile"),
+        cancelEdit: document.getElementById("cancel-edit"),
+        inputUsername: document.getElementById("inputUsername"),
+        inputCountry: document.getElementById("inputCountry"),
+        inputEmail: document.getElementById("inputEmail"),
+        inputPhone: document.getElementById("inputPhone"),
+        inputTimezone: document.getElementById("inputTimezone"),
+        inputLanguage: document.getElementById("inputLanguage"),
+        btn2fa: document.getElementById("btn2fa"),
+        btnWhitelist: document.getElementById("btnWhitelist")
+    };
+
+    function init() {
+        const tradingParams = new URLSearchParams();
+        tradingParams.set("symbol", config.symbol);
+        tradingParams.set("interval", config.interval);
+        tradingParams.set("gateway", config.apiGateway);
+        ui.backToTrading.href = `trading-test.html?${tradingParams.toString()}`;
+
+        bindEvents();
+        setEditMode(false);
+        refreshAll();
+    }
+
+    function bindEvents() {
+        ui.balanceSymbol.addEventListener("input", renderBalances);
+        ui.balanceType.addEventListener("change", renderBalances);
+        ui.tradeSymbol.addEventListener("input", renderTrades);
+        ui.tradeSide.addEventListener("change", renderTrades);
+        ui.toggleEdit.addEventListener("click", () => setEditMode(!state.editing));
+        ui.cancelEdit.addEventListener("click", () => {
+            setEditMode(false);
+            if (state.profileInfo) {
+                fillProfileForm(state.profileInfo);
+            }
+        });
+        ui.saveProfile.addEventListener("click", saveProfileInfo);
+    }
+
+    async function refreshAll() {
+        if (!isLikelyJwt(state.token)) {
+            setBanner("未检测到登录 Token，请先在交易页登录。", "NO-TOKEN");
+            return;
+        }
+
+        setBanner("正在从 user-core 拉取个人中心数据...", "LOADING");
+        try {
+            const [overviewResult, balancesResult, tradesResult, profileResult] = await Promise.all([
+                requestUserResult("/api/v1/user/profile/overview"),
+                requestUserResult("/api/v1/user/profile/balances"),
+                requestUserResult("/api/v1/user/profile/trades?limit=80"),
+                requestUserResult("/api/v1/user/profile/info")
+            ]);
+
+            state.overview = overviewResult;
+            state.balances = Array.isArray(balancesResult) ? balancesResult : [];
+            state.trades = Array.isArray(tradesResult) ? tradesResult : [];
+            state.profileInfo = profileResult;
+
+            renderOverview();
+            renderBalances();
+            renderTrades();
+            fillProfileForm(profileResult);
+            setBanner("已连接 user-core 个人中心聚合接口", "LIVE");
+        } catch (error) {
+            console.error(error);
+            setBanner(`加载失败: ${error.message}`, "ERROR");
+        }
+    }
+
+    async function saveProfileInfo() {
+        if (!state.editing) {
+            return;
+        }
+        if (!isLikelyJwt(state.token)) {
+            setBanner("未登录，无法保存个人信息", "NO-TOKEN");
+            return;
+        }
+
+        const payload = {
+            email: normalizeNullable(ui.inputEmail.value),
+            phone: normalizeNullable(ui.inputPhone.value)
+        };
+
+        try {
+            const updated = await requestUserResult("/api/v1/user/profile/info", {
+                method: "PUT",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify(payload)
+            });
+            state.profileInfo = updated;
+            fillProfileForm(updated);
+            setEditMode(false);
+            await refreshOverviewOnly();
+            setBanner("个人信息已更新", "UPDATED");
+        } catch (error) {
+            setBanner(`保存失败: ${error.message}`, "ERROR");
+        }
+    }
+
+    async function refreshOverviewOnly() {
+        try {
+            state.overview = await requestUserResult("/api/v1/user/profile/overview");
+            renderOverview();
+        } catch (error) {
+            console.warn("refresh overview failed", error);
+        }
+    }
+
+    function renderOverview() {
+        const overview = state.overview || {};
+        const user = overview.user || {};
+        const account = overview.account || {};
+        const balance = overview.balance || {};
+        const stats = overview.stats || {};
+        const security = overview.security || {};
+
+        ui.profileUsername.textContent = user.username || "--";
+        ui.profileUid.textContent = `UID: ${user.userId || "--"}`;
+        ui.avatarText.textContent = makeAvatarText(user.username);
+        ui.kycChip.textContent = `KYC Lv.${user.kycLevel ?? 0}`;
+
+        ui.pillTier.textContent = `账户层级: ${inferTier(user.kycLevel)}`;
+        ui.pillAccount.textContent = `主账户: ${account.accountId || "--"}`;
+        ui.pillLogin.textContent = `最近登录: ${formatDateTime(user.lastLoginTime)}`;
+
+        ui.statusPhone.textContent = maskPhone(user.phone);
+        ui.statusEmail.textContent = maskEmail(user.email);
+        ui.statusApiKey.textContent = `${security.apiKeyCount ?? 0} 个有效`;
+        ui.statusSecurity.innerHTML = security.google2faEnabled
+            ? '<span class="dot green"></span>已启用 2FA'
+            : '<span class="dot orange"></span>建议启用 2FA';
+
+        ui.statEquity.textContent = formatNumber(balance.equity);
+        ui.statAvailable.textContent = formatNumber(balance.available);
+        ui.statMargin.textContent = formatNumber(balance.positionMargin);
+
+        const realized = Number(balance.realizedPnl || 0);
+        ui.statRealized.textContent = formatSigned(realized);
+        ui.statRealized.classList.toggle("positive", realized >= 0);
+        ui.statRealized.classList.toggle("negative", realized < 0);
+
+        ui.statRiskNote.textContent = `占用率 ${formatPercent(stats.riskRate)}`
+        ui.statFilledCount.textContent = `累计成交 ${stats.todayFilledCount ?? 0} 笔`;
+
+        ui.overviewRiskRate.textContent = formatPercent(stats.riskRate);
+        ui.overviewWithdrawable.textContent = `${formatNumber(stats.withdrawable)} USDT`;
+        ui.overviewActiveOrders.textContent = `${stats.activeOrderCount ?? 0} 笔`;
+        ui.overviewPositions.textContent = `${stats.positionCount ?? 0} 个方向`;
+        ui.overviewPositionDetail.textContent = `LONG ${stats.longPositionCount ?? 0} / SHORT ${stats.shortPositionCount ?? 0}`;
+
+        ui.btn2fa.textContent = security.google2faEnabled ? "已开启" : "未开启";
+        ui.btnWhitelist.textContent = security.withdrawWhitelistEnabled ? "已开启" : "未开启";
+
+        renderTimeline(user, stats);
+    }
+
+    function renderTimeline(user, stats) {
+        const items = [
+            {
+                time: formatTimeOnly(user.lastLoginTime),
+                text: `最近登录 <span class="badge">${formatDateTime(user.lastLoginTime)}</span>`
+            },
+            {
+                time: "--",
+                text: `今日成交 <span class="badge">${stats.todayFilledCount ?? 0} 笔</span>`
+            },
+            {
+                time: "--",
+                text: `活动订单 <span class="badge">${stats.activeOrderCount ?? 0} 笔</span>`
+            },
+            {
+                time: "--",
+                text: `仓位方向 <span class="badge">LONG ${stats.longPositionCount ?? 0} / SHORT ${stats.shortPositionCount ?? 0}</span>`
+            }
+        ];
+
+        ui.overviewTimeline.innerHTML = items.map((item) => `
+            <div class="timeline-item">
+                <div class="timeline-time">${item.time}</div>
+                <div>${item.text}</div>
+            </div>
+        `).join("");
+    }
+
+    function renderBalances() {
+        const keyword = ui.balanceSymbol.value.trim().toUpperCase();
+        const accountType = ui.balanceType.value;
+
+        const rows = state.balances.filter((row) => {
+            const asset = String(row.asset || "").toUpperCase();
+            const type = String(row.accountType || "").toUpperCase();
+            const keywordOk = !keyword || asset.includes(keyword);
+            const typeOk = accountType === "ALL" || type === accountType;
+            return keywordOk && typeOk;
+        });
+
+        ui.balanceTbody.innerHTML = rows.map((row) => {
+            const rate = Number(row.change24hRate || 0);
+            const rateText = `${rate >= 0 ? "+" : ""}${rate.toFixed(2)}%`;
+            return `
+                <tr>
+                    <td>${row.asset || "--"}</td>
+                    <td>${row.accountType || "--"}</td>
+                    <td>${formatNumber(row.total, 8)}</td>
+                    <td>${formatNumber(row.available, 8)}</td>
+                    <td>${formatNumber(row.frozen, 8)}</td>
+                    <td>${formatNumber(row.usdtValuation)}</td>
+                    <td class="${rate >= 0 ? "positive" : "negative"}">${rateText}</td>
+                </tr>
+            `;
+        }).join("");
+
+        if (!rows.length) {
+            ui.balanceTbody.innerHTML = `
+                <tr>
+                    <td colspan="7" class="muted">暂无符合条件的余额记录</td>
+                </tr>
+            `;
+        }
+    }
+
+    function renderTrades() {
+        const keyword = ui.tradeSymbol.value.trim().toUpperCase();
+        const sideFilter = ui.tradeSide.value;
+
+        const rows = state.trades
+            .filter((row) => {
+                const symbol = String(row.symbol || "").toUpperCase();
+                const side = String(row.side || "").toUpperCase();
+                const symbolOk = !keyword || symbol.includes(keyword);
+                const sideOk = sideFilter === "ALL" || side === sideFilter;
+                return symbolOk && sideOk;
+            })
+            .sort((a, b) => Number(b.createTime || 0) - Number(a.createTime || 0));
+
+        ui.tradeTbody.innerHTML = rows.map((row) => {
+            const side = String(row.side || "--").toUpperCase();
+            const fee = row.fee == null ? "--" : formatNumber(row.fee, 8);
+            const pnl = row.realizedPnl == null ? "--" : formatSigned(Number(row.realizedPnl));
+            const pnlClass = pnl.startsWith("-") ? "negative" : "positive";
+            return `
+                <tr>
+                    <td>${formatDateTime(row.createTime)}</td>
+                    <td>${row.symbol || "--"}</td>
+                    <td class="${side === "BUY" ? "positive" : "negative"}">${side}</td>
+                    <td>${formatNumber(row.price, 8)}</td>
+                    <td>${formatNumber(row.filledQuantity || row.quantity, 8)}</td>
+                    <td>${formatNumber(row.filledAmount, 8)}</td>
+                    <td>${fee}</td>
+                    <td class="${pnl === "--" ? "" : pnlClass}">${pnl}</td>
+                </tr>
+            `;
+        }).join("");
+
+        if (!rows.length) {
+            ui.tradeTbody.innerHTML = `
+                <tr>
+                    <td colspan="8" class="muted">暂无符合条件的历史交易记录</td>
+                </tr>
+            `;
+        }
+    }
+
+    function fillProfileForm(profile) {
+        if (!profile) return;
+        ui.inputUsername.value = profile.username || "--";
+        ui.inputCountry.value = profile.country || "CN";
+        ui.inputEmail.value = profile.email || "";
+        ui.inputPhone.value = profile.phone || "";
+        ui.inputTimezone.value = profile.timezone || "Asia/Shanghai";
+        ui.inputLanguage.value = profile.language || "zh-CN";
+    }
+
+    function setEditMode(editing) {
+        state.editing = editing;
+        ui.toggleEdit.textContent = editing ? "退出编辑" : "进入编辑";
+        ui.saveProfile.disabled = !editing;
+        ui.cancelEdit.disabled = !editing;
+        ui.inputEmail.readOnly = !editing;
+        ui.inputPhone.readOnly = !editing;
+    }
+
+    function setBanner(text, tag) {
+        ui.announceText.textContent = text;
+        ui.announceTag.textContent = tag;
+    }
+
+    async function requestUserResult(path, options = {}) {
+        const headers = {
+            ...(options.headers || {}),
+            ...(state.token ? { Authorization: `Bearer ${state.token}` } : {})
+        };
+
+        const response = await fetch(`${config.apiGateway}${path}`, {
+            ...options,
+            headers
+        });
+        const json = await response.json();
+        if (!response.ok) {
+            throw new Error(json.message || `HTTP ${response.status}`);
+        }
+        if (json.code !== 200) {
+            throw new Error(json.message || "业务请求失败");
+        }
+        return json.data;
+    }
+
+    function normalizeToken(value) {
+        if (value === null || value === undefined) return null;
+        let token = String(value).trim();
+        if (!token || token === "null" || token === "undefined") return null;
+        if (token.startsWith("Bearer ")) {
+            token = token.slice(7).trim();
+        }
+        return token || null;
+    }
+
+    function isLikelyJwt(token) {
+        return typeof token === "string" && /^[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/.test(token);
+    }
+
+    function formatNumber(value, scale = 2) {
+        const num = Number(value);
+        if (!Number.isFinite(num)) return "--";
+        return num.toLocaleString("en-US", {
+            minimumFractionDigits: scale,
+            maximumFractionDigits: scale
+        });
+    }
+
+    function formatSigned(value) {
+        const num = Number(value);
+        if (!Number.isFinite(num)) return "--";
+        return `${num >= 0 ? "+" : ""}${formatNumber(num)}`;
+    }
+
+    function formatPercent(value) {
+        const num = Number(value);
+        if (!Number.isFinite(num)) return "--";
+        return `${num.toFixed(2)}%`;
+    }
+
+    function formatDateTime(value) {
+        if (!value) return "--";
+        const time = Number(value);
+        if (Number.isFinite(time) && time > 0) {
+            return new Date(time).toLocaleString("zh-CN", { hour12: false });
+        }
+        const parsed = new Date(value);
+        if (!Number.isNaN(parsed.getTime())) {
+            return parsed.toLocaleString("zh-CN", { hour12: false });
+        }
+        return String(value);
+    }
+
+    function formatTimeOnly(value) {
+        if (!value) return "--";
+        const time = Number(value);
+        if (Number.isFinite(time) && time > 0) {
+            return new Date(time).toLocaleTimeString("zh-CN", { hour12: false });
+        }
+        const parsed = new Date(value);
+        if (!Number.isNaN(parsed.getTime())) {
+            return parsed.toLocaleTimeString("zh-CN", { hour12: false });
+        }
+        return "--";
+    }
+
+    function inferTier(kycLevel) {
+        const level = Number(kycLevel || 0);
+        if (level >= 2) return "VIP 2";
+        if (level >= 1) return "VIP 1";
+        return "普通";
+    }
+
+    function makeAvatarText(username) {
+        if (!username) return "--";
+        const trimmed = String(username).trim();
+        return trimmed.length >= 2 ? trimmed.slice(0, 2).toUpperCase() : trimmed.toUpperCase();
+    }
+
+    function maskPhone(phone) {
+        if (!phone) return "--";
+        const digits = String(phone);
+        if (digits.length < 7) return digits;
+        return digits.slice(0, 4) + "****" + digits.slice(-3);
+    }
+
+    function maskEmail(email) {
+        if (!email || !String(email).includes("@")) return "--";
+        const [name, domain] = String(email).split("@");
+        if (name.length <= 2) {
+            return `${name[0] || "*"}***@${domain}`;
+        }
+        return `${name.slice(0, 2)}***@${domain}`;
+    }
+
+    function normalizeNullable(value) {
+        if (value == null) return null;
+        const trimmed = String(value).trim();
+        return trimmed === "" ? null : trimmed;
+    }
+
+    init();
+</script>
+</body>
+</html>

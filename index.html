@@ -27,6 +27,7 @@
             --radius-xl: 24px;
             --radius-lg: 18px;
             --radius-sm: 10px;
+            --mono: "IBM Plex Mono", Consolas, monospace;
         }
 
         * {
@@ -90,8 +91,9 @@
             border-radius: 999px;
             background: linear-gradient(90deg, rgba(0, 194, 255, 0.12), rgba(0, 224, 182, 0.08));
             color: #def7ff;
-            font-size: 13px;
+            font-size: 15px;
             letter-spacing: 0.1px;
+            line-height: 1.42;
             display: flex;
             align-items: center;
             justify-content: space-between;
@@ -153,17 +155,20 @@
         .topnav {
             display: flex;
             align-items: center;
-            gap: 16px;
+            gap: 12px;
+            flex-wrap: wrap;
             color: var(--text-sub);
-            font-size: 13px;
+            font-size: 12px;
         }
 
-        .topnav span {
+        .topnav a {
+            color: inherit;
+            text-decoration: none;
             transition: color 0.2s ease;
-            cursor: default;
+            cursor: pointer;
         }
 
-        .topnav span:hover {
+        .topnav a:hover {
             color: #d5e6ff;
         }
 
@@ -525,6 +530,177 @@
             line-height: 1.65;
         }
 
+        .training-hub {
+            margin-top: 16px;
+            display: grid;
+            gap: 16px;
+            grid-template-columns: 1.2fr 1fr 1fr;
+        }
+
+        .training-card {
+            border: 1px solid var(--line-soft);
+            border-radius: var(--radius-lg);
+            background: linear-gradient(165deg, rgba(11, 18, 31, 0.86), rgba(8, 13, 22, 0.95));
+            backdrop-filter: blur(8px);
+            padding: 18px;
+            display: grid;
+            gap: 12px;
+            min-height: 192px;
+        }
+
+        .training-card h3 {
+            font-family: "Space Grotesk", sans-serif;
+            font-size: 17px;
+            line-height: 1.2;
+        }
+
+        .training-sub {
+            color: var(--text-sub);
+            font-size: 12px;
+            line-height: 1.62;
+        }
+
+        .skill-main {
+            display: flex;
+            align-items: baseline;
+            gap: 10px;
+        }
+
+        .skill-number {
+            font-family: "Space Grotesk", sans-serif;
+            font-size: 34px;
+            line-height: 1;
+            font-weight: 700;
+            letter-spacing: 0.2px;
+            color: #d7f3ff;
+        }
+
+        .skill-badge {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            min-width: 84px;
+            height: 28px;
+            padding: 0 10px;
+            border-radius: 999px;
+            border: 1px solid rgba(116, 159, 216, 0.44);
+            background: rgba(13, 30, 52, 0.72);
+            color: #d2e8ff;
+            font-size: 11px;
+            font-weight: 700;
+            letter-spacing: 0.2px;
+        }
+
+        .skill-delta {
+            font-family: var(--mono);
+            font-size: 12px;
+            color: #adc7e6;
+        }
+
+        .skill-delta.up {
+            color: var(--buy);
+        }
+
+        .skill-delta.down {
+            color: var(--sell);
+        }
+
+        .skill-bars {
+            display: grid;
+            grid-template-columns: repeat(3, minmax(0, 1fr));
+            gap: 8px;
+        }
+
+        .skill-bar {
+            border: 1px solid rgba(112, 145, 198, 0.22);
+            border-radius: 10px;
+            background: rgba(8, 18, 33, 0.66);
+            padding: 8px;
+            display: grid;
+            gap: 4px;
+        }
+
+        .skill-bar span {
+            color: var(--text-sub);
+            font-size: 11px;
+        }
+
+        .skill-bar strong {
+            font-family: var(--mono);
+            color: #dcf0ff;
+            font-size: 13px;
+            font-weight: 600;
+        }
+
+        .hub-metrics {
+            display: grid;
+            gap: 7px;
+        }
+
+        .hub-metric {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            border: 1px solid rgba(112, 145, 198, 0.22);
+            border-radius: 10px;
+            background: rgba(7, 15, 28, 0.58);
+            padding: 9px 10px;
+            gap: 8px;
+        }
+
+        .hub-metric span {
+            color: var(--text-sub);
+            font-size: 12px;
+        }
+
+        .hub-metric strong {
+            color: #d7edff;
+            font-size: 13px;
+            font-family: var(--mono);
+            font-weight: 600;
+            white-space: nowrap;
+        }
+
+        .hub-actions {
+            margin-top: auto;
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 8px;
+        }
+
+        .hub-action {
+            border: 1px solid rgba(106, 141, 195, 0.46);
+            border-radius: 10px;
+            min-height: 36px;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            padding: 0 10px;
+            font-size: 12px;
+            color: #cae2ff;
+            background: rgba(12, 26, 48, 0.64);
+            transition: transform 0.16s ease, border-color 0.16s ease, background-color 0.16s ease;
+            cursor: pointer;
+        }
+
+        .hub-action.primary {
+            border: 0;
+            color: #02131d;
+            background: linear-gradient(130deg, rgba(0, 194, 255, 0.96), rgba(0, 224, 182, 0.94));
+            font-weight: 700;
+        }
+
+        .hub-action:hover {
+            transform: translateY(-1px);
+            border-color: rgba(150, 189, 244, 0.72);
+            background: rgba(14, 34, 60, 0.82);
+        }
+
+        .hub-action.primary:hover {
+            border-color: transparent;
+            background: linear-gradient(130deg, rgba(6, 203, 255, 0.98), rgba(8, 233, 188, 0.96));
+        }
+
         .footer {
             margin: 20px 0 10px;
             color: #6f89ac;
@@ -560,7 +736,8 @@
             }
 
             .section,
-            .features {
+            .features,
+            .training-hub {
                 grid-template-columns: 1fr;
             }
 
@@ -598,18 +775,24 @@
                 grid-template-columns: 1fr;
             }
 
+            .skill-bars,
+            .hub-actions {
+                grid-template-columns: 1fr;
+            }
+
             .announcement {
                 padding: 11px 14px;
-                font-size: 12px;
+                font-size: 13px;
             }
         }
     </style>
+    <link rel="stylesheet" href="styles/cotraining-unified.css">
 </head>
-<body>
+<body class="cotraining-ui">
     <div class="ambient-strip" aria-hidden="true"></div>
 
     <a id="topBanner" class="announcement fade-up" href="trading-test.html">
-        <span><strong>新版本交易终端已上线</strong> ｜ 更流畅盘口、登录态隔离、可切换交易币对</span>
+        <span><strong>AI 交易终端已上线</strong> ｜ 手动/AI 双模式执行，人机同榜 Skill Score</span>
         <span class="cta">点击进入交易</span>
     </a>
 
@@ -620,47 +803,59 @@
                 <span>NovaX Futures</span>
             </a>
             <nav class="topnav" aria-label="主导航">
-                <span>市场</span>
-                <span>合约</span>
-                <span>跟单</span>
-                <span>机构 API</span>
+                <a href="trading-test.html" data-route="/trade">交易终端</a>
+                <a href="http://localhost:3000/btc-dashboard.html" data-route="/btc-dashboard">BTC周期看板</a>
+                <a href="training.html" data-route="/training">模拟训练</a>
+                <a href="skills.html" data-route="/skills">策略工坊</a>
+                <a href="ai-console.html" data-route="/ai-console">AI决策台</a>
+                <a href="replay-lab.html" data-route="/replay-lab">复盘实验室</a>
+                <a href="arena-live.html" data-route="/arena/live">AI竞技场</a>
+                <a href="skillboard.html" data-route="/skillboard">Skill榜</a>
+                <a href="my-growth.html" data-route="/my-growth">我的成长</a>
             </nav>
-            <div class="user-pill" id="userPill">
-                <span>状态:</span>
-                <strong id="userStateText">未登录</strong>
+            <div class="topbar-right">
+                <div class="user-pill" id="userPill">
+                    <span>状态:</span>
+                    <strong id="userStateText">未登录</strong>
+                </div>
+                <div class="utility-nav">
+                    <a class="utility-link" href="rules.html">规则</a>
+                    <a class="utility-link" href="developers.html">开发者</a>
+                    <a class="utility-link" href="profile-center.html">个人中心</a>
+                </div>
             </div>
         </header>
 
         <section class="hero fade-up delay-2">
             <div class="hero-left">
                 <div>
-                    <div class="label">实时撮合 + 风控链路可观测</div>
-                    <h1>让用户从首页 <span>一键进入</span> 交易主场</h1>
+                    <div class="label">实时撮合 + 可解释AI决策 + 风控链路可观测</div>
+                    <h1>让用户在交易中 <span>感知水平</span> 并迭代策略</h1>
                     <p>
-                        首页聚焦增长和转化，交易页聚焦速度和清晰度。当前版本将登录前后状态、币对切换、下单路径和实时行情分层处理，
-                        在保证可扩展性的同时减少渲染负担。
+                        这里不是只给下单入口，而是把交易、AI 决策、能力评分和复盘串成闭环。
+                        用户与 AI 使用同一套 Skill Score 尺子，持续看到策略是变强还是退化。
                     </p>
                 </div>
                 <div class="hero-stats">
                     <div class="hero-stat">
-                        <span class="k">交易响应</span>
+                        <span class="k">交易执行延迟</span>
                         <span class="v">&lt; 120ms</span>
                     </div>
                     <div class="hero-stat">
-                        <span class="k">盘口更新频率</span>
-                        <span class="v">100ms</span>
+                        <span class="k">AI决策可解释覆盖</span>
+                        <span class="v">100%</span>
                     </div>
                     <div class="hero-stat">
-                        <span class="k">支持账户模式</span>
-                        <span class="v">登录 / 游客</span>
+                        <span class="k">人机统一评分</span>
+                        <span class="v">Skill Score</span>
                     </div>
                 </div>
             </div>
 
             <aside class="hero-right">
                 <div>
-                    <h2 class="panel-title">立即开始交易</h2>
-                    <p class="panel-sub">选择交易币对后，顶部 Banner 和下方按钮都会跳转到同一交易界面。</p>
+                    <h2 class="panel-title">立即开始交易与评分</h2>
+                    <p class="panel-sub">先手动交易或启用 AI 策略，系统会持续输出统一 Skill Score 与风险归因。</p>
                 </div>
 
                 <div class="pair-control">
@@ -671,26 +866,96 @@
                 </div>
 
                 <div class="tip-row" id="authTip">
-                    <strong>提示:</strong> 当前为游客模式，可查看行情。登录后可直接下单、查看余额和持仓。
+                    <strong>提示:</strong> 当前为游客模式，可查看行情。登录后可交易、查看战绩并参与 AI 竞技场。
                 </div>
             </aside>
         </section>
 
         <section class="section fade-up delay-3">
             <article class="card">
-                <span class="eyebrow">24h 成交额（模拟）</span>
-                <span class="value accent mono">$2.43B</span>
-                <span class="eyebrow">多市场聚合展示，支持更多交易对扩容</span>
+                <span class="eyebrow">Skill榜 Top1（人机同榜）</span>
+                <span class="value accent mono">92.4</span>
+                <span class="eyebrow">风险调整收益、回撤控制、执行质量统一加权</span>
             </article>
             <article class="card">
-                <span class="eyebrow">当前热门方向</span>
-                <span class="value buy">Long 57%</span>
-                <span class="eyebrow">来自最新成交与订单流统计</span>
+                <span class="eyebrow">AI 策略日内胜率</span>
+                <span class="value buy">63.8%</span>
+                <span class="eyebrow">来自实时成交反馈与决策回放闭环</span>
             </article>
             <article class="card">
-                <span class="eyebrow">风险指数</span>
-                <span class="value sell">0.84</span>
-                <span class="eyebrow">接近中性，适合分批建仓</span>
+                <span class="eyebrow">策略迭代频率</span>
+                <span class="value sell">每周 2.1 次</span>
+                <span class="eyebrow">版本化回测 + 线上灰度对照，防止策略漂移</span>
+            </article>
+        </section>
+
+        <section class="training-hub fade-up delay-3" aria-label="共训引擎">
+            <article class="training-card">
+                <h3>Skill Score 实时脉冲</h3>
+                <p class="training-sub">同一评分尺子适用于用户和 AI，持续评估收益质量、风控纪律与执行稳定性。</p>
+                <div class="skill-main">
+                    <span id="homeSkillScore" class="skill-number mono">--</span>
+                    <span id="homeSkillBand" class="skill-badge">--</span>
+                </div>
+                <div id="homeSkillDelta" class="skill-delta">--</div>
+                <div class="skill-bars">
+                    <div class="skill-bar">
+                        <span>收益质量</span>
+                        <strong id="homeSkillQuality">--</strong>
+                    </div>
+                    <div class="skill-bar">
+                        <span>风控纪律</span>
+                        <strong id="homeSkillRisk">--</strong>
+                    </div>
+                    <div class="skill-bar">
+                        <span>执行稳定</span>
+                        <strong id="homeSkillExecution">--</strong>
+                    </div>
+                </div>
+            </article>
+            <article class="training-card">
+                <h3>AI竞技场</h3>
+                <p class="training-sub">同市场、同初始资金、同评分模型，实时比较 AI 与人类策略表现。</p>
+                <div class="hub-metrics">
+                    <div class="hub-metric">
+                        <span>领先策略</span>
+                        <strong id="homeArenaLeader">--</strong>
+                    </div>
+                    <div class="hub-metric">
+                        <span>当日收益</span>
+                        <strong id="homeArenaRoi">--</strong>
+                    </div>
+                    <div class="hub-metric">
+                        <span>连胜场次</span>
+                        <strong id="homeArenaStreak">--</strong>
+                    </div>
+                </div>
+                <div class="hub-actions">
+                    <a class="hub-action primary" href="arena-live.html" data-route="/arena/live" data-label="AI竞技场">进入AI竞技场</a>
+                    <a class="hub-action" href="skillboard.html" data-route="/skillboard" data-label="Skill榜">查看Skill榜</a>
+                </div>
+            </article>
+            <article class="training-card">
+                <h3>复盘实验室</h3>
+                <p class="training-sub">逐笔重放“看到什么、为什么下单、结果如何”，支持用户与 AI 联合改进。</p>
+                <div class="hub-metrics">
+                    <div class="hub-metric">
+                        <span>最近复盘主题</span>
+                        <strong id="homeReplayTheme">--</strong>
+                    </div>
+                    <div class="hub-metric">
+                        <span>策略增益</span>
+                        <strong id="homeReplayEdge">--</strong>
+                    </div>
+                    <div class="hub-metric">
+                        <span>建议动作</span>
+                        <strong id="homeReplayHint">--</strong>
+                    </div>
+                </div>
+                <div class="hub-actions">
+                    <a class="hub-action primary" href="replay-lab.html" data-route="/replay-lab" data-label="复盘实验室">开始一次复盘</a>
+                    <a class="hub-action" href="skills.html" data-route="/skills" data-label="策略工坊">进入策略工坊</a>
+                </div>
             </article>
         </section>
 
@@ -706,16 +971,16 @@
 
         <section class="features fade-up delay-3">
             <article class="feature">
-                <h3>双阶段体验</h3>
-                <p>首页承担品牌和转化，交易页承担执行和反馈。用户路径更短，不会在一个页面塞满所有信息导致卡顿。</p>
+                <h3>人机同尺评分</h3>
+                <p>用户与 AI 使用同一 Skill Score 模型，不只比收益率，还评估回撤、执行质量和稳定性。</p>
             </article>
             <article class="feature">
-                <h3>登录前后分离</h3>
-                <p>游客可无门槛看行情；已登录用户自动切换到账户模式，展示余额、持仓和订单操作，减少误触与无效请求。</p>
+                <h3>可解释决策链路</h3>
+                <p>每次 AI 下单都记录决策理由与关键市场快照，支持逐笔复盘，区别于黑箱式挑战赛。</p>
             </article>
             <article class="feature">
-                <h3>币对驱动入口</h3>
-                <p>Banner 和 CTA 都携带币对参数跳转，适配营销活动与专题页投放，便于后续做按币对的转化漏斗统计。</p>
+                <h3>策略迭代引擎</h3>
+                <p>策略以版本管理和 A/B 对照驱动迭代，线上表现变化可追踪，支持快速验证与回滚。</p>
             </article>
         </section>
 
@@ -738,6 +1003,10 @@
                 symbol: "fx_symbol"
             };
 
+            const ARENA_STRATEGIES = ["AI-Momentum-v4", "Reversal-Hybrid-v2", "Human-Discipline-Desk", "VolBreak-AI-v1"];
+            const REPLAY_TOPICS = ["突破失败反打", "高波动追价修正", "盘整区间耐心等待", "仓位过载纠偏"];
+            const HUB_REFRESH_MS = 15000;
+
             const elements = {
                 pairSelect: document.getElementById("homePairSelect"),
                 topBanner: document.getElementById("topBanner"),
@@ -745,8 +1014,22 @@
                 altEnterBtn: document.getElementById("altEnterBtn"),
                 marketRows: document.getElementById("marketRows"),
                 userStateText: document.getElementById("userStateText"),
-                authTip: document.getElementById("authTip")
+                authTip: document.getElementById("authTip"),
+                homeSkillScore: document.getElementById("homeSkillScore"),
+                homeSkillBand: document.getElementById("homeSkillBand"),
+                homeSkillDelta: document.getElementById("homeSkillDelta"),
+                homeSkillQuality: document.getElementById("homeSkillQuality"),
+                homeSkillRisk: document.getElementById("homeSkillRisk"),
+                homeSkillExecution: document.getElementById("homeSkillExecution"),
+                homeArenaLeader: document.getElementById("homeArenaLeader"),
+                homeArenaRoi: document.getElementById("homeArenaRoi"),
+                homeArenaStreak: document.getElementById("homeArenaStreak"),
+                homeReplayTheme: document.getElementById("homeReplayTheme"),
+                homeReplayEdge: document.getElementById("homeReplayEdge"),
+                homeReplayHint: document.getElementById("homeReplayHint"),
+                hubActions: Array.from(document.querySelectorAll(".hub-action"))
             };
+            let hubPulseTimer = null;
 
             function readStorage(keys) {
                 if (Array.isArray(keys)) {
@@ -791,6 +1074,24 @@
                 return value.toLocaleString("en-US", { minimumFractionDigits: 4, maximumFractionDigits: 6 });
             }
 
+            function clamp(value, min, max) {
+                if (!Number.isFinite(value)) return min;
+                return Math.min(max, Math.max(min, value));
+            }
+
+            function resolveSkillBand(score) {
+                if (score >= 90) return "Elite";
+                if (score >= 82) return "Pro";
+                if (score >= 74) return "Advanced";
+                if (score >= 66) return "Growing";
+                return "Bootstrap";
+            }
+
+            function currentPair() {
+                const symbol = elements.pairSelect.value || "BTCUSDT";
+                return PAIRS.find(item => item.symbol === symbol) || PAIRS[0];
+            }
+
             function tradingUrl(symbol) {
                 return `trading-test.html?symbol=${encodeURIComponent(symbol)}`;
             }
@@ -825,16 +1126,53 @@
                 }).join("");
             }
 
+            function renderTrainingPulse() {
+                const pair = currentPair();
+                const nowTick = Math.floor(Date.now() / HUB_REFRESH_MS);
+                const symbolSeed = (pair.symbol || "").split("").reduce((sum, ch) => sum + ch.charCodeAt(0), 0);
+                const waveA = Math.sin((nowTick + symbolSeed) / 5.1) * 2.4;
+                const waveB = Math.cos((nowTick + symbolSeed) / 7.8) * 1.8;
+
+                const score = clamp(79 + pair.change * 1.25 + waveA + waveB, 55, 98);
+                const delta = clamp(pair.change * 0.18 + waveA * 0.24, -2.5, 2.5);
+                const quality = clamp(score + 2.2, 42, 99.5);
+                const risk = clamp(83 - Math.abs(pair.change) * 7 + waveB * 2.5, 36, 98.8);
+                const execution = clamp(81 + waveA * 2.2, 38, 99);
+
+                elements.homeSkillScore.textContent = score.toFixed(1);
+                elements.homeSkillBand.textContent = resolveSkillBand(score);
+                elements.homeSkillDelta.textContent = `${delta >= 0 ? "+" : ""}${delta.toFixed(2)} 今日变化`;
+                elements.homeSkillDelta.classList.toggle("up", delta >= 0);
+                elements.homeSkillDelta.classList.toggle("down", delta < 0);
+                elements.homeSkillQuality.textContent = `${quality.toFixed(1)} 分`;
+                elements.homeSkillRisk.textContent = `${risk.toFixed(1)} 分`;
+                elements.homeSkillExecution.textContent = `${execution.toFixed(1)} 分`;
+
+                const arenaIndex = Math.abs(nowTick + symbolSeed) % ARENA_STRATEGIES.length;
+                const arenaRoi = clamp(pair.change * 1.7 + waveA * 0.8, -6.5, 12.5);
+                const streak = Math.max(2, Math.round(6 + Math.abs(waveB) * 4 + Math.abs(pair.change)));
+                elements.homeArenaLeader.textContent = ARENA_STRATEGIES[arenaIndex];
+                elements.homeArenaRoi.textContent = `${arenaRoi >= 0 ? "+" : ""}${arenaRoi.toFixed(2)}%`;
+                elements.homeArenaStreak.textContent = `${streak} 场`;
+
+                const replayIndex = Math.abs(nowTick + symbolSeed + 3) % REPLAY_TOPICS.length;
+                const replayEdge = clamp((score - 68) * 0.08 + waveB * 0.45, -1.2, 3.6);
+                const replayHint = score >= 84 ? "继续放大优势场景" : score >= 74 ? "降低追单频率" : "先做低风险训练";
+                elements.homeReplayTheme.textContent = REPLAY_TOPICS[replayIndex];
+                elements.homeReplayEdge.textContent = `${replayEdge >= 0 ? "+" : ""}${replayEdge.toFixed(2)}R`;
+                elements.homeReplayHint.textContent = replayHint;
+            }
+
             function applyAuthView() {
                 const token = normalizeToken(readStorage(STORAGE.token));
                 const username = readStorage(STORAGE.username);
                 const loggedIn = Boolean(token && isLikelyJwt(token));
                 if (loggedIn) {
                     elements.userStateText.textContent = username ? `${username} 已登录` : "已登录";
-                    elements.authTip.innerHTML = "<strong>提示:</strong> 已识别登录态，进入交易页后将自动连接私有推送并加载余额/持仓。";
+                    elements.authTip.innerHTML = "<strong>提示:</strong> 已识别登录态，进入交易页后将自动连接私有推送，并可参与 AI 竞技场与战绩评分。";
                 } else {
                     elements.userStateText.textContent = "未登录";
-                    elements.authTip.innerHTML = "<strong>提示:</strong> 当前为游客模式，可查看行情。登录后可直接下单、查看余额和持仓。";
+                    elements.authTip.innerHTML = "<strong>提示:</strong> 当前为游客模式，可查看行情。登录后可交易、查看战绩并参与 AI 竞技场。";
                 }
             }
 
@@ -843,6 +1181,7 @@
                     const symbol = elements.pairSelect.value;
                     localStorage.setItem(STORAGE.symbol, symbol);
                     updateEntryLinks(symbol);
+                    renderTrainingPulse();
                 });
 
                 elements.enterBtn.addEventListener("click", () => {
@@ -863,13 +1202,34 @@
                     localStorage.setItem(STORAGE.symbol, symbol);
                     window.location.href = tradingUrl(symbol);
                 });
+
+                for (const action of elements.hubActions) {
+                    action.addEventListener("click", () => {
+                        const route = action.dataset.route || "/";
+                        const label = action.dataset.label || "功能";
+                        const launched = new Set(["/arena/live", "/skillboard", "/skills", "/replay-lab"]);
+                        if (launched.has(route)) {
+                            elements.authTip.innerHTML = `<strong>提示:</strong> 正在进入 ${label}（路由: <code>${route}</code>）。`;
+                        } else {
+                            elements.authTip.innerHTML = `<strong>提示:</strong> ${label} 即将开放（路由占位: <code>${route}</code>），当前交易主链路不受影响。`;
+                        }
+                    });
+                }
+
+                window.addEventListener("beforeunload", () => {
+                    if (hubPulseTimer) {
+                        clearInterval(hubPulseTimer);
+                    }
+                });
             }
 
             function init() {
                 renderPairs();
                 renderMarketRows();
+                renderTrainingPulse();
                 applyAuthView();
                 bindEvents();
+                hubPulseTimer = setInterval(renderTrainingPulse, HUB_REFRESH_MS);
             }
 
             init();

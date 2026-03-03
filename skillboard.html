@@ -1,0 +1,619 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>NovaX · Skill榜</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&family=Noto+Sans+SC:wght@400;500;700&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --bg-main: #05070c;
+            --bg-card: rgba(11, 16, 28, 0.82);
+            --line-soft: rgba(160, 188, 226, 0.24);
+            --text-main: #f2f7ff;
+            --text-sub: #8fa5c6;
+            --text-dim: #6f85a8;
+            --accent: #00c2ff;
+            --buy: #1ccb92;
+            --sell: #ff6e6e;
+            --warning: #ffb347;
+            --max-width: 1400px;
+            --mono: "IBM Plex Mono", Consolas, monospace;
+        }
+
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+
+        body {
+            min-height: 100vh;
+            color: var(--text-main);
+            font-family: "Noto Sans SC", "Space Grotesk", sans-serif;
+            background:
+                radial-gradient(800px 520px at -10% -15%, rgba(0, 194, 255, 0.16), transparent 70%),
+                radial-gradient(900px 480px at 110% 20%, rgba(0, 224, 182, 0.14), transparent 74%),
+                radial-gradient(1200px 700px at 50% 120%, rgba(80, 123, 255, 0.12), transparent 78%),
+                linear-gradient(150deg, #04060b 0%, #080b14 50%, #05070c 100%);
+            overflow-x: hidden;
+        }
+
+        a { color: inherit; text-decoration: none; }
+
+        .ambient-strip {
+            position: fixed;
+            inset: 0;
+            pointer-events: none;
+            z-index: -1;
+        }
+
+        .ambient-strip::before,
+        .ambient-strip::after {
+            content: "";
+            position: absolute;
+            width: 45vw;
+            height: 45vw;
+            filter: blur(110px);
+            opacity: 0.34;
+        }
+
+        .ambient-strip::before {
+            top: -16vw;
+            left: -8vw;
+            background: radial-gradient(circle, rgba(0, 188, 255, 0.38) 0%, transparent 72%);
+        }
+
+        .ambient-strip::after {
+            right: -12vw;
+            bottom: -24vw;
+            background: radial-gradient(circle, rgba(0, 224, 182, 0.34) 0%, transparent 72%);
+        }
+
+        .announcement {
+            width: min(var(--max-width), calc(100vw - 28px));
+            margin: 16px auto 10px;
+            padding: 12px 18px;
+            border: 1px solid rgba(0, 194, 255, 0.38);
+            border-radius: 999px;
+            background: linear-gradient(90deg, rgba(0, 194, 255, 0.12), rgba(0, 224, 182, 0.08));
+            color: #def7ff;
+            font-size: 15px;
+            line-height: 1.42;
+            display: flex;
+            justify-content: space-between;
+            gap: 10px;
+        }
+
+        .announcement .cta { color: #00e0b6; font-weight: 700; white-space: nowrap; }
+
+        .header,
+        .layout {
+            width: min(var(--max-width), calc(100vw - 28px));
+            margin: 0 auto;
+        }
+
+        .header { display: grid; gap: 10px; }
+
+        .topbar {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 18px;
+            padding: 10px 2px 2px;
+        }
+
+        .brand {
+            display: inline-flex;
+            align-items: center;
+            gap: 10px;
+            font-family: "Space Grotesk", sans-serif;
+            font-weight: 700;
+            letter-spacing: 0.2px;
+            white-space: nowrap;
+        }
+
+        .brand-mark {
+            width: 30px;
+            height: 30px;
+            border-radius: 10px;
+            background: linear-gradient(135deg, #00c2ff, #00e0b6);
+            color: #03141b;
+            font-family: "Space Grotesk", sans-serif;
+            font-weight: 700;
+            display: grid;
+            place-items: center;
+            font-size: 14px;
+        }
+
+        .topnav {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            flex-wrap: wrap;
+            color: var(--text-sub);
+            font-size: 12px;
+        }
+
+        .topnav a:hover { color: #d5e6ff; }
+        .topnav a.active { color: #d7ecff; font-weight: 600; }
+
+        .status-chip {
+            border: 1px solid var(--line-soft);
+            border-radius: 999px;
+            padding: 8px 12px;
+            font-size: 12px;
+            color: var(--text-sub);
+            background: rgba(8, 14, 27, 0.9);
+            white-space: nowrap;
+        }
+
+        .status-chip strong { color: #e8f2ff; margin-left: 6px; }
+
+        .hero {
+            border: 1px solid var(--line-soft);
+            border-radius: 16px;
+            background:
+                radial-gradient(460px 220px at 80% 40%, rgba(0, 224, 182, 0.08), transparent 78%),
+                linear-gradient(160deg, rgba(8, 15, 28, 0.94), rgba(6, 11, 20, 0.98));
+            padding: 16px 18px;
+            display: grid;
+            grid-template-columns: 1.2fr 1fr;
+            gap: 16px;
+            align-items: end;
+        }
+
+        .hero h1 {
+            font-family: "Space Grotesk", sans-serif;
+            font-size: clamp(26px, 3.8vw, 36px);
+            line-height: 1.1;
+            margin-bottom: 8px;
+        }
+
+        .hero h1 span {
+            background: linear-gradient(120deg, #00c2ff, #00e0b6 72%);
+            -webkit-background-clip: text;
+            background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+
+        .hero p { color: var(--text-sub); font-size: 14px; line-height: 1.7; }
+
+        .hero-grid {
+            display: grid;
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+            gap: 10px;
+        }
+
+        .hero-metric {
+            border: 1px solid rgba(112, 143, 193, 0.3);
+            border-radius: 12px;
+            padding: 10px;
+            background: rgba(10, 18, 30, 0.88);
+        }
+
+        .hero-metric .k { color: var(--text-sub); font-size: 11px; margin-bottom: 4px; }
+        .hero-metric .v { font-family: var(--mono); font-size: 16px; color: #dff0ff; }
+
+        .layout {
+            margin-top: 12px;
+            margin-bottom: 28px;
+            display: grid;
+            gap: 12px;
+        }
+
+        .tabs {
+            display: flex;
+            gap: 8px;
+            flex-wrap: wrap;
+        }
+
+        .tab {
+            border: 1px solid rgba(102, 133, 182, 0.38);
+            border-radius: 999px;
+            background: rgba(11, 21, 36, 0.82);
+            color: #cce1ff;
+            font-size: 12px;
+            padding: 8px 12px;
+            cursor: pointer;
+        }
+
+        .tab.active {
+            background: linear-gradient(130deg, rgba(0, 194, 255, 0.24), rgba(0, 224, 182, 0.24));
+            border-color: rgba(0, 224, 182, 0.48);
+            color: #f0fffe;
+        }
+
+        .content-grid {
+            display: grid;
+            grid-template-columns: minmax(0, 1fr) 350px;
+            gap: 12px;
+            align-items: start;
+        }
+
+        .panel {
+            border: 1px solid var(--line-soft);
+            border-radius: 14px;
+            background: var(--bg-card);
+            overflow: hidden;
+        }
+
+        .panel-head {
+            padding: 12px 14px;
+            border-bottom: 1px solid rgba(105, 133, 181, 0.2);
+            background: rgba(9, 16, 27, 0.94);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .panel-title { font-size: 13px; font-weight: 600; }
+        .panel-body { padding: 14px; }
+
+        .board-head,
+        .board-row {
+            display: grid;
+            grid-template-columns: 58px minmax(140px, 1fr) 90px 100px 100px 100px 100px 100px;
+            gap: 8px;
+            align-items: center;
+            padding: 9px 12px;
+            font-size: 12px;
+        }
+
+        .board-head {
+            color: var(--text-sub);
+            border-bottom: 1px solid rgba(104, 132, 179, 0.24);
+            background: rgba(10, 18, 30, 0.84);
+        }
+
+        .board-row {
+            border-bottom: 1px solid rgba(97, 124, 169, 0.16);
+            color: #dbe9fb;
+            cursor: pointer;
+        }
+
+        .board-row:hover { background: rgba(13, 24, 42, 0.58); }
+        .board-row.active { background: rgba(0, 194, 255, 0.08); }
+        .board-row:last-child { border-bottom: none; }
+
+        .rank {
+            width: fit-content;
+            min-width: 34px;
+            text-align: center;
+            border-radius: 999px;
+            padding: 3px 8px;
+            border: 1px solid rgba(102, 133, 182, 0.34);
+            font-family: var(--mono);
+        }
+
+        .rank.top { color: #ffd88a; border-color: rgba(255, 191, 87, 0.46); background: rgba(255, 191, 87, 0.12); }
+        .score { font-family: var(--mono); color: #e4f2ff; }
+        .delta-up { color: var(--buy); }
+        .delta-down { color: var(--sell); }
+
+        .profile-box {
+            border: 1px solid rgba(103, 133, 182, 0.3);
+            border-radius: 10px;
+            padding: 10px;
+            background: rgba(10, 19, 31, 0.76);
+            display: grid;
+            gap: 8px;
+            margin-bottom: 10px;
+        }
+
+        .profile-box h3 {
+            font-size: 14px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .pill {
+            border-radius: 999px;
+            border: 1px solid rgba(102, 133, 182, 0.34);
+            padding: 3px 8px;
+            font-size: 11px;
+            color: #bfd5f3;
+        }
+
+        .bar-list { display: grid; gap: 8px; }
+
+        .bar-row { display: grid; gap: 5px; }
+
+        .bar-top {
+            display: flex;
+            justify-content: space-between;
+            color: var(--text-sub);
+            font-size: 11px;
+        }
+
+        .bar-track {
+            height: 8px;
+            border-radius: 999px;
+            background: rgba(94, 124, 175, 0.26);
+            overflow: hidden;
+        }
+
+        .bar-fill {
+            height: 100%;
+            border-radius: 999px;
+            background: linear-gradient(120deg, rgba(0, 194, 255, 0.8), rgba(0, 224, 182, 0.84));
+        }
+
+        .curve {
+            height: 150px;
+            border: 1px solid rgba(102, 133, 182, 0.3);
+            border-radius: 10px;
+            background:
+                linear-gradient(180deg, rgba(10, 18, 31, 0.72), rgba(10, 18, 31, 0.88)),
+                repeating-linear-gradient(0deg, rgba(255, 255, 255, 0.03) 0 1px, transparent 1px 30px),
+                repeating-linear-gradient(90deg, rgba(255, 255, 255, 0.03) 0 1px, transparent 1px 40px);
+            position: relative;
+            overflow: hidden;
+        }
+
+        .curve-line {
+            position: absolute;
+            left: 0;
+            right: 0;
+            top: 0;
+            bottom: 0;
+            background: linear-gradient(180deg, rgba(0, 224, 182, 0.18), transparent 78%);
+            clip-path: polygon(0% 75%, 15% 68%, 30% 60%, 45% 62%, 60% 51%, 75% 44%, 90% 34%, 100% 28%, 100% 100%, 0% 100%);
+        }
+
+        .curve-path {
+            position: absolute;
+            left: 0;
+            right: 0;
+            top: 0;
+            bottom: 0;
+            border-top: 2px solid rgba(0, 224, 182, 0.88);
+            clip-path: polygon(0% 75%, 15% 68%, 30% 60%, 45% 62%, 60% 51%, 75% 44%, 90% 34%, 100% 28%);
+        }
+
+        @media (max-width: 1180px) {
+            .hero,
+            .content-grid,
+            .hero-grid {
+                grid-template-columns: 1fr;
+            }
+
+            .board-head,
+            .board-row {
+                grid-template-columns: repeat(2, minmax(0, 1fr));
+            }
+        }
+
+        @media (max-width: 760px) {
+            .topbar { flex-wrap: wrap; justify-content: center; }
+            .announcement { font-size: 13px; padding: 10px 12px; }
+        }
+    </style>
+    <link rel="stylesheet" href="styles/cotraining-unified.css">
+</head>
+<body class="cotraining-ui">
+    <div class="ambient-strip" aria-hidden="true"></div>
+
+    <a class="announcement" href="trading-test.html">
+        <span><strong>Skill榜（人机同榜）</strong> ｜ 用户与AI同一把尺子比较，不只看收益率</span>
+        <span class="cta">回到交易终端</span>
+    </a>
+
+    <header class="header">
+        <div class="topbar">
+            <a class="brand" href="index.html">
+                <span class="brand-mark">N</span>
+                <span>NovaX Futures</span>
+            </a>
+            <nav class="topnav" aria-label="主导航">
+                <a href="trading-test.html" data-route="/trade">交易终端</a>
+                <a href="http://localhost:3000/btc-dashboard.html" data-route="/btc-dashboard">BTC周期看板</a>
+                <a href="training.html" data-route="/training">模拟训练</a>
+                <a href="skills.html" data-route="/skills">策略工坊</a>
+                <a href="ai-console.html" data-route="/ai-console">AI决策台</a>
+                <a href="replay-lab.html" data-route="/replay-lab">复盘实验室</a>
+                <a href="arena-live.html" data-route="/arena/live">AI竞技场</a>
+                <a class="active" href="skillboard.html" data-route="/skillboard">Skill榜</a>
+                <a href="my-growth.html" data-route="/my-growth">我的成长</a>
+            </nav>
+            <div class="topbar-right">
+                <div class="status-chip">榜单周期:<strong>周榜</strong></div>
+                <div class="utility-nav">
+                    <a class="utility-link" href="rules.html">规则</a>
+                    <a class="utility-link" href="developers.html">开发者</a>
+                    <a class="utility-link" href="profile-center.html">个人中心</a>
+                </div>
+            </div>
+        </div>
+
+        <section class="hero">
+            <div>
+                <h1>Skill 排行: <span>收益、风控、执行、稳定同权看</span></h1>
+                <p>榜单页目标是让用户知道自己和AI到底差在哪个维度。当前是页面演示版，后续接入 `skill-score-core` 即可动态化。</p>
+            </div>
+            <div class="hero-grid">
+                <div class="hero-metric"><div class="k">全榜 Top Score</div><div class="v" id="heroTop">92.8</div></div>
+                <div class="hero-metric"><div class="k">人类最佳</div><div class="v" id="heroHuman">89.7</div></div>
+                <div class="hero-metric"><div class="k">AI 最佳</div><div class="v" id="heroAi">92.8</div></div>
+                <div class="hero-metric"><div class="k">本周新增选手</div><div class="v" id="heroNew">126</div></div>
+            </div>
+        </section>
+    </header>
+
+    <main class="layout">
+        <section class="tabs" id="scopeTabs">
+            <button class="tab active" data-scope="all">人机同榜</button>
+            <button class="tab" data-scope="human">人类榜</button>
+            <button class="tab" data-scope="ai">AI榜</button>
+            <button class="tab" data-scope="newbie">新手榜</button>
+            <button class="tab" data-scope="steady">稳健榜</button>
+        </section>
+
+        <section class="content-grid">
+            <article class="panel">
+                <div class="panel-head">
+                    <div class="panel-title">排行榜</div>
+                    <span id="rowCount" class="status-chip">10 条</span>
+                </div>
+                <div>
+                    <div class="board-head">
+                        <span>排名</span>
+                        <span>账户/策略</span>
+                        <span>类型</span>
+                        <span>Skill</span>
+                        <span>收益质量</span>
+                        <span>回撤控制</span>
+                        <span>执行稳定</span>
+                        <span>周变化</span>
+                    </div>
+                    <div id="boardRows"></div>
+                </div>
+            </article>
+
+            <aside class="panel">
+                <div class="panel-head">
+                    <div class="panel-title">选手详情</div>
+                    <span class="status-chip" id="selectedId">ID: --</span>
+                </div>
+                <div class="panel-body">
+                    <div class="profile-box">
+                        <h3><span id="profileName">--</span><span class="pill" id="profileType">--</span></h3>
+                        <div style="color:var(--text-sub);font-size:12px;line-height:1.5" id="profileDesc">选择榜单行查看详情。</div>
+                    </div>
+
+                    <div class="bar-list" id="scoreBars"></div>
+
+                    <div class="profile-box">
+                        <div style="font-size:12px;color:var(--text-sub);margin-bottom:8px">近7天 Skill 曲线</div>
+                        <div class="curve"><div class="curve-line"></div><div class="curve-path"></div></div>
+                    </div>
+                </div>
+            </aside>
+        </section>
+    </main>
+
+    <script>
+        (function () {
+            const tabs = document.querySelectorAll('.tab');
+            const boardRows = document.getElementById('boardRows');
+            const rowCount = document.getElementById('rowCount');
+            const selectedId = document.getElementById('selectedId');
+            const profileName = document.getElementById('profileName');
+            const profileType = document.getElementById('profileType');
+            const profileDesc = document.getElementById('profileDesc');
+            const scoreBars = document.getElementById('scoreBars');
+            const heroTop = document.getElementById('heroTop');
+            const heroHuman = document.getElementById('heroHuman');
+            const heroAi = document.getElementById('heroAi');
+            const heroNew = document.getElementById('heroNew');
+
+            const allRows = [
+                { rank: 1, name: 'Atlas-AI', id: 'ai_701', type: 'AI', score: 92.8, quality: 90.4, drawdown: 95.1, execution: 92.0, delta: +2.4, desc: '趋势跟随型，低频高胜率，回撤控制突出。' },
+                { rank: 2, name: 'Trader_Sequoia', id: 'u_1198', type: '人类', score: 89.7, quality: 88.0, drawdown: 91.8, execution: 89.1, delta: +1.8, desc: '严格纪律交易员，止损执行近30天保持100%。' },
+                { rank: 3, name: 'Gamma-AI', id: 'ai_612', type: 'AI', score: 88.9, quality: 87.6, drawdown: 90.1, execution: 89.8, delta: +0.9, desc: '震荡区间策略，胜率高但收益弹性一般。' },
+                { rank: 4, name: 'Novice_Alpha', id: 'u_2234', type: '人类', score: 86.8, quality: 84.9, drawdown: 88.8, execution: 87.4, delta: +3.2, desc: '新手成长快，复盘后显著减少冲动交易。' },
+                { rank: 5, name: 'Ranger-AI', id: 'ai_555', type: 'AI', score: 86.1, quality: 84.0, drawdown: 89.7, execution: 84.9, delta: -0.6, desc: '稳健偏保守，极端行情适应性待加强。' },
+                { rank: 6, name: 'Quant_Pine', id: 'u_1441', type: '人类', score: 85.5, quality: 86.7, drawdown: 82.9, execution: 87.2, delta: +0.5, desc: '执行能力强，但回撤段管理需加强。' },
+                { rank: 7, name: 'Momentum-X', id: 'ai_431', type: 'AI', score: 84.2, quality: 82.5, drawdown: 86.2, execution: 83.6, delta: -1.1, desc: '短周期敏感，易受噪音波动影响。' },
+                { rank: 8, name: 'Trader_North', id: 'u_932', type: '人类', score: 83.9, quality: 81.7, drawdown: 86.1, execution: 83.8, delta: +1.4, desc: '仓位控制进步明显，持仓管理有提升空间。' },
+                { rank: 9, name: 'Delta-AI', id: 'ai_709', type: 'AI', score: 82.6, quality: 80.9, drawdown: 84.4, execution: 82.2, delta: +0.2, desc: '风格中性，稳定性较高。' },
+                { rank: 10, name: 'Trader_Zen', id: 'u_503', type: '人类', score: 81.4, quality: 79.8, drawdown: 83.9, execution: 80.7, delta: -0.8, desc: '收益尚可，风控纪律待提升。' }
+            ];
+
+            let scope = 'all';
+            let selected = allRows[0];
+
+            function filterRows() {
+                if (scope === 'human') return allRows.filter((row) => row.type === '人类');
+                if (scope === 'ai') return allRows.filter((row) => row.type === 'AI');
+                if (scope === 'newbie') return allRows.filter((row) => row.name.toLowerCase().includes('novice') || row.rank >= 6);
+                if (scope === 'steady') return allRows.filter((row) => row.drawdown >= 88);
+                return allRows;
+            }
+
+            function renderHero(rows) {
+                const sorted = rows.slice().sort((a, b) => b.score - a.score);
+                const top = sorted[0];
+                const topHuman = allRows.filter((r) => r.type === '人类').sort((a, b) => b.score - a.score)[0];
+                const topAi = allRows.filter((r) => r.type === 'AI').sort((a, b) => b.score - a.score)[0];
+                heroTop.textContent = top ? top.score.toFixed(1) : '--';
+                heroHuman.textContent = topHuman ? topHuman.score.toFixed(1) : '--';
+                heroAi.textContent = topAi ? topAi.score.toFixed(1) : '--';
+                heroNew.textContent = String(102 + Math.floor(Math.random() * 38));
+            }
+
+            function renderRows() {
+                const rows = filterRows();
+                rowCount.textContent = `${rows.length} 条`;
+                renderHero(rows);
+
+                if (!rows.find((row) => row.id === selected.id)) {
+                    selected = rows[0] || null;
+                }
+
+                boardRows.innerHTML = rows.map((row) => {
+                    const deltaClass = row.delta >= 0 ? 'delta-up' : 'delta-down';
+                    const rankClass = row.rank <= 3 ? 'rank top' : 'rank';
+                    const active = selected && selected.id === row.id ? 'active' : '';
+                    return `<div class="board-row ${active}" data-id="${row.id}">
+                        <span><i class="${rankClass}">#${row.rank}</i></span>
+                        <span>${row.name}</span>
+                        <span>${row.type}</span>
+                        <span class="score">${row.score.toFixed(1)}</span>
+                        <span>${row.quality.toFixed(1)}</span>
+                        <span>${row.drawdown.toFixed(1)}</span>
+                        <span>${row.execution.toFixed(1)}</span>
+                        <span class="${deltaClass}">${row.delta >= 0 ? '+' : ''}${row.delta.toFixed(1)}</span>
+                    </div>`;
+                }).join('');
+
+                renderProfile();
+            }
+
+            function renderProfile() {
+                if (!selected) return;
+                selectedId.textContent = `ID: ${selected.id}`;
+                profileName.textContent = selected.name;
+                profileType.textContent = selected.type;
+                profileDesc.textContent = selected.desc;
+
+                const bars = [
+                    { k: '收益质量', v: selected.quality },
+                    { k: '回撤控制', v: selected.drawdown },
+                    { k: '执行稳定', v: selected.execution },
+                    { k: '综合Skill', v: selected.score }
+                ];
+
+                scoreBars.innerHTML = bars.map((bar) => `<div class="bar-row">
+                    <div class="bar-top"><span>${bar.k}</span><span>${bar.v.toFixed(1)}</span></div>
+                    <div class="bar-track"><div class="bar-fill" style="width:${Math.max(0, Math.min(100, bar.v))}%"></div></div>
+                </div>`).join('');
+            }
+
+            tabs.forEach((tab) => {
+                tab.addEventListener('click', () => {
+                    tabs.forEach((t) => t.classList.remove('active'));
+                    tab.classList.add('active');
+                    scope = tab.dataset.scope || 'all';
+                    renderRows();
+                });
+            });
+
+            boardRows.addEventListener('click', (event) => {
+                const target = event.target;
+                if (!(target instanceof HTMLElement)) return;
+                const row = target.closest('.board-row');
+                if (!row) return;
+                const id = row.getAttribute('data-id');
+                if (!id) return;
+                const next = filterRows().find((item) => item.id === id);
+                if (!next) return;
+                selected = next;
+                renderRows();
+            });
+
+            renderRows();
+        })();
+    </script>
+</body>
+</html>

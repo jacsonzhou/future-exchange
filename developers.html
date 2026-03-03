@@ -1,0 +1,504 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>NovaX · 开发者</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&family=Noto+Sans+SC:wght@400;500;700&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --bg-main: #05070c;
+            --bg-card: rgba(11, 16, 28, 0.82);
+            --line-soft: rgba(160, 188, 226, 0.24);
+            --text-main: #f2f7ff;
+            --text-sub: #8fa5c6;
+            --text-dim: #6f85a8;
+            --accent: #00c2ff;
+            --accent-2: #00e0b6;
+            --max-width: 1400px;
+            --mono: "IBM Plex Mono", Consolas, monospace;
+        }
+
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+
+        body {
+            min-height: 100vh;
+            color: var(--text-main);
+            font-family: "Noto Sans SC", "Space Grotesk", sans-serif;
+            background:
+                radial-gradient(800px 520px at -10% -15%, rgba(0, 194, 255, 0.16), transparent 70%),
+                radial-gradient(900px 480px at 110% 20%, rgba(0, 224, 182, 0.14), transparent 74%),
+                radial-gradient(1200px 700px at 50% 120%, rgba(80, 123, 255, 0.12), transparent 78%),
+                linear-gradient(150deg, #04060b 0%, #080b14 50%, #05070c 100%);
+            overflow-x: hidden;
+        }
+
+        a { color: inherit; text-decoration: none; }
+
+        .ambient-strip {
+            position: fixed;
+            inset: 0;
+            pointer-events: none;
+            z-index: -1;
+        }
+
+        .ambient-strip::before,
+        .ambient-strip::after {
+            content: "";
+            position: absolute;
+            width: 45vw;
+            height: 45vw;
+            filter: blur(110px);
+            opacity: 0.34;
+        }
+
+        .ambient-strip::before {
+            top: -16vw;
+            left: -8vw;
+            background: radial-gradient(circle, rgba(0, 188, 255, 0.38) 0%, transparent 72%);
+        }
+
+        .ambient-strip::after {
+            right: -12vw;
+            bottom: -24vw;
+            background: radial-gradient(circle, rgba(0, 224, 182, 0.34) 0%, transparent 72%);
+        }
+
+        .announcement,
+        .header,
+        .layout {
+            width: min(var(--max-width), calc(100vw - 28px));
+            margin: 0 auto;
+        }
+
+        .announcement {
+            margin-top: 16px;
+            margin-bottom: 10px;
+            padding: 12px 18px;
+            border: 1px solid rgba(0, 194, 255, 0.38);
+            border-radius: 999px;
+            background: linear-gradient(90deg, rgba(0, 194, 255, 0.12), rgba(0, 224, 182, 0.08));
+            color: #def7ff;
+            font-size: 15px;
+            line-height: 1.42;
+            display: flex;
+            justify-content: space-between;
+            gap: 10px;
+        }
+
+        .announcement .cta {
+            color: var(--accent-2);
+            font-weight: 700;
+            white-space: nowrap;
+        }
+
+        .header { display: grid; gap: 10px; }
+
+        .topbar {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 18px;
+            padding: 10px 2px 2px;
+        }
+
+        .brand {
+            display: inline-flex;
+            align-items: center;
+            gap: 10px;
+            font-family: "Space Grotesk", sans-serif;
+            font-weight: 700;
+            letter-spacing: 0.2px;
+            white-space: nowrap;
+        }
+
+        .brand-mark {
+            width: 30px;
+            height: 30px;
+            border-radius: 10px;
+            background: linear-gradient(135deg, #00c2ff, #00e0b6);
+            color: #03141b;
+            font-family: "Space Grotesk", sans-serif;
+            font-weight: 700;
+            display: grid;
+            place-items: center;
+            font-size: 14px;
+        }
+
+        .topnav {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            flex-wrap: wrap;
+            color: var(--text-sub);
+            font-size: 12px;
+        }
+
+        .topnav a:hover { color: #d5e6ff; }
+
+        .status-chip {
+            border: 1px solid var(--line-soft);
+            border-radius: 999px;
+            padding: 8px 12px;
+            font-size: 12px;
+            color: var(--text-sub);
+            background: rgba(8, 14, 27, 0.9);
+            white-space: nowrap;
+        }
+
+        .status-chip strong { color: #e8f2ff; margin-left: 6px; }
+
+        .hero {
+            border: 1px solid var(--line-soft);
+            border-radius: 16px;
+            background:
+                radial-gradient(460px 220px at 80% 40%, rgba(0, 224, 182, 0.08), transparent 78%),
+                linear-gradient(160deg, rgba(8, 15, 28, 0.94), rgba(6, 11, 20, 0.98));
+            padding: 16px 18px;
+            display: grid;
+            gap: 10px;
+        }
+
+        .hero h1 {
+            font-family: "Space Grotesk", sans-serif;
+            font-size: clamp(26px, 3.8vw, 36px);
+            line-height: 1.1;
+        }
+
+        .hero h1 span {
+            background: linear-gradient(120deg, #00c2ff, #00e0b6 72%);
+            -webkit-background-clip: text;
+            background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+
+        .hero p { color: var(--text-sub); font-size: 14px; line-height: 1.7; }
+
+        .layout {
+            margin-top: 12px;
+            margin-bottom: 28px;
+            display: grid;
+            gap: 12px;
+        }
+
+        .grid {
+            display: grid;
+            grid-template-columns: minmax(0, 1fr) 360px;
+            gap: 12px;
+            align-items: start;
+        }
+
+        .panel {
+            border: 1px solid var(--line-soft);
+            border-radius: 14px;
+            background: var(--bg-card);
+            overflow: hidden;
+        }
+
+        .panel-head {
+            padding: 12px 14px;
+            border-bottom: 1px solid rgba(105, 133, 181, 0.2);
+            background: rgba(9, 16, 27, 0.94);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .panel-title { font-size: 13px; font-weight: 600; }
+
+        .table-head,
+        .table-row {
+            display: grid;
+            grid-template-columns: 100px 1.2fr 1fr 140px;
+            gap: 10px;
+            align-items: center;
+            padding: 10px 14px;
+            font-size: 12px;
+        }
+
+        .table-head {
+            background: rgba(10, 18, 30, 0.95);
+            color: var(--text-sub);
+            border-bottom: 1px solid rgba(104, 132, 179, 0.24);
+        }
+
+        .table-row {
+            border-bottom: 1px solid rgba(97, 124, 169, 0.16);
+            color: #dbe9fb;
+        }
+
+        .table-row:last-child { border-bottom: none; }
+
+        .mono { font-family: var(--mono); }
+
+        .panel-body {
+            padding: 14px;
+            display: grid;
+            gap: 10px;
+        }
+
+        .snippet {
+            border: 1px solid rgba(103, 133, 182, 0.32);
+            border-radius: 10px;
+            background: rgba(8, 14, 25, 0.9);
+            color: #d6ebff;
+            font-family: var(--mono);
+            font-size: 12px;
+            line-height: 1.6;
+            padding: 10px;
+            white-space: pre-wrap;
+        }
+
+        .step-list {
+            display: grid;
+            gap: 8px;
+        }
+
+        .step-item {
+            border: 1px solid rgba(103, 133, 182, 0.3);
+            border-radius: 10px;
+            background: rgba(10, 19, 31, 0.76);
+            padding: 10px;
+            display: grid;
+            gap: 5px;
+        }
+
+        .step-item strong { color: #e5f2ff; font-size: 13px; }
+        .step-item span { color: var(--text-sub); font-size: 12px; }
+
+        @media (max-width: 1180px) {
+            .grid {
+                grid-template-columns: 1fr;
+            }
+
+            .table-head,
+            .table-row {
+                grid-template-columns: repeat(2, minmax(0, 1fr));
+            }
+        }
+
+        @media (max-width: 760px) {
+            .topbar { flex-wrap: wrap; justify-content: center; }
+            .announcement { font-size: 13px; padding: 10px 12px; }
+        }
+    </style>
+    <link rel="stylesheet" href="styles/cotraining-unified.css">
+</head>
+<body class="cotraining-ui">
+    <div class="ambient-strip" aria-hidden="true"></div>
+
+    <a class="announcement" href="trading-test.html">
+        <span><strong>开发者入口</strong> ｜ Agent API / SDK / CLI / Sandbox</span>
+        <span class="cta">回到交易终端</span>
+    </a>
+
+    <header class="header">
+        <div class="topbar">
+            <a class="brand" href="index.html">
+                <span class="brand-mark">N</span>
+                <span>NovaX Futures</span>
+            </a>
+            <nav class="topnav" aria-label="主导航">
+                <a href="trading-test.html" data-route="/trade">交易终端</a>
+                <a href="http://localhost:3000/btc-dashboard.html" data-route="/btc-dashboard">BTC周期看板</a>
+                <a href="training.html" data-route="/training">模拟训练</a>
+                <a href="skills.html" data-route="/skills">策略工坊</a>
+                <a href="ai-console.html" data-route="/ai-console">AI决策台</a>
+                <a href="replay-lab.html" data-route="/replay-lab">复盘实验室</a>
+                <a href="arena-live.html" data-route="/arena/live">AI竞技场</a>
+                <a href="skillboard.html" data-route="/skillboard">Skill榜</a>
+                <a href="my-growth.html" data-route="/my-growth">我的成长</a>
+            </nav>
+            <div class="topbar-right">
+                <div class="status-chip">Sandbox:<strong>OPEN</strong></div>
+                <div class="utility-nav">
+                    <a class="utility-link" href="rules.html">规则</a>
+                    <a class="utility-link active" href="developers.html">开发者</a>
+                    <a class="utility-link" href="profile-center.html">个人中心</a>
+                </div>
+            </div>
+        </div>
+
+        <section class="hero">
+            <h1>Developer Portal: <span>让 Agent 成为一等公民</span></h1>
+            <p>为 `Claude Code / Codex / Kimi K2` 用户提供统一的 ContextPack、DecisionIntent、Replay、Skill Score API 契约，支持自动评估与版本迭代。</p>
+        </section>
+    </header>
+
+    <main class="layout">
+        <section class="grid">
+            <article class="panel">
+                <div class="panel-head"><div class="panel-title">核心 API</div><span class="status-chip" id="apiTotal">0 条</span></div>
+                <div class="panel-body">
+                    <div class="tool-row">
+                        <div class="tool-field">
+                            <label for="apiSearch">检索</label>
+                            <input id="apiSearch" type="text" placeholder="路径 / 用途">
+                        </div>
+                        <div class="tool-field">
+                            <label for="apiGroup">分组</label>
+                            <select id="apiGroup">
+                                <option value="all">全部</option>
+                                <option value="decision">决策</option>
+                                <option value="skill">评分</option>
+                                <option value="replay">复盘</option>
+                                <option value="market">行情</option>
+                            </select>
+                        </div>
+                        <div class="tool-field">
+                            <label for="apiAuth">鉴权</label>
+                            <select id="apiAuth">
+                                <option value="all">全部</option>
+                                <option value="JWT">JWT</option>
+                                <option value="NONE">NONE</option>
+                            </select>
+                        </div>
+                        <div class="tool-field">
+                            <label for="apiDataset">假数据场景</label>
+                            <select id="apiDataset">
+                                <option value="sandbox">Sandbox</option>
+                                <option value="prod">Prod</option>
+                            </select>
+                        </div>
+                    </div>
+
+                    <div>
+                        <div class="table-head"><span>方法</span><span>路径</span><span>用途</span><span>鉴权</span></div>
+                        <div id="apiRows"></div>
+                    </div>
+
+                    <div class="pager">
+                        <span class="pager-info" id="apiPagerInfo">第 1 / 1 页</span>
+                        <div class="pager-actions">
+                            <button class="pager-btn" id="apiPrev" type="button">上一页</button>
+                            <button class="pager-btn" id="apiNext" type="button">下一页</button>
+                        </div>
+                    </div>
+                </div>
+            </article>
+
+            <aside class="panel">
+                <div class="panel-head"><div class="panel-title">SDK / CLI 快速开始</div><span class="status-chip">示例</span></div>
+                <div class="panel-body">
+                    <div class="step-list">
+                        <div class="step-item"><strong>1. 拉取上下文</strong><span>请求 ContextPack 作为模型输入。</span></div>
+                        <div class="step-item"><strong>2. 生成决策</strong><span>输出结构化 DecisionIntent。</span></div>
+                        <div class="step-item"><strong>3. 风控校验</strong><span>validate 通过后再填单执行。</span></div>
+                        <div class="step-item"><strong>4. 写入日志</strong><span>保存证据链用于复盘和评分。</span></div>
+                    </div>
+                    <div class="snippet"># CLI (示例)
+novax skill init skill_trend_pullback
+novax decision preview --symbol BTCUSDT --interval 1m
+novax decision validate --decision-id dec_20260303_001
+novax replay create --order-id ord_20260303_8891</div>
+                </div>
+            </aside>
+        </section>
+    </main>
+
+    <script>
+        (function () {
+            const PAGE_SIZE = 5;
+            const apiRows = document.getElementById('apiRows');
+            const apiTotal = document.getElementById('apiTotal');
+            const apiPagerInfo = document.getElementById('apiPagerInfo');
+            const apiPrev = document.getElementById('apiPrev');
+            const apiNext = document.getElementById('apiNext');
+            const apiSearch = document.getElementById('apiSearch');
+            const apiGroup = document.getElementById('apiGroup');
+            const apiAuth = document.getElementById('apiAuth');
+            const apiDataset = document.getElementById('apiDataset');
+
+            let page = 1;
+
+            const sandboxData = [
+                { method: 'POST', path: '/api/v1/ai/decision/preview', usage: '生成候选决策', auth: 'JWT', group: 'decision' },
+                { method: 'POST', path: '/api/v1/ai/decision/validate', usage: '风控预校验', auth: 'JWT', group: 'decision' },
+                { method: 'POST', path: '/api/v1/ai/decision/log', usage: '写入审计日志', auth: 'JWT', group: 'decision' },
+                { method: 'GET', path: '/api/v1/ai/decision/logs', usage: '查询决策日志', auth: 'JWT', group: 'decision' },
+                { method: 'GET', path: '/api/v1/skill/profile/{id}', usage: '能力评分详情', auth: 'JWT', group: 'skill' },
+                { method: 'GET', path: '/api/v1/skill/leaderboard', usage: 'Skill榜单', auth: 'JWT', group: 'skill' },
+                { method: 'POST', path: '/api/v1/replay/create', usage: '创建复盘会话', auth: 'JWT', group: 'replay' },
+                { method: 'GET', path: '/api/v1/replay/{replayId}', usage: '回放证据链', auth: 'JWT', group: 'replay' },
+                { method: 'GET', path: '/api/v1/market/context', usage: '获取上下文快照', auth: 'NONE', group: 'market' }
+            ];
+
+            const prodData = sandboxData.map((item) => ({
+                ...item,
+                auth: item.auth === 'NONE' ? 'JWT' : item.auth,
+                usage: `${item.usage}（生产）`
+            }));
+
+            function dataset() {
+                return apiDataset.value === 'prod' ? prodData : sandboxData;
+            }
+
+            function filtered() {
+                const source = dataset();
+                const keyword = (apiSearch.value || '').trim().toLowerCase();
+                const group = apiGroup.value;
+                const auth = apiAuth.value;
+                return source.filter((item) => {
+                    const byKeyword = !keyword || item.path.toLowerCase().includes(keyword) || item.usage.toLowerCase().includes(keyword);
+                    const byGroup = group === 'all' || item.group === group;
+                    const byAuth = auth === 'all' || item.auth === auth;
+                    return byKeyword && byGroup && byAuth;
+                });
+            }
+
+            function render() {
+                const list = filtered();
+                const total = list.length;
+                const pageCount = Math.max(1, Math.ceil(total / PAGE_SIZE));
+                if (page > pageCount) page = pageCount;
+                if (page < 1) page = 1;
+                const start = (page - 1) * PAGE_SIZE;
+                const current = list.slice(start, start + PAGE_SIZE);
+
+                apiTotal.textContent = `${total} 条`;
+                apiPagerInfo.textContent = `第 ${page} / ${pageCount} 页`;
+                apiPrev.disabled = page <= 1;
+                apiNext.disabled = page >= pageCount;
+
+                if (!current.length) {
+                    apiRows.innerHTML = '<div class="table-row"><span class="mono">--</span><span class="mono">--</span><span>无匹配接口</span><span>--</span></div>';
+                    return;
+                }
+
+                apiRows.innerHTML = current.map((item) => `<div class="table-row">
+                    <span class="mono">${item.method}</span>
+                    <span class="mono">${item.path}</span>
+                    <span>${item.usage}</span>
+                    <span>${item.auth}</span>
+                </div>`).join('');
+            }
+
+            [apiSearch, apiGroup, apiAuth, apiDataset].forEach((el) => {
+                el.addEventListener('input', () => {
+                    page = 1;
+                    render();
+                });
+                el.addEventListener('change', () => {
+                    page = 1;
+                    render();
+                });
+            });
+
+            apiPrev.addEventListener('click', () => {
+                page -= 1;
+                render();
+            });
+
+            apiNext.addEventListener('click', () => {
+                page += 1;
+                render();
+            });
+
+            render();
+        })();
+    </script>
+</body>
+</html>
