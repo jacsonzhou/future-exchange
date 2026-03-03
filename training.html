@@ -778,10 +778,14 @@
         </section>
     </main>
 
+    <script src="agent-data-bus.js"></script>
     <script>
         (function () {
-            const API_BASE = window.__AGENT_API_BASE__
-                || (window.location.port === '8082' ? window.location.origin : 'http://localhost:8082');
+            const dataBus = window.AgentDataBus || null;
+            const API_BASE = dataBus
+                ? dataBus.apiBase
+                : (window.__AGENT_API_BASE__
+                    || (window.location.port === '8082' ? window.location.origin : 'http://localhost:8082'));
 
             const tasks = document.querySelectorAll('.task-item');
             const timerText = document.getElementById('timerText');
@@ -828,6 +832,7 @@
             let interval = '1m';
             let selectedDecision = null;
             let decisionPool = [];
+            let busUnsubscribe = null;
 
             const fallbackSessionRows = [
                 { time: '07:10:22', action: '开仓', side: '做空', result: '+0.42R', note: '区间上沿回落，按计划入场', tag: '纪律' },
@@ -1017,32 +1022,92 @@
                 reasonList.innerHTML = (item.reasons || []).map((reason) => `<div>• ${reason}</div>`).join('') || '<div>• 暂无决策理由。</div>';
             }
 
+            function syncBusSelection() {
+                if (!dataBus) return;
+                dataBus.setSelection({
+                    symbol,
+                    interval,
+                    strategyVersion: 'ai-momentum-v1.2.3',
+                    subjectType: 'HUMAN',
+                    subjectId: 'user_1001'
+                });
+            }
+
+            function applyContextData(data) {
+                if (!data || typeof data !== 'object') return;
+                const market = data.market || {};
+                const kline = market.kline || {};
+                const depthTop = market.depthTop || {};
+                const account = data.account || {};
+
+                symbol = data.symbol || symbol;
+                interval = data.interval || interval;
+                symbolTag.textContent = `${symbol} · ${interval}`;
+                sessionBadge.textContent = data.contextId
+                    ? `Session ${String(data.contextId).slice(-4).toUpperCase()}`
+                    : sessionBadge.textContent;
+
+                price = parseNumber(kline.close, price);
+                risk = parseNumber(account.riskExposurePct, risk);
+
+                const bid = parseNumber(depthTop.bid, price);
+                const ask = parseNumber(depthTop.ask, price);
+                const spread = Math.max(0, ask - bid);
+                flowText.textContent = spread <= 0.2 ? '买盘 +2' : spread <= 1 ? '中性 +0' : '卖盘 +1';
+                lastPrice.textContent = formatPrice(price);
+                riskValue.textContent = `${risk.toFixed(1)}%`;
+            }
+
+            function applyDecisionData(data) {
+                if (!Array.isArray(data) || !data.length) {
+                    selectedDecision = null;
+                    renderCoachFallback();
+                    return;
+                }
+
+                decisionPool = data.map(normalizeDecision);
+                if (!selectedDecision || !decisionPool.find((item) => item.decisionId === selectedDecision.decisionId)) {
+                    selectedDecision = decisionPool[0];
+                } else {
+                    selectedDecision = decisionPool.find((item) => item.decisionId === selectedDecision.decisionId) || decisionPool[0];
+                }
+                renderCoachFromDecision(selectedDecision);
+            }
+
+            function applyDecisionLogs(data) {
+                if (!Array.isArray(data) || !data.length) {
+                    renderSessionRows(fallbackSessionRows);
+                    return;
+                }
+                const rows = data.slice(0, 6).map((item) => {
+                    const status = item.status || 'unknown';
+                    const isLoss = status === 'rejected';
+                    return {
+                        time: item.time || '--:--:--',
+                        action: item.action === 'WAIT' ? '观望' : '下单',
+                        side: sideLabel(item.action),
+                        result: isLoss ? '-0.10R' : '+0.12R',
+                        note: item.feedback || '--',
+                        tag: status === 'accepted' ? '执行' : status === 'rejected' ? '风控' : '复盘'
+                    };
+                });
+                renderSessionRows(rows);
+            }
+
             async function loadContext() {
+                if (dataBus) {
+                    syncBusSelection();
+                    const snapshot = dataBus.state();
+                    if (snapshot && snapshot.context) {
+                        applyContextData(snapshot.context);
+                        return;
+                    }
+                }
+
                 try {
                     const params = new URLSearchParams({ symbol, interval, depthLevel: '20', windowMinutes: '60' });
                     const payload = await fetchJson(`/api/v1/agent/context?${params.toString()}`);
-                    const data = payloadData(payload);
-                    const market = data.market || {};
-                    const kline = market.kline || {};
-                    const depthTop = market.depthTop || {};
-                    const account = data.account || {};
-
-                    symbol = data.symbol || symbol;
-                    interval = data.interval || interval;
-                    symbolTag.textContent = `${symbol} · ${interval}`;
-                    sessionBadge.textContent = data.contextId
-                        ? `Session ${String(data.contextId).slice(-4).toUpperCase()}`
-                        : sessionBadge.textContent;
-
-                    price = parseNumber(kline.close, price);
-                    risk = parseNumber(account.riskExposurePct, risk);
-
-                    const bid = parseNumber(depthTop.bid, price);
-                    const ask = parseNumber(depthTop.ask, price);
-                    const spread = Math.max(0, ask - bid);
-                    flowText.textContent = spread <= 0.2 ? '买盘 +2' : spread <= 1 ? '中性 +0' : '卖盘 +1';
-                    lastPrice.textContent = formatPrice(price);
-                    riskValue.textContent = `${risk.toFixed(1)}%`;
+                    applyContextData(payloadData(payload));
                     return;
                 } catch (error) {
                     console.warn('[training] context fallback:', error);
@@ -1051,6 +1116,21 @@
             }
 
             async function refreshDecisions(forcePreview) {
+                if (dataBus) {
+                    try {
+                        syncBusSelection();
+                        await dataBus.sync({
+                            include: ['decisions'],
+                            preview: Boolean(forcePreview)
+                        });
+                        const snapshot = dataBus.state();
+                        applyDecisionData(snapshot.decisions);
+                        return;
+                    } catch (error) {
+                        console.warn('[training] decision fallback by data bus:', error);
+                    }
+                }
+
                 try {
                     if (forcePreview) {
                         await fetchJson('/api/v1/agent/decisions/preview', {
@@ -1066,17 +1146,7 @@
 
                     const query = new URLSearchParams({ symbol }).toString();
                     const payload = await fetchJson(`/api/v1/agent/decisions?${query}`);
-                    const data = payloadData(payload);
-                    if (!Array.isArray(data) || !data.length) throw new Error('empty decisions');
-                    decisionPool = data.map(normalizeDecision);
-
-                    if (!selectedDecision || !decisionPool.find((item) => item.decisionId === selectedDecision.decisionId)) {
-                        selectedDecision = decisionPool[0];
-                    } else {
-                        selectedDecision = decisionPool.find((item) => item.decisionId === selectedDecision.decisionId) || decisionPool[0];
-                    }
-
-                    renderCoachFromDecision(selectedDecision);
+                    applyDecisionData(payloadData(payload));
                     return;
                 } catch (error) {
                     console.warn('[training] decision fallback:', error);
@@ -1086,23 +1156,17 @@
             }
 
             async function loadSessionLogs() {
+                if (dataBus) {
+                    const snapshot = dataBus.state();
+                    if (snapshot && Array.isArray(snapshot.decisionLogs) && snapshot.decisionLogs.length) {
+                        applyDecisionLogs(snapshot.decisionLogs);
+                        return;
+                    }
+                }
+
                 try {
                     const payload = await fetchJson('/api/v1/agent/decisions/logs');
-                    const data = payloadData(payload);
-                    if (!Array.isArray(data) || !data.length) throw new Error('empty logs');
-                    const rows = data.slice(0, 6).map((item) => {
-                        const status = item.status || 'unknown';
-                        const isLoss = status === 'rejected';
-                        return {
-                            time: item.time || '--:--:--',
-                            action: item.action === 'WAIT' ? '观望' : '下单',
-                            side: sideLabel(item.action),
-                            result: isLoss ? '-0.10R' : '+0.12R',
-                            note: item.feedback || '--',
-                            tag: status === 'accepted' ? '执行' : status === 'rejected' ? '风控' : '复盘'
-                        };
-                    });
-                    renderSessionRows(rows);
+                    applyDecisionLogs(payloadData(payload));
                     return;
                 } catch (error) {
                     console.warn('[training] session-log fallback:', error);
@@ -1140,10 +1204,12 @@
                     timerText.textContent = formatTimer(elapsed);
                 }, 1000);
                 pulseTimer = setInterval(pulse, 3500);
-                coachTimer = setInterval(async () => {
-                    await refreshDecisions(false);
-                    await loadSessionLogs();
-                }, 12000);
+                if (!dataBus) {
+                    coachTimer = setInterval(async () => {
+                        await refreshDecisions(false);
+                        await loadSessionLogs();
+                    }, 12000);
+                }
             }
 
             function stopTimers() {
@@ -1268,6 +1334,36 @@
                 modeText.textContent = detectMode(taskText.textContent);
                 renderCandles();
                 renderSessionRows(fallbackSessionRows);
+                syncBusSelection();
+
+                if (dataBus) {
+                    if (busUnsubscribe) busUnsubscribe();
+                    busUnsubscribe = dataBus.subscribe((event) => {
+                        const snapshot = event && event.state;
+                        if (!snapshot) return;
+                        if (snapshot.context) applyContextData(snapshot.context);
+                        if (Array.isArray(snapshot.decisions)) applyDecisionData(snapshot.decisions);
+                        if (Array.isArray(snapshot.decisionLogs)) applyDecisionLogs(snapshot.decisionLogs);
+                    });
+
+                    dataBus.start({
+                        intervalMs: 12000,
+                        include: ['context', 'decisions', 'decisionLogs'],
+                        selection: {
+                            symbol,
+                            interval,
+                            strategyVersion: 'ai-momentum-v1.2.3',
+                            subjectType: 'HUMAN',
+                            subjectId: 'user_1001'
+                        }
+                    });
+
+                    await dataBus.sync({
+                        include: ['context', 'decisions', 'decisionLogs'],
+                        preview: true
+                    });
+                }
+
                 await loadContext();
                 await refreshDecisions(true);
                 await loadSessionLogs();

@@ -473,10 +473,14 @@
         </section>
     </main>
 
+    <script src="agent-data-bus.js"></script>
     <script>
         (function () {
-            const API_BASE = window.__AGENT_API_BASE__
-                || (window.location.port === '8082' ? window.location.origin : 'http://localhost:8082');
+            const dataBus = window.AgentDataBus || null;
+            const API_BASE = dataBus
+                ? dataBus.apiBase
+                : (window.__AGENT_API_BASE__
+                    || (window.location.port === '8082' ? window.location.origin : 'http://localhost:8082'));
 
             const abilityGrid = document.getElementById('abilityGrid');
             const timelineEl = document.getElementById('timeline');
@@ -717,6 +721,32 @@
             }
 
             async function loadRemoteData() {
+                if (dataBus) {
+                    try {
+                        dataBus.setSelection({
+                            subjectType: 'HUMAN',
+                            subjectId: 'user_1001'
+                        });
+                        let snapshot = dataBus.state();
+                        if (!snapshot.profile || !snapshot.weeklyPlan) {
+                            await dataBus.sync({ include: ['profile', 'weeklyPlan'] });
+                            snapshot = dataBus.state();
+                        }
+
+                        if (snapshot.profile && snapshot.weeklyPlan) {
+                            const week = buildWeekFromRemote(snapshot.profile, snapshot.weeklyPlan);
+                            dataset = {
+                                week,
+                                month: derivePeriod(week, 'month'),
+                                quarter: derivePeriod(week, 'quarter')
+                            };
+                            return;
+                        }
+                    } catch (error) {
+                        console.warn('[my-growth] data bus fallback:', error);
+                    }
+                }
+
                 try {
                     const [profilePayload, planPayload] = await Promise.all([
                         fetchJson('/api/v1/agent/score/profile'),
@@ -784,6 +814,27 @@
             });
 
             async function bootstrap() {
+                if (dataBus) {
+                    dataBus.subscribe((event) => {
+                        const snapshot = event && event.state;
+                        if (!snapshot || !snapshot.profile || !snapshot.weeklyPlan) return;
+                        const week = buildWeekFromRemote(snapshot.profile, snapshot.weeklyPlan);
+                        dataset = {
+                            week,
+                            month: derivePeriod(week, 'month'),
+                            quarter: derivePeriod(week, 'quarter')
+                        };
+                        render();
+                    });
+                    dataBus.start({
+                        intervalMs: 12000,
+                        include: ['profile', 'weeklyPlan'],
+                        selection: {
+                            subjectType: 'HUMAN',
+                            subjectId: 'user_1001'
+                        }
+                    });
+                }
                 render();
                 await loadRemoteData();
                 render();

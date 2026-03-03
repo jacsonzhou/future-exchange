@@ -492,10 +492,14 @@
         </section>
     </main>
 
+    <script src="agent-data-bus.js"></script>
     <script>
         (function () {
-            const API_BASE = window.__AGENT_API_BASE__
-                || (window.location.port === '8082' ? window.location.origin : 'http://localhost:8082');
+            const dataBus = window.AgentDataBus || null;
+            const API_BASE = dataBus
+                ? dataBus.apiBase
+                : (window.__AGENT_API_BASE__
+                    || (window.location.port === '8082' ? window.location.origin : 'http://localhost:8082'));
 
             const tabs = document.querySelectorAll('.tab');
             const boardRows = document.getElementById('boardRows');
@@ -670,17 +674,32 @@
                 const cacheKey = selected.id;
                 if (profileCache[cacheKey]) return;
                 try {
-                    const query = new URLSearchParams({
-                        subjectType: selected.subjectType,
-                        subjectId: selected.id
-                    });
-                    const payload = await fetchJson(`/api/v1/agent/score/profile?${query.toString()}`);
-                    profileCache[cacheKey] = payloadData(payload);
+                    if (dataBus) {
+                        profileCache[cacheKey] = await dataBus.fetchProfile(selected.subjectType, selected.id);
+                    } else {
+                        const query = new URLSearchParams({
+                            subjectType: selected.subjectType,
+                            subjectId: selected.id
+                        });
+                        const payload = await fetchJson(`/api/v1/agent/score/profile?${query.toString()}`);
+                        profileCache[cacheKey] = payloadData(payload);
+                    }
                     return;
                 } catch (error) {
                     console.warn('[skillboard] profile fallback:', error);
                 }
                 profileCache[cacheKey] = null;
+            }
+
+            function applyLeaderboardFromState(snapshot) {
+                if (!snapshot || !Array.isArray(snapshot.leaderboard) || !snapshot.leaderboard.length) return false;
+                remoteRows = snapshot.leaderboard
+                    .map((item, index) => normalizeRow(item, index))
+                    .sort((a, b) => a.rank - b.rank);
+                if (!selected || !remoteRows.find((row) => row.id === selected.id)) {
+                    selected = remoteRows[0];
+                }
+                return true;
             }
 
             function renderProfile() {
@@ -713,6 +732,21 @@
 
             async function loadLeaderboard() {
                 boardRows.innerHTML = '<div class="board-row"><span>#--</span><span>加载中</span><span>--</span><span class="score">--</span><span>--</span><span>--</span><span>--</span><span>--</span></div>';
+                if (dataBus) {
+                    try {
+                        const snapshot = dataBus.state();
+                        if (!applyLeaderboardFromState(snapshot)) {
+                            await dataBus.sync({ include: ['leaderboard'] });
+                            applyLeaderboardFromState(dataBus.state());
+                        }
+                        await ensureSelectedProfile();
+                        renderRows();
+                        return;
+                    } catch (error) {
+                        console.warn('[skillboard] leaderboard fallback by data bus:', error);
+                    }
+                }
+
                 try {
                     const payload = await fetchJson('/api/v1/agent/score/leaderboard');
                     const data = payloadData(payload);
@@ -756,6 +790,24 @@
                 await ensureSelectedProfile();
                 renderRows();
             });
+
+            if (dataBus) {
+                dataBus.subscribe(async (event) => {
+                    if (!event || !event.state) return;
+                    const changed = applyLeaderboardFromState(event.state);
+                    if (!changed) return;
+                    await ensureSelectedProfile();
+                    renderRows();
+                });
+                dataBus.start({
+                    intervalMs: 12000,
+                    include: ['leaderboard'],
+                    selection: {
+                        subjectType: 'HUMAN',
+                        subjectId: 'user_1001'
+                    }
+                });
+            }
 
             loadLeaderboard();
         })();

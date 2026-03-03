@@ -568,10 +568,14 @@
         </section>
     </main>
 
+    <script src="agent-data-bus.js"></script>
     <script>
         (function () {
-            const API_BASE = window.__AGENT_API_BASE__
-                || ((window.location.protocol.startsWith('http') && window.location.port === '8082') ? '' : 'http://localhost:8082');
+            const dataBus = window.AgentDataBus || null;
+            const API_BASE = dataBus
+                ? dataBus.apiBase
+                : (window.__AGENT_API_BASE__
+                    || ((window.location.protocol.startsWith('http') && window.location.port === '8082') ? '' : 'http://localhost:8082'));
 
             const decisionListEl = document.getElementById('decisionList');
             const decisionIdText = document.getElementById('decisionIdText');
@@ -649,7 +653,8 @@
                     exposure: Number(item.exposure || item.riskExposurePct || 0),
                     stop: Number(item.stop || item.stopLoss || 0),
                     take: Number(item.take || item.takeProfit || 0),
-                    reasons: Array.isArray(item.reasons) ? item.reasons : []
+                    reasons: Array.isArray(item.reasons) ? item.reasons : [],
+                    symbol: item.symbol || symbolSel.value
                 };
             }
 
@@ -677,6 +682,30 @@
             function payloadData(payload) {
                 if (!payload || payload.code !== 0) throw new Error('invalid payload');
                 return payload.data;
+            }
+
+            function syncBusSelection() {
+                if (!dataBus) return;
+                dataBus.setSelection({
+                    symbol: symbolSel.value,
+                    interval: intervalSel.value,
+                    strategyVersion: strategySel.value,
+                    subjectType: 'HUMAN',
+                    subjectId: 'user_1001'
+                });
+            }
+
+            function applyBusSnapshot(snapshot) {
+                if (!snapshot || typeof snapshot !== 'object') return;
+
+                if (Array.isArray(snapshot.decisions) && snapshot.decisions.length) {
+                    decisions = snapshot.decisions.map(normalizeDecision);
+                    engineState.textContent = snapshot.health === 'degraded' ? 'degraded' : 'online';
+                }
+
+                if (Array.isArray(snapshot.decisionLogs) && snapshot.decisionLogs.length) {
+                    logs = snapshot.decisionLogs.map(normalizeLog);
+                }
             }
 
             function fmtPrice(v) {
@@ -803,9 +832,22 @@
             }
 
             async function refreshData() {
-                await triggerPreview();
-                await loadDecisions();
-                await loadLogs();
+                if (dataBus) {
+                    try {
+                        syncBusSelection();
+                        await dataBus.sync({
+                            include: ['decisions', 'decisionLogs'],
+                            preview: true
+                        });
+                        applyBusSnapshot(dataBus.state());
+                    } catch (error) {
+                        console.warn('[ai-console] data bus fallback:', error);
+                    }
+                } else {
+                    await triggerPreview();
+                    await loadDecisions();
+                    await loadLogs();
+                }
                 if (!decisions.find((item) => item.decisionId === selectedId)) {
                     selectedId = decisions[0] ? decisions[0].decisionId : '';
                 }
@@ -844,8 +886,7 @@
                     applyRate = Math.min(95, applyRate + 1.5);
                     kpiApply.textContent = `${applyRate.toFixed(1)}%`;
                     hintText.textContent = data.message || `已采纳 ${current.decisionId} 并写入交易填单区。`;
-                    await loadLogs();
-                    renderLogs();
+                    await refreshData();
                     return;
                 } catch (error) {
                     console.warn('[ai-console] adopt fallback:', error);
@@ -921,6 +962,30 @@
                 }
                 hintText.textContent = '该建议已加入复盘实验室（演示占位），用于后续归因分析。';
             });
+
+            if (dataBus) {
+                syncBusSelection();
+                dataBus.subscribe((event) => {
+                    applyBusSnapshot(event && event.state);
+                    if (!decisions.find((item) => item.decisionId === selectedId)) {
+                        selectedId = decisions[0] ? decisions[0].decisionId : '';
+                    }
+                    renderDecisionList();
+                    renderDetail(decisions.find((item) => item.decisionId === selectedId) || decisions[0]);
+                    renderLogs();
+                });
+                dataBus.start({
+                    intervalMs: 12000,
+                    include: ['decisions', 'decisionLogs'],
+                    selection: {
+                        symbol: symbolSel.value,
+                        interval: intervalSel.value,
+                        strategyVersion: strategySel.value,
+                        subjectType: 'HUMAN',
+                        subjectId: 'user_1001'
+                    }
+                });
+            }
 
             selectedId = decisions[0].decisionId;
             refreshData();
