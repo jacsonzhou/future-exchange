@@ -53,6 +53,8 @@ public class AuthGatewayFilter implements GlobalFilter, Ordered {
     private static final String HEADER_ACCOUNT_ID = "X-Account-Id";
     private static final String HEADER_USERNAME = "X-Username";
     private static final String HEADER_USER_ROLE = "X-User-Role";
+    private static final String QUERY_USER_ID = "userId";
+    private static final String OMS_ORDER_LIST_PATH = "/api/v1/oms/order/list";
     
     @PostConstruct
     public void init() {
@@ -76,16 +78,37 @@ public class AuthGatewayFilter implements GlobalFilter, Ordered {
         // 检查白名单
         if (isWhitelistPath(path)) {
             log.info("[AuthGatewayFilter] Whitelist path matched: {}", path);
-            // 白名单路径也尝试透传 X-User-Id（从 query 参数或 header 中提取）
-            String userId = request.getHeaders().getFirst(HEADER_USER_ID);
-            if (userId == null) {
-                userId = request.getQueryParams().getFirst("userId");
-            }
+            // 白名单路径也尝试透传 X-User-Id（从 query/header/token 中提取）
+            String userId = resolveUserIdFromHeaderOrQuery(request);
             if (userId != null && !userId.isEmpty()) {
                 ServerHttpRequest mutatedRequest = request.mutate()
                     .header(HEADER_USER_ID, userId)
                     .build();
                 return chain.filter(exchange.mutate().request(mutatedRequest).build());
+            }
+            if (isOmsOrderListPath(path)) {
+                String token = extractToken(request);
+                if (token == null || !jwtUtil.validateToken(token)) {
+                    log.warn("[AuthGatewayFilter] Missing user identity for order list, path={}", path);
+                    return unauthorized(exchange.getResponse(),
+                        "X-User-Id header/query or valid Bearer token is required");
+                }
+                return checkTokenBlacklist(token).flatMap(isBlacklisted -> {
+                    if (isBlacklisted) {
+                        log.warn("[AuthGatewayFilter] Token is blacklisted for order list, path={}", path);
+                        return unauthorized(exchange.getResponse(), "Token has been revoked");
+                    }
+                    Long tokenUserId = jwtUtil.getUserIdFromToken(token);
+                    if (tokenUserId == null) {
+                        log.warn("[AuthGatewayFilter] Token userId missing for order list, path={}", path);
+                        return unauthorized(exchange.getResponse(), "Invalid token payload");
+                    }
+                    ServerHttpRequest mutatedRequest = request.mutate()
+                        .header(HEADER_USER_ID, String.valueOf(tokenUserId))
+                        .header(HEADER_AUTHORIZATION, "Bearer " + token)
+                        .build();
+                    return chain.filter(exchange.mutate().request(mutatedRequest).build());
+                });
             }
             return chain.filter(exchange);
         }
@@ -155,6 +178,18 @@ public class AuthGatewayFilter implements GlobalFilter, Ordered {
         }
         return null;
     }
+
+    private String resolveUserIdFromHeaderOrQuery(ServerHttpRequest request) {
+        String userId = request.getHeaders().getFirst(HEADER_USER_ID);
+        if (userId == null || userId.isEmpty()) {
+            userId = request.getQueryParams().getFirst(QUERY_USER_ID);
+        }
+        return userId;
+    }
+
+    private boolean isOmsOrderListPath(String path) {
+        return OMS_ORDER_LIST_PATH.equals(path);
+    }
     
     /**
      * 检查 Token 是否在黑名单
@@ -192,9 +227,11 @@ public class AuthGatewayFilter implements GlobalFilter, Ordered {
             // "/api/v1/account/balance/**",  // ❌ 账户余额查询需要认证
             // "/api/v1/position/**",         // ❌ 持仓查询需要认证
             "/api/v1/oms/order/list",        // ✅ OMS 订单列表查询
+            "/api/v1/agent/**",              // ✅ 训练域接口（联调环境放行）
             "/api/v1/market/**",
             "/api/v1/ticker/**",
             "/api/v1/depth/**",
+            "/api/v1/trades/**",           // ✅ 最新成交接口
             "/api/v1/kline/**",
             "/api/v1/klines/**",           // ✅ K线数据接口（复数形式）
             "/api/v1/bookTicker/**",       // ✅ 最优盘口接口
