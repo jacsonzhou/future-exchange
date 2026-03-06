@@ -3,6 +3,7 @@ package com.exchange.cfddealer.consumer;
 import com.exchange.cfddealer.config.CfdDealerProperties;
 import com.exchange.cfddealer.dto.ReferenceBookSnapshot;
 import com.exchange.cfddealer.service.LimitWorkingOrderService;
+import com.exchange.cfddealer.service.ReferenceBookStore;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
@@ -32,6 +33,7 @@ public class ReferenceDepthConsumer {
     private final ObjectMapper objectMapper;
     private final StringRedisTemplate stringRedisTemplate;
     private final CfdDealerProperties properties;
+    private final ReferenceBookStore referenceBookStore;
     private final LimitWorkingOrderService limitWorkingOrderService;
     private final Map<String, Long> latestOffsetBySymbol = new ConcurrentHashMap<>();
 
@@ -96,8 +98,14 @@ public class ReferenceDepthConsumer {
             snapshot.setSource(readText(root, "source"));
             snapshot.setStalenessMs(snapshot.getEventTime() > 0L ? Math.max(0L, now - snapshot.getEventTime()) : 0L);
 
+            referenceBookStore.upsert(snapshot);
+
             String redisKey = properties.getReferenceRedisPrefix() + symbol;
-            stringRedisTemplate.opsForValue().set(redisKey, objectMapper.writeValueAsString(snapshot));
+            try {
+                stringRedisTemplate.opsForValue().set(redisKey, objectMapper.writeValueAsString(snapshot));
+            } catch (Exception redisException) {
+                log.warn("[CFD-DEALER] write redis reference snapshot failed, symbol={}, key={}", symbol, redisKey, redisException);
+            }
 
             int triggered = limitWorkingOrderService.triggerWorkingOrdersByQuote(
                 symbol,

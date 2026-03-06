@@ -34,8 +34,12 @@ spring:
 
 cfd:
   dealer:
+    pricing-mode: DUAL
     reference-redis-prefix: "cfd:reference:book:"
-    reference-max-stale-ms: 0
+    reference-max-stale-ms: 1500
+    reference:
+      max-stale-ms: 1500
+      min-depth-levels: 1
     dealer-account-id: 0
     liquidity-source: BINANCE_REF
     command-topic-pattern: cfd-order-command-.*
@@ -48,6 +52,14 @@ cfd:
     limit-trigger-interval-ms: 100
     polling-enabled: false
     reference-depth-levels: 20
+
+execution:
+  topic-mode: DUAL_WRITE
+  topic:
+    shared:
+      order-command: ex.order.command.v1
+      order-state: ex.order.state.v1
+      trade: ex.trade.v1
 
 mybatis-plus:
   configuration:

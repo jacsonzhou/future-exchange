@@ -5,15 +5,37 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
 import org.springframework.context.annotation.Configuration;
 
 import java.util.List;
+import java.util.Locale;
 
 @Data
 @Configuration
 @ConfigurationProperties(prefix = "cfd.dealer")
 public class CfdDealerProperties {
 
+    private static final int DEFAULT_REFERENCE_DEPTH_LEVELS = 20;
+    private static final int DEFAULT_REFERENCE_MIN_DEPTH_LEVELS = 1;
+
+    /**
+     * REDIS | MEMORY | DUAL, default DUAL.
+     */
+    private String pricingMode = "DUAL";
+
     private String referenceRedisPrefix = "cfd:reference:book:";
 
+    /**
+     * Legacy flat config key: cfd.dealer.reference-max-stale-ms
+     */
     private long referenceMaxStaleMs = 0L;
+
+    /**
+     * Legacy flat config key: cfd.dealer.reference-depth-levels
+     */
+    private int referenceDepthLevels = DEFAULT_REFERENCE_DEPTH_LEVELS;
+
+    /**
+     * New nested config key: cfd.dealer.reference.*
+     */
+    private ReferenceProperties reference = new ReferenceProperties();
 
     private long dealerAccountId = 0L;
 
@@ -64,5 +86,41 @@ public class CfdDealerProperties {
     /**
      * 参考盘口缓存深度层数（写入Redis快照时截断）。
      */
-    private int referenceDepthLevels = 20;
+    public int getReferenceDepthLevels() {
+        if (reference != null && reference.getDepthLevels() != null && reference.getDepthLevels() > 0) {
+            return reference.getDepthLevels();
+        }
+        if (referenceDepthLevels > 0) {
+            return referenceDepthLevels;
+        }
+        return DEFAULT_REFERENCE_DEPTH_LEVELS;
+    }
+
+    public long getReferenceMaxStaleMs() {
+        if (reference != null && reference.getMaxStaleMs() != null) {
+            return Math.max(0L, reference.getMaxStaleMs());
+        }
+        return Math.max(0L, referenceMaxStaleMs);
+    }
+
+    public int getReferenceMinDepthLevels() {
+        if (reference != null && reference.getMinDepthLevels() != null && reference.getMinDepthLevels() > 0) {
+            return reference.getMinDepthLevels();
+        }
+        return DEFAULT_REFERENCE_MIN_DEPTH_LEVELS;
+    }
+
+    public String getPricingMode() {
+        if (pricingMode == null || pricingMode.isBlank()) {
+            return "DUAL";
+        }
+        return pricingMode.trim().toUpperCase(Locale.ROOT);
+    }
+
+    @Data
+    public static class ReferenceProperties {
+        private Long maxStaleMs;
+        private Integer minDepthLevels;
+        private Integer depthLevels;
+    }
 }

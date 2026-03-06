@@ -54,12 +54,12 @@ public class MarketExecutionServiceImpl implements MarketExecutionService {
             throw new IllegalStateException("reference book missing");
         }
 
-        long stalenessMs = snapshot.getStalenessMs() == null
-            ? Long.MAX_VALUE
-            : Math.max(0L, snapshot.getStalenessMs());
+        long stalenessMs = resolveStalenessMs(snapshot);
+        snapshot.setStalenessMs(stalenessMs);
         if (properties.getReferenceMaxStaleMs() > 0 && stalenessMs > properties.getReferenceMaxStaleMs()) {
             throw new IllegalStateException("reference book stale: " + stalenessMs + "ms");
         }
+        ensureDepth(snapshot, properties.getReferenceMinDepthLevels());
 
         BigDecimal bestBid = parsePositive(snapshot.getBestBid(), "bestBid");
         BigDecimal bestAsk = parsePositive(snapshot.getBestAsk(), "bestAsk");
@@ -234,6 +234,27 @@ public class MarketExecutionServiceImpl implements MarketExecutionService {
             return 0;
         }
         return bps.intValue();
+    }
+
+    private long resolveStalenessMs(ReferenceBookSnapshot snapshot) {
+        long now = System.currentTimeMillis();
+        if (snapshot.getEventTime() != null && snapshot.getEventTime() > 0) {
+            return Math.max(0L, now - snapshot.getEventTime());
+        }
+        if (snapshot.getStalenessMs() != null) {
+            return Math.max(0L, snapshot.getStalenessMs());
+        }
+        return Long.MAX_VALUE;
+    }
+
+    private void ensureDepth(ReferenceBookSnapshot snapshot, int minDepthLevels) {
+        int requiredDepth = Math.max(1, minDepthLevels);
+        int bidsDepth = snapshot.getBidsTopN() == null ? 0 : snapshot.getBidsTopN().size();
+        int asksDepth = snapshot.getAsksTopN() == null ? 0 : snapshot.getAsksTopN().size();
+        if (bidsDepth < requiredDepth || asksDepth < requiredDepth) {
+            throw new IllegalStateException("reference depth insufficient: bids=" + bidsDepth
+                + ", asks=" + asksDepth + ", required=" + requiredDepth);
+        }
     }
 
     private String firstNonBlank(String first, String second) {
