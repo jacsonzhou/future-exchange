@@ -61,6 +61,8 @@ public class AgentTrainingService {
                 return;
             }
             syncSeedSkillsToDb();
+            syncSeedDecisionFactsToDb();
+            syncSeedReplayFactsToDb();
             syncSeedDecisionLogsToDb();
             syncSeedWeeklyPlanToDb();
             log.info("[AgentTrainingService] Persistence enabled with MySQL");
@@ -274,6 +276,31 @@ public class AgentTrainingService {
                 )
         );
         replaysByScenario.computeIfAbsent("normal", k -> new CopyOnWriteArrayList<>()).add(0, item);
+        if (persistenceReady) {
+            try {
+                SubjectRef subject = inferSubjectFromDecision(decision);
+                double signalScore = extractReplayScore(item, "信号充分度");
+                double executionScore = extractReplayScore(item, "执行偏差控制");
+                double riskScore = extractReplayScore(item, "风险纪律");
+                long now = nowMillis();
+                persistenceRepository.upsertReplayFact(new AgentTrainingPersistenceRepository.ReplayFactRow(
+                        replayId,
+                        req.decisionId(),
+                        subject.subjectType(),
+                        subject.subjectId(),
+                        signalScore,
+                        executionScore,
+                        riskScore,
+                        3,
+                        2,
+                        1,
+                        now,
+                        now
+                ));
+            } catch (Exception e) {
+                log.warn("[AgentTrainingService] createReplay write replay fact failed, replayId={}", replayId, e);
+            }
+        }
         return item;
     }
 
@@ -305,6 +332,7 @@ public class AgentTrainingService {
     public DecisionItem previewDecision(CreateDecisionRequest req) {
         String symbol = isBlank(req.symbol()) ? "BTCUSDT" : req.symbol().toUpperCase(Locale.ROOT);
         String strategyVersion = isBlank(req.strategyVersion()) ? "ai-momentum-v1.2.3" : req.strategyVersion();
+        String interval = isBlank(req.interval()) ? "1m" : req.interval();
         String action = "OPEN_SHORT";
         double confidence = 54;
         double entryMin = 69470.79;
@@ -339,6 +367,28 @@ public class AgentTrainingService {
                 "PREVIEWED"
         );
         decisionMap.put(decisionId, created);
+        if (persistenceReady) {
+            try {
+                SubjectRef subject = inferSubjectFromStrategy(strategyVersion);
+                long now = nowMillis();
+                persistenceRepository.upsertDecisionFact(new AgentTrainingPersistenceRepository.DecisionFactRow(
+                        decisionId,
+                        subject.subjectType(),
+                        subject.subjectId(),
+                        strategyVersion,
+                        symbol,
+                        interval,
+                        action,
+                        confidence,
+                        exposure,
+                        "PREVIEWED",
+                        now,
+                        now
+                ));
+            } catch (Exception e) {
+                log.warn("[AgentTrainingService] previewDecision write fact failed, decisionId={}", decisionId, e);
+            }
+        }
         return created;
     }
 
@@ -359,6 +409,13 @@ public class AgentTrainingService {
         boolean pass = violations.isEmpty();
         String nextStatus = pass ? "VALIDATED" : "REJECTED";
         decisionMap.put(decision.decisionId(), decision.withStatus(nextStatus));
+        if (persistenceReady) {
+            try {
+                persistenceRepository.updateDecisionFactStatus(decision.decisionId(), nextStatus, nowMillis());
+            } catch (Exception e) {
+                log.warn("[AgentTrainingService] validateDecision update fact failed, decisionId={}", decision.decisionId(), e);
+            }
+        }
         return new ValidationResult(
                 decision.decisionId(),
                 pass,
@@ -374,6 +431,35 @@ public class AgentTrainingService {
         }
         decision = decision.withStatus("ADOPTED");
         decisionMap.put(decision.decisionId(), decision);
+        if (persistenceReady) {
+            try {
+                long now = nowMillis();
+                persistenceRepository.updateDecisionFactStatus(decision.decisionId(), "ADOPTED", now);
+                SubjectRef subject = inferSubjectFromStrategy(decision.strategyVersion());
+                persistenceRepository.insertExecutionFact(new AgentTrainingPersistenceRepository.ExecutionFactRow(
+                        decision.decisionId(),
+                        "paper_" + decision.decisionId() + "_" + now,
+                        subject.subjectType(),
+                        subject.subjectId(),
+                        decision.symbol(),
+                        "OPEN_SHORT".equals(decision.action()) ? "SELL" : ("OPEN_LONG".equals(decision.action()) ? "BUY" : "BUY"),
+                        toPriceScale(derivePlanEntry(decision)),
+                        toPriceScale(derivePlanEntry(decision) * 1.0003D),
+                        toPriceScale(derivePlanExit(decision)),
+                        3.0D,
+                        4.0D,
+                        0.9D,
+                        deriveRealizedPnlR(decision),
+                        300,
+                        decision.exposure() > 45 ? 1 : 0,
+                        decision.stop() <= 0 ? 1 : 0,
+                        now,
+                        now
+                ));
+            } catch (Exception e) {
+                log.warn("[AgentTrainingService] adoptDecision write execution fact failed, decisionId={}", decision.decisionId(), e);
+            }
+        }
 
         DecisionLogItem logItem = new DecisionLogItem(
                 decision.decisionId(),
@@ -419,24 +505,27 @@ public class AgentTrainingService {
     }
 
     public ScoreProfile getScoreProfile(Long userId, String subjectType, String subjectId) {
-        Map<String, Double> dimensions = new LinkedHashMap<>();
-        dimensions.put("RAR", 84.3);
-        dimensions.put("DDC", 86.5);
-        dimensions.put("EXEC", 88.8);
-        dimensions.put("CONS", 82.6);
-        dimensions.put("RISK", 91.4);
-        dimensions.put("REPLAY", 79.2);
+        String normalizedType = normalizeSubjectType(subjectType);
+        String normalizedId = resolveSubjectId(userId, normalizedType, subjectId);
+        String period = currentWeekCode();
 
-        return new ScoreProfile(
-                normalizeSubjectType(subjectType),
-                isBlank(subjectId) ? "user_" + (userId == null ? 1001 : userId) : subjectId,
-                "2026-W10",
-                85.5,
-                dimensions,
-                2.3,
-                37,
-                "FORMAL"
-        );
+        if (persistenceReady) {
+            try {
+                return computeAndPersistScoreProfile(normalizedType, normalizedId, period);
+            } catch (Exception e) {
+                log.warn("[AgentTrainingService] getScoreProfile fallback to default, subjectType={}, subjectId={}",
+                        normalizedType, normalizedId, e);
+            }
+        }
+
+        Map<String, Double> fallback = new LinkedHashMap<>();
+        fallback.put("RAR", 60.0);
+        fallback.put("DDC", 60.0);
+        fallback.put("EXEC", 60.0);
+        fallback.put("CONS", 60.0);
+        fallback.put("RISK", 60.0);
+        fallback.put("REPLAY", 60.0);
+        return new ScoreProfile(normalizedType, normalizedId, period, 60.0, fallback, 0.0, 0, "TEMP");
     }
 
     public List<LeaderboardItem> getLeaderboard() {
@@ -657,6 +746,156 @@ public class AgentTrainingService {
         }
     }
 
+    private void syncSeedDecisionFactsToDb() {
+        long baseTs = nowMillis();
+        int offset = 0;
+        for (DecisionItem item : decisionMap.values()) {
+            SubjectRef subject = inferSubjectFromStrategy(item.strategyVersion());
+            long ts = baseTs - (offset++ * 1000L);
+            persistenceRepository.upsertDecisionFact(new AgentTrainingPersistenceRepository.DecisionFactRow(
+                    item.decisionId(),
+                    subject.subjectType(),
+                    subject.subjectId(),
+                    item.strategyVersion(),
+                    item.symbol(),
+                    "1m",
+                    item.action(),
+                    item.confidence(),
+                    item.exposure(),
+                    item.status(),
+                    ts,
+                    ts
+            ));
+        }
+    }
+
+    private void syncSeedReplayFactsToDb() {
+        long baseTs = nowMillis();
+        int offset = 0;
+        for (ReplayItem replay : replaysByScenario.getOrDefault("normal", List.of())) {
+            long ts = baseTs - (offset++ * 1000L);
+            persistenceRepository.upsertReplayFact(new AgentTrainingPersistenceRepository.ReplayFactRow(
+                    replay.id(),
+                    "seed_" + replay.id(),
+                    "HUMAN",
+                    "user_1001",
+                    extractReplayScore(replay, "信号充分度"),
+                    extractReplayScore(replay, "执行偏差控制"),
+                    extractReplayScore(replay, "风险纪律"),
+                    3,
+                    2,
+                    1,
+                    ts,
+                    ts
+            ));
+        }
+    }
+
+    private ScoreProfile computeAndPersistScoreProfile(String subjectType, String subjectId, String period) {
+        long weekStart = startOfCurrentWeekMillis();
+        long weekEnd = weekStart + (7L * 24 * 60 * 60 * 1000) - 1L;
+        long now = nowMillis();
+
+        AgentTrainingPersistenceRepository.DecisionStats decisionStats =
+                persistenceRepository.aggregateDecisionStats(subjectType, subjectId, weekStart, weekEnd);
+        AgentTrainingPersistenceRepository.ReplayStats replayStats =
+                persistenceRepository.aggregateReplayStats(subjectType, subjectId, weekStart, weekEnd);
+        AgentTrainingPersistenceRepository.ExecutionStats executionStats =
+                persistenceRepository.aggregateExecutionStats(subjectType, subjectId, weekStart, weekEnd);
+
+        double avgConfidence = sanitizeMetric(decisionStats.avgConfidencePct());
+        double avgRiskExposure = sanitizeMetric(decisionStats.avgRiskExposurePct());
+        double avgSignal = sanitizeMetric(replayStats.avgSignalScore());
+        double avgExecReplay = sanitizeMetric(replayStats.avgExecutionScore());
+        double avgRiskReplay = sanitizeMetric(replayStats.avgRiskScore());
+        double avgActionCloseRate = sanitizeMetric(replayStats.avgActionCloseRatePct());
+
+        double avgEntrySlippage = sanitizeMetric(executionStats.avgEntrySlippageBps());
+        double avgExitSlippage = sanitizeMetric(executionStats.avgExitSlippageBps());
+        double avgPlanDrift = sanitizeMetric(executionStats.avgPlanDriftPct());
+        double avgPnlR = sanitizeMetric(executionStats.avgRealizedPnlR());
+        double stopLossMissingRate = sanitizeMetric(executionStats.stopLossMissingRatePct());
+
+        double adoptedRate = ratioPct(decisionStats.adoptedCount(), decisionStats.totalCount());
+        double rejectedRate = ratioPct(decisionStats.rejectedCount(), decisionStats.totalCount());
+        double replayCompletionRate = ratioPct(replayStats.completedCount(), replayStats.totalCount());
+
+        double rar = clamp(0.55D * avgSignal + 0.35D * avgConfidence + 10D * clamp(avgPnlR, -1.0D, 1.0D), 0D, 100D);
+        double ddc = clamp((100D - avgRiskExposure) * 0.50D + (100D - rejectedRate) * 0.30D + avgRiskReplay * 0.20D, 0D, 100D);
+        double exec = executionStats.totalCount() > 0
+                ? clamp(100D - 0.45D * avgEntrySlippage - 0.35D * avgExitSlippage - 0.70D * avgPlanDrift, 0D, 100D)
+                : clamp(avgExecReplay > 0 ? avgExecReplay : 60D + adoptedRate * 0.20D, 0D, 100D);
+        double cons = clamp(60D + adoptedRate * 0.35D - rejectedRate * 0.30D + Math.min(decisionStats.activeDays(), 7) * 1.5D, 0D, 100D);
+        double risk = clamp(avgRiskReplay * 0.55D + (100D - avgRiskExposure) * 0.30D
+                + (100D - stopLossMissingRate - executionStats.riskViolationCount() * 4D) * 0.15D, 0D, 100D);
+        double replay = clamp(replayCompletionRate * 0.55D + avgActionCloseRate * 0.45D, 0D, 100D);
+
+        double penalty = clamp(decisionStats.rejectedCount() * 1.2D
+                + executionStats.riskViolationCount() * 2.0D
+                + stopLossMissingRate * 0.2D, 0D, 30D);
+
+        double skillScore = clamp(
+                0.30D * rar + 0.20D * ddc + 0.15D * exec + 0.15D * cons + 0.10D * risk + 0.10D * replay - penalty,
+                0D, 100D
+        );
+
+        int effectiveSampleSize = (int) Math.max(
+                decisionStats.totalCount(),
+                Math.max(replayStats.totalCount(), executionStats.totalCount())
+        );
+        int activeDays = decisionStats.activeDays();
+        String scoreStatus = (effectiveSampleSize >= 20 && activeDays >= 5) ? "FORMAL" : "TEMP";
+
+        double previousScore = persistenceRepository.findLatestScoreSnapshotBefore(subjectType, subjectId, period)
+                .map(AgentTrainingPersistenceRepository.ScoreSnapshotRow::skillScore)
+                .orElse(skillScore);
+        double delta = round2(skillScore - previousScore);
+
+        String rawMetricsJson = String.format(Locale.ROOT,
+                "{\"decisionCount\":%d,\"replayCount\":%d,\"executionCount\":%d,\"adoptedRate\":%.2f,\"rejectedRate\":%.2f,\"replayCompletionRate\":%.2f}",
+                decisionStats.totalCount(), replayStats.totalCount(), executionStats.totalCount(),
+                adoptedRate, rejectedRate, replayCompletionRate);
+
+        persistenceRepository.upsertScoreDimensionSnapshot(new AgentTrainingPersistenceRepository.ScoreDimensionSnapshotRow(
+                subjectType, subjectId, period, round2(rar), round2(ddc), round2(exec), round2(cons),
+                round2(risk), round2(replay), round2(penalty), rawMetricsJson, now, now
+        ));
+        persistenceRepository.upsertScoreSnapshot(new AgentTrainingPersistenceRepository.ScoreSnapshotRow(
+                subjectType, subjectId, period, round2(skillScore), delta, effectiveSampleSize, activeDays, scoreStatus, now, now
+        ));
+        persistenceRepository.insertScoreEvent(new AgentTrainingPersistenceRepository.ScoreEventRow(
+                "score_evt_" + subjectId + "_" + now + "_" + UUID.randomUUID().toString().substring(0, 8),
+                subjectType,
+                subjectId,
+                period,
+                "SCHEDULED_REBUILD",
+                round2(previousScore),
+                round2(skillScore),
+                delta,
+                "trace_score_" + now,
+                now
+        ));
+
+        Map<String, Double> dimensions = new LinkedHashMap<>();
+        dimensions.put("RAR", round2(rar));
+        dimensions.put("DDC", round2(ddc));
+        dimensions.put("EXEC", round2(exec));
+        dimensions.put("CONS", round2(cons));
+        dimensions.put("RISK", round2(risk));
+        dimensions.put("REPLAY", round2(replay));
+
+        return new ScoreProfile(
+                subjectType,
+                subjectId,
+                period,
+                round2(skillScore),
+                dimensions,
+                delta,
+                effectiveSampleSize,
+                scoreStatus
+        );
+    }
+
     private void trimLogs() {
         while (decisionLogs.size() > 20) {
             decisionLogs.remove(decisionLogs.size() - 1);
@@ -721,6 +960,116 @@ public class AgentTrainingService {
                 row.feedback(),
                 formatEpochMillis(row.eventTime())
         );
+    }
+
+    private SubjectRef inferSubjectFromDecision(DecisionItem decision) {
+        if (decision == null) {
+            return new SubjectRef("HUMAN", "user_1001");
+        }
+        return inferSubjectFromStrategy(decision.strategyVersion());
+    }
+
+    private SubjectRef inferSubjectFromStrategy(String strategyVersion) {
+        if (isBlank(strategyVersion)) {
+            return new SubjectRef("HUMAN", "user_1001");
+        }
+        String normalized = strategyVersion.toLowerCase(Locale.ROOT);
+        if (normalized.contains("codex")) {
+            return new SubjectRef("AGENT", "codex-agent");
+        }
+        if (normalized.contains("claude")) {
+            return new SubjectRef("AGENT", "claude-code");
+        }
+        if (normalized.contains("kimi")) {
+            return new SubjectRef("AGENT", "kimi-k2");
+        }
+        if (normalized.contains("agent")) {
+            return new SubjectRef("AGENT", normalized.replaceAll("[^a-z0-9\\-_.]", "-"));
+        }
+        return new SubjectRef("HUMAN", "user_1001");
+    }
+
+    private String resolveSubjectId(Long userId, String subjectType, String subjectId) {
+        if (!isBlank(subjectId)) {
+            return subjectId;
+        }
+        if ("AGENT".equals(subjectType)) {
+            return "codex-agent";
+        }
+        long uid = userId == null ? 1001L : userId;
+        return "user_" + uid;
+    }
+
+    private double extractReplayScore(ReplayItem replay, String key) {
+        if (replay == null || replay.scores() == null) {
+            return 0D;
+        }
+        return replay.scores().stream()
+                .filter(scorePoint -> key.equals(scorePoint.k()))
+                .map(ScorePoint::v)
+                .findFirst()
+                .orElse(0D);
+    }
+
+    private static double derivePlanEntry(DecisionItem decision) {
+        if (decision.entryMin() > 0 && decision.entryMax() > 0) {
+            return (decision.entryMin() + decision.entryMax()) / 2D;
+        }
+        if (decision.entryMin() > 0) return decision.entryMin();
+        if (decision.entryMax() > 0) return decision.entryMax();
+        return 0D;
+    }
+
+    private static double derivePlanExit(DecisionItem decision) {
+        double entry = derivePlanEntry(decision);
+        if (entry <= 0) {
+            return 0D;
+        }
+        if ("OPEN_SHORT".equals(decision.action())) {
+            return entry * 0.9988D;
+        }
+        if ("OPEN_LONG".equals(decision.action())) {
+            return entry * 1.0012D;
+        }
+        return entry;
+    }
+
+    private static double deriveRealizedPnlR(DecisionItem decision) {
+        double base = (decision.confidence() - 50D) / 20D;
+        if ("OPEN_SHORT".equals(decision.action()) || "OPEN_LONG".equals(decision.action())) {
+            return round2(clamp(base, -1.0D, 1.5D));
+        }
+        return 0D;
+    }
+
+    private static long toPriceScale(double value) {
+        if (value <= 0) {
+            return 0L;
+        }
+        return Math.round(value * 100_000_000L);
+    }
+
+    private static long startOfCurrentWeekMillis() {
+        LocalDate today = LocalDate.now(SHANGHAI_ZONE);
+        LocalDate monday = today.with(WeekFields.ISO.dayOfWeek(), 1);
+        return monday.atStartOfDay(SHANGHAI_ZONE).toInstant().toEpochMilli();
+    }
+
+    private static double sanitizeMetric(double v) {
+        return Double.isFinite(v) ? v : 0D;
+    }
+
+    private static double ratioPct(long numerator, long denominator) {
+        if (denominator <= 0) return 0D;
+        return (numerator * 100D) / denominator;
+    }
+
+    private static double clamp(double v, double min, double max) {
+        return Math.max(min, Math.min(max, v));
+    }
+
+    private static double round2(double v) {
+        return Math.round(v * 100D) / 100D;
     }
 
     private static long nowMillis() {
@@ -953,5 +1302,8 @@ public class AgentTrainingService {
     }
 
     public record UpdateWeeklyPlanRequest(List<String> items) {
+    }
+
+    private record SubjectRef(String subjectType, String subjectId) {
     }
 }

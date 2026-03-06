@@ -13,6 +13,7 @@ import io.micrometer.core.instrument.Timer;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.annotation.Lazy;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.data.redis.core.RedisTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.web.socket.TextMessage;
@@ -54,6 +55,9 @@ public class MessageDispatcher {
 
     @Autowired
     private RedisTemplate<String, Object> redisTemplate;
+
+    @Value("${public-push.ext-channel-enabled:true}")
+    private boolean extChannelEnabled;
 
     // 批量发送队列 sessionId -> 消息队列
     private final Map<String, Queue<String>> batchQueues = new ConcurrentHashMap<>();
@@ -148,6 +152,10 @@ public class MessageDispatcher {
      */
     public void broadcast(String channel, JSONObject data) {
         long startTime = System.currentTimeMillis();
+
+        if (!extChannelEnabled && isExternalChannel(channel)) {
+            return;
+        }
         
         // 对于深度消息，校验序列号连续性
         ChannelType channelType = ChannelType.fromChannel(channel);
@@ -280,6 +288,10 @@ public class MessageDispatcher {
      * 发送快照
      */
     public void sendSnapshot(String sessionId, String channel) {
+        if (!extChannelEnabled && isExternalChannel(channel)) {
+            return;
+        }
+
         ChannelType channelType = ChannelType.fromChannel(channel);
         
         try {
@@ -454,6 +466,10 @@ public class MessageDispatcher {
      * 直接广播（不验证序列号，用于聚合后的深度数据）
      */
     private void broadcastDirect(String channel, JSONObject data) {
+        if (!extChannelEnabled && isExternalChannel(channel)) {
+            return;
+        }
+
         JSONObject wrapper = new JSONObject();
         wrapper.put("stream", channel);
         wrapper.put("data", data);
@@ -669,6 +685,14 @@ public class MessageDispatcher {
             return symbolToken;
         }
         return symbolToken.replaceAll("@\\d+ms$", "");
+    }
+
+    private boolean isExternalChannel(String channel) {
+        ChannelType channelType = ChannelType.fromChannel(channel);
+        return channelType == ChannelType.EXT_DEPTH
+                || channelType == ChannelType.EXT_TRADE
+                || channelType == ChannelType.EXT_KLINE
+                || channelType == ChannelType.EXT_TICKER;
     }
 
     private record ExternalChannel(String type, String source, String symbol, String interval) {}

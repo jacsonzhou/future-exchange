@@ -8,6 +8,7 @@ import io.micrometer.core.instrument.MeterRegistry;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.annotation.Lazy;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
 import jakarta.annotation.PostConstruct;
@@ -49,6 +50,9 @@ public class SubscriptionManager {
     @Autowired
     @Lazy
     private MessageDispatcher messageDispatcher;
+
+    @Value("${public-push.ext-channel-enabled:true}")
+    private boolean extChannelEnabled;
 
     // 频道 -> 订阅该频道的sessions (正向索引)
     private final Map<String, Set<String>> channelSubscribers = new ConcurrentHashMap<>();
@@ -92,6 +96,9 @@ public class SubscriptionManager {
         ChannelType channelType = ChannelType.fromChannel(channel);
         if (channelType == ChannelType.UNKNOWN) {
             return SubscribeResult.error(channel, "Unknown channel type");
+        }
+        if (!extChannelEnabled && isExternalChannelType(channelType)) {
+            return SubscribeResult.error(channel, "External channel disabled");
         }
 
         Set<String> currentSubs = sessionChannels.computeIfAbsent(sessionId, k -> ConcurrentHashMap.newKeySet());
@@ -260,5 +267,12 @@ public class SubscriptionManager {
         if (typeCounter != null) {
             typeCounter.updateAndGet(current -> Math.max(0, current - 1));
         }
+    }
+
+    private boolean isExternalChannelType(ChannelType channelType) {
+        return channelType == ChannelType.EXT_DEPTH
+                || channelType == ChannelType.EXT_TRADE
+                || channelType == ChannelType.EXT_KLINE
+                || channelType == ChannelType.EXT_TICKER;
     }
 }

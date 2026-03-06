@@ -68,6 +68,20 @@ spring:
           uri: lb://market-price-core
           predicates:
             - Path=/api/v1/ticker/24hr
+
+        # 成交数据
+        - id: market-price-trades
+          uri: lb://market-price-core
+          predicates:
+            - Path=/api/v1/market/trades
+          filters:
+            - SetPath=/api/v1/trades
+
+        # 成交数据 - 兼容旧路径
+        - id: market-price-trades-legacy
+          uri: lb://market-price-core
+          predicates:
+            - Path=/api/v1/trades
         
         # 最优盘口
         - id: market-price-book-ticker

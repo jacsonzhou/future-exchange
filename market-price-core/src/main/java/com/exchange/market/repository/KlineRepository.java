@@ -8,9 +8,11 @@ import org.springframework.stereotype.Repository;
 import javax.sql.DataSource;
 import java.sql.*;
 import java.util.ArrayList;
+import java.util.Calendar;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.TimeZone;
 
 /**
  * K 线数据 ClickHouse 存储仓库
@@ -85,12 +87,12 @@ public class KlineRepository {
             )),
             Map.entry("1w", new IntervalAggregationSpec(
                     "toStartOfInterval(open_time, INTERVAL 1 WEEK)",
-                    "addMilliseconds(addWeeks(bucket_open, 1), -1)",
+                    "addMilliseconds(addDays(toDateTime64(bucket_open, 3), 7), -1)",
                     7L * 86_400_000L
             )),
             Map.entry("1M", new IntervalAggregationSpec(
                     "toStartOfInterval(open_time, INTERVAL 1 MONTH)",
-                    "addMilliseconds(addMonths(bucket_open, 1), -1)",
+                    "addMilliseconds(addMonths(toDateTime64(bucket_open, 3), 1), -1)",
                     30L * 86_400_000L
             ))
     );
@@ -393,8 +395,7 @@ public class KlineRepository {
             ps.setString(2, interval);
             ResultSet rs = ps.executeQuery();
             if (rs.next()) {
-                Timestamp ts = rs.getTimestamp("latest_open_time");
-                return ts != null ? ts.getTime() : null;
+                return getUtcMillis(rs, "latest_open_time");
             }
             return null;
         } catch (SQLException e) {
@@ -416,8 +417,7 @@ public class KlineRepository {
             ps.setString(2, interval);
             ResultSet rs = ps.executeQuery();
             if (rs.next()) {
-                Timestamp ts = rs.getTimestamp("earliest_open_time");
-                return ts != null ? ts.getTime() : null;
+                return getUtcMillis(rs, "earliest_open_time");
             }
             return null;
         } catch (SQLException e) {
@@ -453,8 +453,8 @@ public class KlineRepository {
         Kline kline = new Kline();
         kline.setSymbol(rs.getString("symbol"));
         kline.setInterval(rs.getString("interval"));
-        kline.setOpenTime(rs.getTimestamp("open_time").getTime());
-        kline.setCloseTime(rs.getTimestamp("close_time").getTime());
+        kline.setOpenTime(getUtcMillis(rs, "open_time"));
+        kline.setCloseTime(getUtcMillis(rs, "close_time"));
         kline.setOpenPrice(rs.getBigDecimal("open_price").longValue());
         kline.setHighPrice(rs.getBigDecimal("high_price").longValue());
         kline.setLowPrice(rs.getBigDecimal("low_price").longValue());
@@ -465,6 +465,11 @@ public class KlineRepository {
         kline.setTakerBuyVolume(rs.getBigDecimal("taker_buy_volume").longValue());
         kline.setTakerBuyQuoteVolume(rs.getBigDecimal("taker_buy_quote_volume").longValue());
         return kline;
+    }
+
+    private Long getUtcMillis(ResultSet rs, String column) throws SQLException {
+        Timestamp ts = rs.getTimestamp(column, Calendar.getInstance(TimeZone.getTimeZone("UTC")));
+        return ts != null ? ts.getTime() : null;
     }
 
     private IntervalAggregationSpec resolveAggregationSpec(String interval) {

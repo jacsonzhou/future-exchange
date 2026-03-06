@@ -11,10 +11,10 @@ import org.springframework.core.env.Environment;
  */
 @SpringBootApplication
 @EnableDiscoveryClient
-public class SnapshotApplication {
+public class SnapshotAccountApplication {
     
     public static void main(String[] args) {
-        ConfigurableApplicationContext context = SpringApplication.run(SnapshotApplication.class, args);
+        ConfigurableApplicationContext context = SpringApplication.run(SnapshotAccountApplication.class, args);
         Environment env = context.getEnvironment();
         String port = env.getProperty("server.port", "8094");
         System.out.println("╔════════════════════════════════════════════════════════╗");

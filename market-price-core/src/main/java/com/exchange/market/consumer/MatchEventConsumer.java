@@ -9,6 +9,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.apache.kafka.clients.consumer.ConsumerRecord;
 import org.springframework.kafka.annotation.KafkaListener;
 import org.springframework.kafka.support.Acknowledgment;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 
 import java.nio.charset.StandardCharsets;
@@ -37,6 +38,9 @@ import java.util.List;
 public class MatchEventConsumer {
 
     private final MarketDataEngineService engineService;
+
+    @Value("${market-data.output.standard-only:false}")
+    private boolean standardOnlyOutput;
 
     /**
      * 消费成交事件
@@ -131,6 +135,9 @@ public class MatchEventConsumer {
         long quantity = event.getLongValue("quantity");
         boolean isBuyerMaker = event.getBooleanValue("isBuyerMaker");
         long timestamp = event.getLongValue("timestamp");
+        if (timestamp <= 0) {
+            timestamp = System.currentTimeMillis();
+        }
         
         // 构建Trade对象
         Trade trade = Trade.builder()
@@ -162,6 +169,9 @@ public class MatchEventConsumer {
             // Match Engine 格式：e = "depthUpdate", s = symbol
             String eventType = event.getString("e");
             if (!"depthUpdate".equals(eventType)) {
+                if (standardOnlyOutput) {
+                    return;
+                }
                 // 兼容旧格式
                 eventType = event.getString("eventType");
                 if (!"DEPTH_DELTA".equals(eventType) && !"DEPTH_SNAPSHOT".equals(eventType)) {

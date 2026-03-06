@@ -196,3 +196,137 @@ CREATE TABLE IF NOT EXISTS t_agent_weekly_plan (
     UNIQUE KEY uk_user_week_item (user_id, week_code, item_index),
     KEY idx_user_week (user_id, week_code)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='Agent成长周计划';
+
+-- ======================================
+-- Agent Training v1.1: Skill Score 动态评分事实层
+-- ======================================
+
+-- 决策事实表（从 preview/validate/adopt 沉淀）
+CREATE TABLE IF NOT EXISTS t_agent_decision_fact (
+    id BIGINT PRIMARY KEY AUTO_INCREMENT,
+    decision_id VARCHAR(64) NOT NULL COMMENT '决策ID',
+    subject_type VARCHAR(16) NOT NULL COMMENT 'HUMAN/AGENT',
+    subject_id VARCHAR(64) NOT NULL COMMENT '用户或Agent标识',
+    strategy_version VARCHAR(64) NOT NULL COMMENT '策略版本',
+    symbol VARCHAR(32) NOT NULL COMMENT '交易对',
+    interval_val VARCHAR(16) NOT NULL COMMENT '决策周期',
+    action VARCHAR(32) NOT NULL COMMENT 'OPEN_LONG/OPEN_SHORT/WAIT',
+    confidence_pct DECIMAL(5,2) NOT NULL DEFAULT 0 COMMENT '置信度%',
+    risk_exposure_pct DECIMAL(5,2) NOT NULL DEFAULT 0 COMMENT '风险暴露%',
+    status VARCHAR(32) NOT NULL COMMENT 'PREVIEWED/VALIDATED/REJECTED/ADOPTED/EXPIRED',
+    created_at BIGINT NOT NULL COMMENT '创建时间',
+    updated_at BIGINT NOT NULL COMMENT '更新时间',
+
+    UNIQUE KEY uk_decision_id (decision_id),
+    KEY idx_subject_period (subject_type, subject_id, created_at),
+    KEY idx_symbol_time (symbol, created_at),
+    KEY idx_status_time (status, created_at)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='Agent决策事实表';
+
+-- 执行事实表（从 paper order/fill/close 沉淀）
+CREATE TABLE IF NOT EXISTS t_agent_execution_fact (
+    id BIGINT PRIMARY KEY AUTO_INCREMENT,
+    decision_id VARCHAR(64) NOT NULL COMMENT '决策ID',
+    paper_order_id VARCHAR(64) NOT NULL COMMENT '模拟订单ID',
+    subject_type VARCHAR(16) NOT NULL COMMENT 'HUMAN/AGENT',
+    subject_id VARCHAR(64) NOT NULL COMMENT '用户或Agent标识',
+    symbol VARCHAR(32) NOT NULL COMMENT '交易对',
+    side VARCHAR(16) NOT NULL COMMENT 'BUY/SELL',
+    entry_price_plan BIGINT NOT NULL DEFAULT 0 COMMENT '计划入场价(8位精度)',
+    entry_price_exec BIGINT NOT NULL DEFAULT 0 COMMENT '实际入场价(8位精度)',
+    exit_price_exec BIGINT NOT NULL DEFAULT 0 COMMENT '实际离场价(8位精度)',
+    entry_slippage_bps DECIMAL(8,2) NOT NULL DEFAULT 0 COMMENT '入场滑点bps',
+    exit_slippage_bps DECIMAL(8,2) NOT NULL DEFAULT 0 COMMENT '离场滑点bps',
+    plan_drift_pct DECIMAL(8,4) NOT NULL DEFAULT 0 COMMENT '计划偏离率%',
+    realized_pnl_r DECIMAL(10,4) NOT NULL DEFAULT 0 COMMENT 'R维度收益',
+    hold_seconds INT NOT NULL DEFAULT 0 COMMENT '持仓秒数',
+    risk_violation_count INT NOT NULL DEFAULT 0 COMMENT '风控违规次数',
+    stop_loss_missing TINYINT(1) NOT NULL DEFAULT 0 COMMENT '是否缺失止损',
+    closed_at BIGINT NOT NULL COMMENT '平仓时间',
+    updated_at BIGINT NOT NULL COMMENT '更新时间',
+
+    UNIQUE KEY uk_paper_order_id (paper_order_id),
+    KEY idx_decision_id (decision_id),
+    KEY idx_subject_time (subject_type, subject_id, closed_at),
+    KEY idx_symbol_time (symbol, closed_at)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='Agent执行事实表';
+
+-- 复盘事实表（从 replay 输出沉淀）
+CREATE TABLE IF NOT EXISTS t_agent_replay_fact (
+    id BIGINT PRIMARY KEY AUTO_INCREMENT,
+    replay_id VARCHAR(64) NOT NULL COMMENT '复盘ID',
+    decision_id VARCHAR(64) NOT NULL COMMENT '决策ID',
+    subject_type VARCHAR(16) NOT NULL COMMENT 'HUMAN/AGENT',
+    subject_id VARCHAR(64) NOT NULL COMMENT '用户或Agent标识',
+    signal_score DECIMAL(5,2) NOT NULL DEFAULT 0 COMMENT '信号充分度',
+    execution_score DECIMAL(5,2) NOT NULL DEFAULT 0 COMMENT '执行偏差控制',
+    risk_score DECIMAL(5,2) NOT NULL DEFAULT 0 COMMENT '风险纪律',
+    action_items_total INT NOT NULL DEFAULT 0 COMMENT '行动项总数',
+    action_items_closed INT NOT NULL DEFAULT 0 COMMENT '行动项完成数',
+    replay_completed TINYINT(1) NOT NULL DEFAULT 0 COMMENT '是否完成复盘',
+    created_at BIGINT NOT NULL COMMENT '创建时间',
+    updated_at BIGINT NOT NULL COMMENT '更新时间',
+
+    UNIQUE KEY uk_replay_id (replay_id),
+    KEY idx_decision_id (decision_id),
+    KEY idx_subject_time (subject_type, subject_id, created_at)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='Agent复盘事实表';
+
+-- 总分快照表（对外 profile/leaderboard 主来源）
+CREATE TABLE IF NOT EXISTS t_agent_score_snapshot (
+    id BIGINT PRIMARY KEY AUTO_INCREMENT,
+    subject_type VARCHAR(16) NOT NULL COMMENT 'HUMAN/AGENT',
+    subject_id VARCHAR(64) NOT NULL COMMENT '用户或Agent标识',
+    period VARCHAR(16) NOT NULL COMMENT '周期，如2026-W10',
+    skill_score DECIMAL(5,2) NOT NULL DEFAULT 0 COMMENT '总分',
+    delta_vs_last_period DECIMAL(6,2) NOT NULL DEFAULT 0 COMMENT '较上期变化',
+    effective_sample_size INT NOT NULL DEFAULT 0 COMMENT '有效样本数',
+    active_days INT NOT NULL DEFAULT 0 COMMENT '活跃天数',
+    score_status VARCHAR(16) NOT NULL DEFAULT 'TEMP' COMMENT 'TEMP/FORMAL',
+    created_at BIGINT NOT NULL COMMENT '创建时间',
+    updated_at BIGINT NOT NULL COMMENT '更新时间',
+
+    UNIQUE KEY uk_subject_period (subject_type, subject_id, period),
+    KEY idx_period_score (period, skill_score),
+    KEY idx_status_score (score_status, skill_score)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='Agent评分总分快照';
+
+-- 维度快照表（解释层）
+CREATE TABLE IF NOT EXISTS t_agent_score_dimension_snapshot (
+    id BIGINT PRIMARY KEY AUTO_INCREMENT,
+    subject_type VARCHAR(16) NOT NULL COMMENT 'HUMAN/AGENT',
+    subject_id VARCHAR(64) NOT NULL COMMENT '用户或Agent标识',
+    period VARCHAR(16) NOT NULL COMMENT '周期',
+    rar DECIMAL(5,2) NOT NULL DEFAULT 0 COMMENT '风险调整收益',
+    ddc DECIMAL(5,2) NOT NULL DEFAULT 0 COMMENT '回撤控制',
+    exec_score DECIMAL(5,2) NOT NULL DEFAULT 0 COMMENT '执行质量',
+    cons_score DECIMAL(5,2) NOT NULL DEFAULT 0 COMMENT '稳定性',
+    risk_score DECIMAL(5,2) NOT NULL DEFAULT 0 COMMENT '风险纪律',
+    replay_score DECIMAL(5,2) NOT NULL DEFAULT 0 COMMENT '复盘闭环',
+    penalty DECIMAL(5,2) NOT NULL DEFAULT 0 COMMENT '惩罚分',
+    raw_metrics_json JSON NULL COMMENT '原始指标快照',
+    created_at BIGINT NOT NULL COMMENT '创建时间',
+    updated_at BIGINT NOT NULL COMMENT '更新时间',
+
+    UNIQUE KEY uk_dim_subject_period (subject_type, subject_id, period),
+    KEY idx_period_subject (period, subject_type, subject_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='Agent评分维度快照';
+
+-- 评分事件表（审计与追踪）
+CREATE TABLE IF NOT EXISTS t_agent_score_event (
+    id BIGINT PRIMARY KEY AUTO_INCREMENT,
+    event_id VARCHAR(64) NOT NULL COMMENT '事件ID',
+    subject_type VARCHAR(16) NOT NULL COMMENT 'HUMAN/AGENT',
+    subject_id VARCHAR(64) NOT NULL COMMENT '用户或Agent标识',
+    period VARCHAR(16) NOT NULL COMMENT '周期',
+    trigger_type VARCHAR(32) NOT NULL COMMENT 'ORDER_CLOSED/REPLAY_DONE/SCHEDULED_REBUILD',
+    before_score DECIMAL(5,2) NOT NULL DEFAULT 0 COMMENT '更新前分数',
+    after_score DECIMAL(5,2) NOT NULL DEFAULT 0 COMMENT '更新后分数',
+    delta_score DECIMAL(6,2) NOT NULL DEFAULT 0 COMMENT '分数变化',
+    trace_id VARCHAR(64) DEFAULT NULL COMMENT '链路追踪ID',
+    created_at BIGINT NOT NULL COMMENT '创建时间',
+
+    UNIQUE KEY uk_event_id (event_id),
+    KEY idx_subject_period (subject_type, subject_id, period),
+    KEY idx_trigger_time (trigger_type, created_at)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='Agent评分事件审计表';

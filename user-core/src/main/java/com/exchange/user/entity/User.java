@@ -46,6 +46,18 @@ public class User {
     private String userType;
 
     /**
+     * KYC 等级: 0-未认证 1-基础 2-高级
+     */
+    @TableField("kyc_level")
+    private Integer kycLevel;
+
+    /**
+     * Google Authenticator 密钥（为空表示未开启）
+     */
+    @TableField("google_secret")
+    private String googleSecret;
+
+    /**
      * 注册IP
      */
     private String registerIp;

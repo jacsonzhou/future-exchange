@@ -126,6 +126,9 @@ public class KlineEngineWithStorage {
                 history.add(0, finalCurrent);
             }
         }
+
+        // 统一按 openTime 倒序，避免 current 与历史数据源时间基准不一致导致乱序。
+        history.sort((a, b) -> Long.compare(b.getOpenTime(), a.getOpenTime()));
         
         // 限制返回数量
         if (history.size() > limit) {

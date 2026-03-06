@@ -13,6 +13,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.apache.kafka.clients.consumer.ConsumerRecord;
 import org.springframework.kafka.annotation.KafkaListener;
 import org.springframework.kafka.support.Acknowledgment;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 
 import java.math.BigDecimal;
@@ -36,12 +37,15 @@ public class ExternalMarketEventConsumer {
     private final MarketDataCache marketDataCache;
     private final ExternalTickerStateService externalTickerStateService;
 
+    @Value("${market-data.output.standard-only:false}")
+    private boolean standardOnlyOutput;
+
     @KafkaListener(
             topicPattern = "market\\.ext\\..*\\.kline\\..*\\..*",
             containerFactory = "externalMarketKafkaListenerContainerFactory"
     )
     public void onExternalKline(List<ConsumerRecord<String, String>> records, Acknowledgment ack) {
-        if (!externalProperties.isEnabled()) {
+        if (!isExternalInputEnabled()) {
             ack.acknowledge();
             return;
         }
@@ -61,7 +65,7 @@ public class ExternalMarketEventConsumer {
             containerFactory = "externalMarketKafkaListenerContainerFactory"
     )
     public void onExternalTicker(List<ConsumerRecord<String, String>> records, Acknowledgment ack) {
-        if (!externalProperties.isEnabled()) {
+        if (!isExternalInputEnabled()) {
             ack.acknowledge();
             return;
         }
@@ -202,6 +206,10 @@ public class ExternalMarketEventConsumer {
             return true;
         }
         return expected.equalsIgnoreCase(sourceInTopic);
+    }
+
+    private boolean isExternalInputEnabled() {
+        return externalProperties.isEnabled() && !standardOnlyOutput;
     }
 
     private String normalizeSymbol(String symbol) {

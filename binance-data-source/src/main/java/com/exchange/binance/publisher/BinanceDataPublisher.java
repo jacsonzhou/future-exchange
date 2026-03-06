@@ -6,6 +6,7 @@ import com.exchange.binance.model.BinanceDepth;
 import com.exchange.binance.model.BinanceTrade;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.data.redis.core.RedisTemplate;
 import org.springframework.kafka.core.KafkaTemplate;
@@ -44,6 +45,9 @@ public class BinanceDataPublisher {
 
     @Autowired
     private final BinanceDataSourceConfig config;
+
+    @Value("${binance.datasource.publish-standard-compatible:true}")
+    private boolean publishStandardCompatible;
 
     // 兼容旧查询接口的Redis Key前缀
     private static final String REDIS_DEPTH_PREFIX = "binance:depth:";
@@ -90,13 +94,17 @@ public class BinanceDataPublisher {
             // 发布到Kafka
             if (config.getKafka().isEnabled()) {
                 kafkaTemplate.send(topic, symbol, json);
-                publishCompatibilityMessage(STANDARD_TOPIC_DEPTH_PREFIX + symbol, symbol, json);
+                if (publishStandardCompatible) {
+                    publishCompatibilityMessage(STANDARD_TOPIC_DEPTH_PREFIX + symbol, symbol, json);
+                }
             }
 
             // 更新Redis快照
             redisTemplate.opsForValue().set(REDIS_DEPTH_PREFIX + symbol, json);
             redisTemplate.opsForValue().set(SNAPSHOT_DEPTH_PREFIX + source + ":" + symbol, json);
-            redisTemplate.opsForValue().set(STANDARD_SNAPSHOT_DEPTH_PREFIX + symbol, json);
+            if (publishStandardCompatible) {
+                redisTemplate.opsForValue().set(STANDARD_SNAPSHOT_DEPTH_PREFIX + symbol, json);
+            }
 
             // 发布到Redis Pub/Sub（向后兼容）
             redisTemplate.convertAndSend("binance:depth:" + symbol, json);
@@ -129,7 +137,9 @@ public class BinanceDataPublisher {
             // 发布到Kafka
             if (config.getKafka().isEnabled()) {
                 kafkaTemplate.send(topic, symbol, json);
-                publishCompatibilityMessage(STANDARD_TOPIC_TRADE_PREFIX + symbol, symbol, json);
+                if (publishStandardCompatible) {
+                    publishCompatibilityMessage(STANDARD_TOPIC_TRADE_PREFIX + symbol, symbol, json);
+                }
             }
 
             // 更新Redis快照（保留最近100条）
@@ -137,7 +147,9 @@ public class BinanceDataPublisher {
             redisTemplate.opsForList().leftPush(redisKey, json);
             redisTemplate.opsForList().trim(redisKey, 0, 99);
             redisTemplate.opsForValue().set(SNAPSHOT_TRADE_PREFIX + source + ":" + symbol, json);
-            redisTemplate.opsForValue().set(STANDARD_SNAPSHOT_TRADE_PREFIX + symbol, json);
+            if (publishStandardCompatible) {
+                redisTemplate.opsForValue().set(STANDARD_SNAPSHOT_TRADE_PREFIX + symbol, json);
+            }
 
             // 发布到Redis Pub/Sub
             redisTemplate.convertAndSend("binance:trade:" + symbol, json);
@@ -207,13 +219,17 @@ public class BinanceDataPublisher {
             // 发布到Kafka
             if (config.getKafka().isEnabled()) {
                 kafkaTemplate.send(topic, symbol, json);
-                publishCompatibilityMessage(STANDARD_TOPIC_TICKER_PREFIX + symbol, symbol, json);
+                if (publishStandardCompatible) {
+                    publishCompatibilityMessage(STANDARD_TOPIC_TICKER_PREFIX + symbol, symbol, json);
+                }
             }
 
             // 更新Redis快照
             redisTemplate.opsForValue().set(REDIS_TICKER_PREFIX + symbol, json);
             redisTemplate.opsForValue().set(SNAPSHOT_TICKER_PREFIX + source + ":" + symbol, json);
-            redisTemplate.opsForValue().set(STANDARD_SNAPSHOT_TICKER_PREFIX + symbol, json);
+            if (publishStandardCompatible) {
+                redisTemplate.opsForValue().set(STANDARD_SNAPSHOT_TICKER_PREFIX + symbol, json);
+            }
 
             // 发布到Redis
             redisTemplate.convertAndSend("binance:ticker:" + symbol, json);
@@ -242,14 +258,18 @@ public class BinanceDataPublisher {
 
             if (config.getKafka().isEnabled()) {
                 kafkaTemplate.send(topic, symbol, json);
-                publishCompatibilityMessage(STANDARD_TOPIC_KLINE_PREFIX + symbol + "." + interval, symbol, json);
+                if (publishStandardCompatible) {
+                    publishCompatibilityMessage(STANDARD_TOPIC_KLINE_PREFIX + symbol + "." + interval, symbol, json);
+                }
             }
 
             redisTemplate.opsForValue().set(
                     SNAPSHOT_KLINE_PREFIX + source + ":" + symbol + ":" + interval,
                     json
             );
-            redisTemplate.opsForValue().set(STANDARD_SNAPSHOT_KLINE_PREFIX + symbol + ":" + interval, json);
+            if (publishStandardCompatible) {
+                redisTemplate.opsForValue().set(STANDARD_SNAPSHOT_KLINE_PREFIX + symbol + ":" + interval, json);
+            }
 
             // 兼容已有 binance 命名空间查询
             redisTemplate.opsForValue().set("binance:kline:" + symbol + ":" + interval, json);

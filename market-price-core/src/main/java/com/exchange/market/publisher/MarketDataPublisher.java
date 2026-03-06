@@ -64,6 +64,9 @@ public class MarketDataPublisher {
     @Value("${market-data.kafka.enabled:true}")
     private boolean kafkaEnabled;
 
+    @Value("${market-data.output.standard-only:false}")
+    private boolean standardOnlyOutput;
+
     // Kafka Topic 前缀
     private static final String TOPIC_TRADE = "market.trade.";
     private static final String TOPIC_AGG_TRADE = "market.aggtrade.";
@@ -366,20 +369,21 @@ public class MarketDataPublisher {
     private JSONObject buildTradeMessage(Trade trade) {
         JSONObject msg = new JSONObject();
         msg.put("e", "trade");  // event type
-        msg.put("E", System.currentTimeMillis());  // event time
+        msg.put("E", resolveEventTime(trade.getTimestamp()));
         msg.put("s", trade.getSymbol());
         msg.put("t", trade.getTradeId());
         msg.put("p", formatScaled(trade.getPrice()));
         msg.put("q", formatScaled(trade.getQuantity()));
         msg.put("T", trade.getTimestamp());
         msg.put("m", trade.isBuyerMaker());
+        enrichStandardSource(msg);
         return msg;
     }
 
     private JSONObject buildKlineMessage(Kline kline) {
         JSONObject msg = new JSONObject();
         msg.put("e", "kline");
-        msg.put("E", System.currentTimeMillis());
+        msg.put("E", resolveEventTime(kline.getCloseTime(), kline.getOpenTime()));
         msg.put("s", kline.getSymbol());
         
         JSONObject k = new JSONObject();
@@ -399,13 +403,14 @@ public class MarketDataPublisher {
         k.put("Q", formatScaled(kline.getTakerBuyQuoteVolume()));
         
         msg.put("k", k);
+        enrichStandardSource(msg);
         return msg;
     }
 
     private JSONObject buildTickerMessage(String symbol, TradeStats24h stats) {
         JSONObject msg = new JSONObject();
         msg.put("e", "24hrTicker");
-        msg.put("E", System.currentTimeMillis());
+        msg.put("E", resolveEventTime(stats.getCloseTime(), stats.getOpenTime()));
         msg.put("s", symbol);
         msg.put("p", formatScaled(stats.getPriceChange()));
         msg.put("P", stats.getPriceChangePercent());
@@ -427,13 +432,14 @@ public class MarketDataPublisher {
         msg.put("F", stats.getFirstId());
         msg.put("L", stats.getLastId());
         msg.put("n", stats.getCount());
+        enrichStandardSource(msg);
         return msg;
     }
 
     private JSONObject buildDepthMessage(DepthUpdate depthUpdate) {
         JSONObject msg = new JSONObject();
         msg.put("e", "depthUpdate");
-        msg.put("E", System.currentTimeMillis());
+        msg.put("E", resolveEventTime(depthUpdate.getTimestamp()));
         msg.put("s", depthUpdate.getSymbol());
         msg.put("U", depthUpdate.getFirstUpdateId());
         msg.put("u", depthUpdate.getLastUpdateId());
@@ -441,6 +447,7 @@ public class MarketDataPublisher {
         // 深度数据从 Money 格式（8位小数）转换为 double
         msg.put("b", convertDepthLevels(depthUpdate.getBids()));
         msg.put("a", convertDepthLevels(depthUpdate.getAsks()));
+        enrichStandardSource(msg);
         return msg;
     }
     
@@ -461,13 +468,14 @@ public class MarketDataPublisher {
     private JSONObject buildMarkPriceMessage(MarkPrice markPrice) {
         JSONObject msg = new JSONObject();
         msg.put("e", "markPriceUpdate");
-        msg.put("E", System.currentTimeMillis());
+        msg.put("E", resolveEventTime(markPrice.getTimestamp()));
         msg.put("s", markPrice.getSymbol());
         msg.put("p", formatScaled(markPrice.getMarkPrice()));
         msg.put("i", formatScaled(markPrice.getIndexPrice()));
         msg.put("P", formatScaled(markPrice.getEstimatedSettlePrice()));
         msg.put("r", formatScaled(markPrice.getLastFundingRate()));
         msg.put("T", markPrice.getNextFundingTime());
+        enrichStandardSource(msg);
         return msg;
     }
 
@@ -475,6 +483,21 @@ public class MarketDataPublisher {
         return BigDecimal.valueOf(value)
                 .divide(SCALE_BD, 8, RoundingMode.HALF_UP)
                 .toPlainString();
+    }
+
+    private long resolveEventTime(long... candidates) {
+        for (long candidate : candidates) {
+            if (candidate > 0) {
+                return candidate;
+            }
+        }
+        return System.currentTimeMillis();
+    }
+
+    private void enrichStandardSource(JSONObject message) {
+        if (standardOnlyOutput) {
+            message.put("source", "standard");
+        }
     }
 
     // ========== 聚合计算 ==========

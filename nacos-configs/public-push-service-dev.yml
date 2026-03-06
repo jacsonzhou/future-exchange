@@ -49,6 +49,8 @@ spring:
 
 # 公有推送服务配置
 public-push:
+  ext-channel-enabled: false
+
   # WebSocket配置
   websocket:
     max-connections: 100000

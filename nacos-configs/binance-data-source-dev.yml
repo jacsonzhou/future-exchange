@@ -34,6 +34,9 @@ binance:
 
     # 数据源标识（用于外部行情通道命名）
     source: binance
+
+    # 是否发布到标准兼容通道（默认关闭，避免与 market-price-core 标准输出混源）
+    publish-standard-compatible: false
     
     # 订阅的交易对列表
     symbols:

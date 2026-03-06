@@ -7,6 +7,7 @@ import com.exchange.push.model.ChannelType;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.kafka.clients.consumer.ConsumerRecord;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.kafka.config.ConcurrentKafkaListenerContainerFactory;
 import org.springframework.kafka.config.KafkaListenerEndpointRegistry;
 import org.springframework.kafka.core.ConsumerFactory;
@@ -49,6 +50,9 @@ public class KafkaConsumerManager {
     @Autowired
     private MessageDispatcher messageDispatcher;
 
+    @Value("${public-push.ext-channel-enabled:true}")
+    private boolean extChannelEnabled;
+
     // 频道 -> 消费者容器
     private final Map<String, MessageListenerContainer> activeConsumers = new ConcurrentHashMap<>();
     
@@ -67,6 +71,12 @@ public class KafkaConsumerManager {
      * 确保频道消费者已启动
      */
     public synchronized void ensureConsumerStarted(String channel) {
+        if (isExternalChannel(channel) && !extChannelEnabled) {
+            log.info("[KafkaConsumer] Skip starting ext consumer, channel={}, extChannelEnabled={}",
+                    channel, extChannelEnabled);
+            return;
+        }
+
         if (activeConsumers.containsKey(channel)) {
             // 更新活跃时间
             lastActivityTime.put(channel, System.currentTimeMillis());
@@ -115,6 +125,10 @@ public class KafkaConsumerManager {
      */
     private void onMessage(String channel, ConsumerRecord<String, String> record) {
         try {
+            if (isExternalChannel(channel) && !extChannelEnabled) {
+                return;
+            }
+
             // 更新统计
             lastActivityTime.put(channel, System.currentTimeMillis());
             messageCounters.merge(channel, 1L, Long::sum);
@@ -312,6 +326,14 @@ public class KafkaConsumerManager {
             return symbolToken;
         }
         return symbolToken.replaceAll("@\\d+ms$", "");
+    }
+
+    private boolean isExternalChannel(String channel) {
+        ChannelType channelType = ChannelType.fromChannel(channel);
+        return channelType == ChannelType.EXT_TRADE
+                || channelType == ChannelType.EXT_DEPTH
+                || channelType == ChannelType.EXT_KLINE
+                || channelType == ChannelType.EXT_TICKER;
     }
 
     /**

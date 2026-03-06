@@ -28,7 +28,17 @@ public class SecurityConfig {
             // 配置授权规则
             .authorizeHttpRequests(auth -> auth
                 // 允许匿名访问的接口
-                .requestMatchers("/api/v1/user/register", "/api/v1/user/login", "/actuator/**").permitAll()
+                .requestMatchers(
+                    "/api/v1/user/register",
+                    "/api/v1/user/login",
+                    "/api/v1/user/me",
+                    "/api/v1/user/account",
+                    "/api/v1/user/profile/**",
+                    "/api/v1/trading/**",
+                    "/api/v1/userinfo/**",
+                    "/actuator/**",
+                    "/profile-center.html"
+                ).permitAll()
                 // 其他请求需要认证
                 .anyRequest().authenticated()
             )

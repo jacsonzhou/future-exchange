@@ -20,7 +20,7 @@ import org.springframework.core.env.Environment;
  */
 @SpringBootApplication(scanBasePackages = {"com.exchange.user", "com.exchange.common"})
 @EnableDiscoveryClient
-@EnableFeignClients(basePackages = {"com.exchange.user.service.client", "com.exchange.user.controller"})
+@EnableFeignClients(basePackages = {"com.exchange.user.service.client", "com.exchange.user.client"})
 @MapperScan("com.exchange.user.mapper")
 public class UserCoreApplication {
 

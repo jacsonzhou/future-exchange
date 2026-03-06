@@ -1,0 +1,498 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>NovaX 登录</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&family=Noto+Sans+SC:wght@400;500;700&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --bg-main: #05070c;
+            --line-soft: rgba(160, 188, 226, 0.24);
+            --line-strong: rgba(160, 188, 226, 0.42);
+            --text-main: #f2f7ff;
+            --text-sub: #8fa5c6;
+            --accent: #00c2ff;
+            --accent-2: #00e0b6;
+            --danger: #ff8a8a;
+            --buy: #1ccb92;
+            --max-width: 980px;
+            --radius-lg: 16px;
+            --radius-sm: 10px;
+            --mono: "IBM Plex Mono", Consolas, monospace;
+        }
+
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
+        body {
+            min-height: 100vh;
+            color: var(--text-main);
+            font-family: "Noto Sans SC", "Space Grotesk", sans-serif;
+            background:
+                radial-gradient(800px 520px at -10% -15%, rgba(0, 194, 255, 0.16), transparent 70%),
+                radial-gradient(900px 480px at 110% 20%, rgba(0, 224, 182, 0.14), transparent 74%),
+                radial-gradient(1200px 700px at 50% 120%, rgba(80, 123, 255, 0.12), transparent 78%),
+                linear-gradient(150deg, #04060b 0%, #080b14 50%, #05070c 100%);
+            overflow-x: hidden;
+        }
+
+        a {
+            color: inherit;
+            text-decoration: none;
+        }
+
+        .layout {
+            width: min(var(--max-width), calc(100vw - 24px));
+            margin: 18px auto 40px;
+            display: grid;
+            gap: 14px;
+        }
+
+        .announcement {
+            border: 1px solid rgba(0, 194, 255, 0.38);
+            border-radius: 999px;
+            background: linear-gradient(90deg, rgba(0, 194, 255, 0.12), rgba(0, 224, 182, 0.08));
+            color: #def7ff;
+            font-size: 14px;
+            line-height: 1.4;
+            padding: 10px 16px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .announcement .cta {
+            color: var(--accent-2);
+            font-weight: 700;
+            white-space: nowrap;
+        }
+
+        .topbar {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 12px;
+            flex-wrap: wrap;
+        }
+
+        .brand {
+            display: inline-flex;
+            align-items: center;
+            gap: 10px;
+            font-family: "Space Grotesk", sans-serif;
+            font-weight: 700;
+            letter-spacing: 0.2px;
+        }
+
+        .brand-mark {
+            width: 30px;
+            height: 30px;
+            border-radius: 10px;
+            background: linear-gradient(135deg, #00c2ff, #00e0b6);
+            color: #03141b;
+            display: grid;
+            place-items: center;
+            font-size: 14px;
+            font-weight: 700;
+        }
+
+        .utility-nav {
+            display: inline-flex;
+            gap: 8px;
+            align-items: center;
+            flex-wrap: wrap;
+        }
+
+        .utility-link {
+            border: 1px solid var(--line-soft);
+            border-radius: 999px;
+            background: rgba(12, 18, 30, 0.76);
+            color: var(--text-sub);
+            font-size: 12px;
+            padding: 8px 12px;
+            transition: border-color 0.16s ease, color 0.16s ease;
+        }
+
+        .utility-link:hover {
+            color: #d7ecff;
+            border-color: var(--line-strong);
+        }
+
+        .utility-link.active {
+            color: #dbf4ff;
+            border-color: rgba(0, 194, 255, 0.52);
+            background: rgba(12, 31, 54, 0.84);
+        }
+
+        .card {
+            border: 1px solid var(--line-soft);
+            border-radius: var(--radius-lg);
+            background: linear-gradient(160deg, rgba(10, 17, 30, 0.92), rgba(7, 12, 22, 0.98));
+            padding: 20px;
+            display: grid;
+            gap: 14px;
+        }
+
+        .card h1 {
+            font-size: 24px;
+            font-family: "Space Grotesk", sans-serif;
+        }
+
+        .muted {
+            color: var(--text-sub);
+            font-size: 13px;
+            line-height: 1.6;
+        }
+
+        .form-grid {
+            display: grid;
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+            gap: 12px;
+        }
+
+        .field {
+            display: grid;
+            gap: 6px;
+        }
+
+        .field.full {
+            grid-column: 1 / -1;
+        }
+
+        .field label {
+            color: var(--text-sub);
+            font-size: 12px;
+        }
+
+        .input {
+            width: 100%;
+            border: 1px solid rgba(160, 188, 226, 0.26);
+            border-radius: var(--radius-sm);
+            background: rgba(8, 16, 30, 0.9);
+            color: #dceeff;
+            font-size: 14px;
+            padding: 10px 12px;
+            outline: none;
+            transition: border-color 0.16s ease, box-shadow 0.16s ease;
+        }
+
+        .input:focus {
+            border-color: rgba(0, 194, 255, 0.66);
+            box-shadow: 0 0 0 2px rgba(0, 194, 255, 0.12);
+        }
+
+        .actions {
+            display: flex;
+            gap: 10px;
+            flex-wrap: wrap;
+        }
+
+        .btn {
+            border: 1px solid rgba(106, 141, 195, 0.46);
+            border-radius: var(--radius-sm);
+            min-height: 38px;
+            padding: 0 14px;
+            font-size: 13px;
+            color: #cae2ff;
+            background: rgba(12, 26, 48, 0.64);
+            cursor: pointer;
+        }
+
+        .btn.primary {
+            border: 0;
+            color: #02131d;
+            font-weight: 700;
+            background: linear-gradient(130deg, rgba(0, 194, 255, 0.96), rgba(0, 224, 182, 0.94));
+        }
+
+        .btn:disabled {
+            opacity: 0.65;
+            cursor: not-allowed;
+        }
+
+        .state-box {
+            border: 1px dashed rgba(108, 146, 204, 0.5);
+            border-radius: 10px;
+            color: var(--text-sub);
+            font-size: 13px;
+            padding: 10px 12px;
+            line-height: 1.5;
+        }
+
+        .state-box strong {
+            color: #e5f3ff;
+            font-weight: 600;
+        }
+
+        .state-box.ok {
+            border-color: rgba(28, 203, 146, 0.5);
+            color: #b7f5df;
+            background: rgba(12, 31, 26, 0.35);
+        }
+
+        .state-box.err {
+            border-color: rgba(255, 138, 138, 0.52);
+            color: #ffd0d0;
+            background: rgba(49, 19, 24, 0.35);
+        }
+
+        .meta {
+            display: grid;
+            gap: 8px;
+            font-size: 12px;
+            color: var(--text-sub);
+            font-family: var(--mono);
+        }
+
+        @media (max-width: 760px) {
+            .form-grid {
+                grid-template-columns: 1fr;
+            }
+
+            .announcement {
+                border-radius: 14px;
+                align-items: flex-start;
+                flex-direction: column;
+            }
+        }
+    </style>
+    <link rel="stylesheet" href="styles/cotraining-unified.css">
+</head>
+<body class="cotraining-ui">
+<main class="layout">
+    <div class="announcement">
+        <span><strong>登录后可下单与参与评分</strong> ｜ Token 将写入本地并同步到交易页</span>
+        <a class="cta" href="trading-test.html">返回交易终端</a>
+    </div>
+
+    <header class="topbar">
+        <a class="brand" href="index.html">
+            <span class="brand-mark">N</span>
+            <span>NovaX Futures</span>
+        </a>
+        <nav class="utility-nav" aria-label="快捷导航">
+            <a class="utility-link" href="index.html">首页</a>
+            <a class="utility-link" href="trading-test.html">交易终端</a>
+            <a class="utility-link" href="rules.html">规则</a>
+            <a class="utility-link" href="developers.html">开发者</a>
+            <a class="utility-link active" href="login.html">登录</a>
+            <a class="utility-link" href="profile-center.html">个人中心</a>
+        </nav>
+    </header>
+
+    <section class="card">
+        <h1>账户登录</h1>
+        <p class="muted">
+            本页调用网关接口 <code>/api/v1/user/login</code>。登录成功后会写入 <code>token</code> / <code>fx_token</code>，
+            交易页会自动识别登录态并开启下单能力。
+        </p>
+
+        <div id="stateBox" class="state-box">
+            <strong>状态:</strong> 未检测到有效登录 Token。
+        </div>
+
+        <form id="loginForm" class="form-grid" autocomplete="on">
+            <div class="field">
+                <label for="usernameInput">用户名</label>
+                <input id="usernameInput" class="input" type="text" name="username" placeholder="请输入用户名" required>
+            </div>
+            <div class="field">
+                <label for="passwordInput">密码</label>
+                <input id="passwordInput" class="input" type="password" name="password" placeholder="请输入密码" required>
+            </div>
+            <div class="field full">
+                <label for="gatewayInput">网关地址</label>
+                <input id="gatewayInput" class="input" type="text" name="gateway">
+            </div>
+            <div class="field full actions">
+                <button id="submitBtn" class="btn primary" type="submit">登录并回到交易页</button>
+                <button id="goTradeBtn" class="btn" type="button">仅前往交易页</button>
+                <button id="logoutBtn" class="btn" type="button">退出登录</button>
+            </div>
+        </form>
+
+        <div class="meta">
+            <div>回跳地址: <span id="redirectText">--</span></div>
+            <div>登录接口: <span id="loginApiText">--</span></div>
+        </div>
+    </section>
+</main>
+
+<script>
+    (function () {
+        const ui = {
+            stateBox: document.getElementById("stateBox"),
+            form: document.getElementById("loginForm"),
+            username: document.getElementById("usernameInput"),
+            password: document.getElementById("passwordInput"),
+            gateway: document.getElementById("gatewayInput"),
+            submit: document.getElementById("submitBtn"),
+            goTrade: document.getElementById("goTradeBtn"),
+            logout: document.getElementById("logoutBtn"),
+            redirectText: document.getElementById("redirectText"),
+            loginApiText: document.getElementById("loginApiText")
+        };
+
+        const host = window.location.hostname || "localhost";
+        const defaultGateway = localStorage.getItem("fx_gateway") || `http://${host}:8082`;
+        const params = new URLSearchParams(window.location.search || "");
+        const redirect = params.get("redirect") || "trading-test.html";
+
+        ui.gateway.value = defaultGateway;
+        ui.redirectText.textContent = redirect;
+        ui.loginApiText.textContent = `${defaultGateway}/api/v1/user/login`;
+        ui.username.value = localStorage.getItem("username") || localStorage.getItem("fx_username") || "";
+
+        function normalizeToken(raw) {
+            if (!raw) return null;
+            let token = String(raw).trim();
+            if (!token || token === "null" || token === "undefined") return null;
+            if (token.startsWith("Bearer ")) token = token.slice(7).trim();
+            if ((token.startsWith("\"") && token.endsWith("\"")) || (token.startsWith("'") && token.endsWith("'"))) {
+                token = token.slice(1, -1).trim();
+            }
+            return token || null;
+        }
+
+        function isLikelyJwt(token) {
+            return typeof token === "string" && /^[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/.test(token);
+        }
+
+        function setState(message, type) {
+            ui.stateBox.className = "state-box";
+            if (type === "ok") ui.stateBox.classList.add("ok");
+            if (type === "err") ui.stateBox.classList.add("err");
+            ui.stateBox.innerHTML = `<strong>状态:</strong> ${message}`;
+        }
+
+        function refreshAuthState() {
+            const token = normalizeToken(localStorage.getItem("token") || localStorage.getItem("fx_token"));
+            const username = localStorage.getItem("username") || localStorage.getItem("fx_username") || "";
+            if (token && isLikelyJwt(token)) {
+                setState(`已登录 ${username ? `(${username})` : ""}，可直接进入交易页下单。`, "ok");
+            } else {
+                setState("未检测到有效登录 Token。", "");
+            }
+        }
+
+        function saveLogin(data, usernameInput) {
+            const token = normalizeToken(data && data.token);
+            if (!token || !isLikelyJwt(token)) {
+                throw new Error("登录成功但未返回有效 token");
+            }
+            const username = (data && data.username) ? String(data.username) : String(usernameInput || "");
+
+            localStorage.setItem("token", token);
+            localStorage.setItem("fx_token", token);
+            if (username) {
+                localStorage.setItem("username", username);
+                localStorage.setItem("fx_username", username);
+            }
+            if (data && data.userId !== undefined && data.userId !== null) {
+                localStorage.setItem("userId", String(data.userId));
+            }
+            if (data && data.accountId !== undefined && data.accountId !== null) {
+                localStorage.setItem("accountId", String(data.accountId));
+            }
+        }
+
+        function isSuccessPayload(payload) {
+            if (!payload || typeof payload !== "object") return false;
+            const code = Number(payload.code ?? payload.status ?? payload.data?.code);
+            const statusText = String(payload.code ?? payload.status ?? "").toUpperCase();
+            const msg = String(payload.message ?? payload.msg ?? "").toLowerCase();
+            return (
+                payload.success === true ||
+                code === 0 ||
+                code === 200 ||
+                statusText === "SUCCESS" ||
+                statusText === "OK" ||
+                msg === "success"
+            );
+        }
+
+        async function handleLogin(event) {
+            event.preventDefault();
+            const username = ui.username.value.trim();
+            const password = ui.password.value;
+            const gateway = ui.gateway.value.trim().replace(/\/+$/, "");
+
+            if (!username || !password) {
+                setState("用户名和密码不能为空。", "err");
+                return;
+            }
+            if (!gateway) {
+                setState("网关地址不能为空。", "err");
+                return;
+            }
+
+            const loginApi = `${gateway}/api/v1/user/login`;
+            ui.loginApiText.textContent = loginApi;
+            ui.submit.disabled = true;
+            setState("正在登录，请稍候...", "");
+
+            try {
+                const resp = await fetch(loginApi, {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ username, password })
+                });
+
+                let payload = null;
+                try {
+                    payload = await resp.json();
+                } catch (e) {
+                    throw new Error("登录接口返回非 JSON 响应");
+                }
+
+                if (!resp.ok) {
+                    const msg = payload && (payload.message || payload.msg || payload.error);
+                    throw new Error(msg || `HTTP ${resp.status}`);
+                }
+                if (!isSuccessPayload(payload)) {
+                    throw new Error((payload && (payload.message || payload.msg)) || "登录失败");
+                }
+
+                saveLogin(payload.data || {}, username);
+                localStorage.setItem("fx_gateway", gateway);
+                setState("登录成功，正在跳转到交易终端...", "ok");
+                refreshAuthState();
+                setTimeout(() => {
+                    window.location.href = redirect;
+                }, 700);
+            } catch (error) {
+                setState(`登录失败：${error.message}`, "err");
+            } finally {
+                ui.submit.disabled = false;
+            }
+        }
+
+        function handleLogout() {
+            localStorage.removeItem("token");
+            localStorage.removeItem("fx_token");
+            localStorage.removeItem("username");
+            localStorage.removeItem("fx_username");
+            localStorage.removeItem("userId");
+            localStorage.removeItem("accountId");
+            setState("已清除本地登录态。", "");
+            refreshAuthState();
+        }
+
+        ui.form.addEventListener("submit", handleLogin);
+        ui.goTrade.addEventListener("click", () => {
+            window.location.href = "trading-test.html";
+        });
+        ui.logout.addEventListener("click", handleLogout);
+
+        refreshAuthState();
+    })();
+</script>
+</body>
+</html>

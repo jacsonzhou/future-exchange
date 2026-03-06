@@ -50,6 +50,8 @@ spring:
 market-data:
   kafka:
     enabled: true
+  output:
+    standard-only: true
   redis:
     pubsub-enabled: true
     snapshot-enabled: true

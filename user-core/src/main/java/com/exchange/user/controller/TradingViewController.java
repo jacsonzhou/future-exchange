@@ -1,10 +1,13 @@
 package com.exchange.user.controller;
 
+import com.exchange.user.client.MarketPriceClient;
+import com.exchange.user.client.OmsOrderClient;
+import com.exchange.user.client.PositionSnapshotClient;
+import com.exchange.user.client.SnapshotAccountClient;
 import com.exchange.user.dto.*;
 import com.exchange.user.security.JwtUtil;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.cloud.openfeign.FeignClient;
 import org.springframework.web.bind.annotation.*;
 
 import java.math.BigDecimal;
@@ -29,10 +32,10 @@ import java.util.List;
 public class TradingViewController {
 
     private final JwtUtil jwtUtil;
-    private final AccountClient accountClient;
-    private final PositionClient positionClient;
-    private final OrderClient orderClient;
-    private final MarketDataClient marketDataClient;
+    private final SnapshotAccountClient snapshotAccountClient;
+    private final PositionSnapshotClient positionSnapshotClient;
+    private final OmsOrderClient omsOrderClient;
+    private final MarketPriceClient marketPriceClient;
 
     /**
      * 获取交易界面完整数据
@@ -58,7 +61,7 @@ public class TradingViewController {
         
         // 1. 获取资金余额
         try {
-            Result<AccountBalanceResponse> balanceResult = accountClient.getBalance(accountId);
+            Result<AccountBalanceResponse> balanceResult = snapshotAccountClient.getBalance(accountId);
             if (balanceResult.getCode() == 200) {
                 dashboard.setBalance(balanceResult.getData());
             }
@@ -68,7 +71,7 @@ public class TradingViewController {
 
         // 2. 获取当前持仓
         try {
-            Result<List<PositionResponse>> positionResult = positionClient.getPositions(accountId, symbol);
+            Result<List<PositionResponse>> positionResult = positionSnapshotClient.getPositions(accountId, symbol);
             if (positionResult.getCode() == 200) {
                 dashboard.setPositions(positionResult.getData());
             }
@@ -78,7 +81,7 @@ public class TradingViewController {
 
         // 3. 获取当前订单
         try {
-            Result<List<OrderResponse>> orderResult = orderClient.getOpenOrders(accountId, symbol);
+            Result<List<OrderResponse>> orderResult = omsOrderClient.getOpenOrders(accountId, symbol);
             if (orderResult.getCode() == 200) {
                 dashboard.setOpenOrders(orderResult.getData());
             }
@@ -88,7 +91,7 @@ public class TradingViewController {
 
         // 4. 获取最近成交
         try {
-            Result<List<TradeResponse>> tradeResult = orderClient.getRecentTrades(accountId, symbol, 20);
+            Result<List<TradeResponse>> tradeResult = omsOrderClient.getRecentTrades(accountId, symbol, 20);
             if (tradeResult.getCode() == 200) {
                 dashboard.setRecentTrades(tradeResult.getData());
             }
@@ -98,7 +101,7 @@ public class TradingViewController {
 
         // 5. 获取市场行情数据（无需认证）
         try {
-            Result<OrderBookResponse> orderBookResult = marketDataClient.getOrderBook(symbol, 20);
+            Result<OrderBookResponse> orderBookResult = marketPriceClient.getOrderBook(symbol, 20);
             if (orderBookResult.getCode() == 200) {
                 dashboard.setOrderBook(orderBookResult.getData());
             }
@@ -107,7 +110,7 @@ public class TradingViewController {
         }
 
         try {
-            Result<List<RecentTradeResponse>> recentTradesResult = marketDataClient.getRecentTrades(symbol, 50);
+            Result<List<RecentTradeResponse>> recentTradesResult = marketPriceClient.getRecentTrades(symbol, 50);
             if (recentTradesResult.getCode() == 200) {
                 dashboard.setMarketTrades(recentTradesResult.getData());
             }
@@ -116,7 +119,7 @@ public class TradingViewController {
         }
 
         try {
-            Result<List<KlineResponse>> klineResult = marketDataClient.getKlines(symbol, "1m", 500);
+            Result<List<KlineResponse>> klineResult = marketPriceClient.getKlines(symbol, "1m", 500);
             if (klineResult.getCode() == 200) {
                 dashboard.setKlines(klineResult.getData());
             }
@@ -126,7 +129,7 @@ public class TradingViewController {
 
         // 6. 获取24小时统计
         try {
-            Result<Ticker24hResponse> tickerResult = marketDataClient.get24hTicker(symbol);
+            Result<Ticker24hResponse> tickerResult = marketPriceClient.get24hTicker(symbol);
             if (tickerResult.getCode() == 200) {
                 dashboard.setTicker24h(tickerResult.getData());
             }
@@ -143,7 +146,7 @@ public class TradingViewController {
     @GetMapping("/balance")
     public Result<AccountBalanceResponse> getBalance(@RequestHeader("Authorization") String token) {
         Long accountId = extractAccountId(token);
-        return accountClient.getBalance(accountId);
+        return snapshotAccountClient.getBalance(accountId);
     }
 
     /**
@@ -154,7 +157,7 @@ public class TradingViewController {
             @RequestParam String symbol,
             @RequestHeader("Authorization") String token) {
         Long accountId = extractAccountId(token);
-        return positionClient.getPositions(accountId, symbol);
+        return positionSnapshotClient.getPositions(accountId, symbol);
     }
 
     /**
@@ -165,59 +168,7 @@ public class TradingViewController {
             @RequestParam String symbol,
             @RequestHeader("Authorization") String token) {
         Long accountId = extractAccountId(token);
-        return orderClient.getOpenOrders(accountId, symbol);
-    }
-
-    // ==================== Feign Clients ====================
-
-    @FeignClient(name = "snapshot-account-core", path = "/api/v1/account")
-    interface AccountClient {
-        @GetMapping("/balance")
-        Result<AccountBalanceResponse> getBalance(@RequestParam("accountId") Long accountId);
-    }
-
-    @FeignClient(name = "position-snapshot-core", path = "/api/v1/position")
-    interface PositionClient {
-        @GetMapping("/list")
-        Result<List<PositionResponse>> getPositions(
-                @RequestParam("accountId") Long accountId,
-                @RequestParam("symbol") String symbol);
-    }
-
-    @FeignClient(name = "oms-core", path = "/api/v1/order")
-    interface OrderClient {
-        @GetMapping("/open")
-        Result<List<OrderResponse>> getOpenOrders(
-                @RequestParam("accountId") Long accountId,
-                @RequestParam("symbol") String symbol);
-
-        @GetMapping("/trades/recent")
-        Result<List<TradeResponse>> getRecentTrades(
-                @RequestParam("accountId") Long accountId,
-                @RequestParam("symbol") String symbol,
-                @RequestParam("limit") Integer limit);
-    }
-
-    @FeignClient(name = "market-price-core", path = "/api/v1/market")
-    interface MarketDataClient {
-        @GetMapping("/depth")
-        Result<OrderBookResponse> getOrderBook(
-                @RequestParam("symbol") String symbol,
-                @RequestParam("limit") Integer limit);
-
-        @GetMapping("/trades")
-        Result<List<RecentTradeResponse>> getRecentTrades(
-                @RequestParam("symbol") String symbol,
-                @RequestParam("limit") Integer limit);
-
-        @GetMapping("/klines")
-        Result<List<KlineResponse>> getKlines(
-                @RequestParam("symbol") String symbol,
-                @RequestParam("interval") String interval,
-                @RequestParam("limit") Integer limit);
-
-        @GetMapping("/ticker/24h")
-        Result<Ticker24hResponse> get24hTicker(@RequestParam("symbol") String symbol);
+        return omsOrderClient.getOpenOrders(accountId, symbol);
     }
 
     // ==================== Helper Methods ====================
