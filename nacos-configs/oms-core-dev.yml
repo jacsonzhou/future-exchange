@@ -103,5 +103,13 @@ oms:
     cfd-order-command:
       topic-prefix: cfd-order-command-
     order-state:
-      topic-pattern: order-state-.*
+      topic-pattern: 'order-state-.*|ex\.order\.state\.v1'
       concurrency: 3
+
+execution:
+  topic-mode: DUAL_WRITE
+  topic:
+    shared:
+      order-command: ex.order.command.v1
+      order-state: ex.order.state.v1
+      trade: ex.trade.v1

@@ -71,6 +71,45 @@ kafka-topics --create \
 
 echo ""
 
+# 执行共享 Topic（V3：topic + partition + key(symbol)）
+echo "创建 ex.order.command.v1 (V3共享下单指令)..."
+kafka-topics --create \
+    --bootstrap-server localhost:9092 \
+    --topic ex.order.command.v1 \
+    --partitions 12 \
+    --replication-factor 1 \
+    --config retention.ms=86400000 \
+    --if-not-exists
+
+echo "创建 ex.order.state.v1 (V3共享订单状态)..."
+kafka-topics --create \
+    --bootstrap-server localhost:9092 \
+    --topic ex.order.state.v1 \
+    --partitions 12 \
+    --replication-factor 1 \
+    --config retention.ms=86400000 \
+    --if-not-exists
+
+echo "创建 ex.trade.v1 (V3共享成交事件)..."
+kafka-topics --create \
+    --bootstrap-server localhost:9092 \
+    --topic ex.trade.v1 \
+    --partitions 12 \
+    --replication-factor 1 \
+    --config retention.ms=604800000 \
+    --if-not-exists
+
+echo "创建 acc.trade.entry.v1 (V3共享账本分录)..."
+kafka-topics --create \
+    --bootstrap-server localhost:9092 \
+    --topic acc.trade.entry.v1 \
+    --partitions 12 \
+    --replication-factor 1 \
+    --config retention.ms=604800000 \
+    --if-not-exists
+
+echo ""
+
 # 通道2：Match Engine → OMS（独立回传通道）
 echo "创建 order-state-BTCUSDT (通道2: Match Engine → OMS)..."
 kafka-topics --create \
@@ -510,7 +549,7 @@ echo ""
 # 3. 列出所有Topic
 echo ""
 echo "Step 3: 列出所有Topics..."
-kafka-topics --list --bootstrap-server localhost:9092 | grep -E "(order-event|cfd-order-command|order-state|trade-event|trade-entry|account-entry|agent\\.)"
+kafka-topics --list --bootstrap-server localhost:9092 | grep -E "(order-event|cfd-order-command|order-state|trade-event|trade-entry|account-entry|ex\\.order\\.|ex\\.trade\\.v1|acc\\.trade\\.entry\\.v1|agent\\.)"
 
 echo ""
 
@@ -543,6 +582,30 @@ kafka-topics --describe \
     --topic trade-entry-BTCUSDT
 
 echo ""
+echo "ex.order.command.v1:"
+kafka-topics --describe \
+    --bootstrap-server localhost:9092 \
+    --topic ex.order.command.v1
+
+echo ""
+echo "ex.order.state.v1:"
+kafka-topics --describe \
+    --bootstrap-server localhost:9092 \
+    --topic ex.order.state.v1
+
+echo ""
+echo "ex.trade.v1:"
+kafka-topics --describe \
+    --bootstrap-server localhost:9092 \
+    --topic ex.trade.v1
+
+echo ""
+echo "acc.trade.entry.v1:"
+kafka-topics --describe \
+    --bootstrap-server localhost:9092 \
+    --topic acc.trade.entry.v1
+
+echo ""
 echo "account-entry-SYSTEM:"
 kafka-topics --describe \
     --bootstrap-server localhost:9092 \
@@ -559,19 +622,23 @@ echo "    - order-event-BTCUSDT (单分区)"
 echo "    - order-event-ETHUSDT (单分区)"
 echo "    - order-event-XRPUSDT (单分区)"
 echo "    - cfd-order-command-BTCUSDT (CFD Dealer 指令)"
+echo "    - ex.order.command.v1 (共享指令, 12分区, key=symbol)"
 echo ""
 echo "  通道2 (Match Engine → OMS)："
 echo "    - order-state-BTCUSDT (单分区)"
 echo "    - order-state-ETHUSDT (单分区)"
 echo "    - order-state-XRPUSDT (单分区)"
+echo "    - ex.order.state.v1 (共享回传, 12分区, key=symbol)"
 echo ""
 echo "  成交事件 (Match Engine → 全系统)："
 echo "    - trade-event (3分区)"
+echo "    - ex.trade.v1 (共享成交, 12分区, key=symbol)"
 echo ""
 echo "  Ledger分录事件 (Ledger → Snapshot/Position)："
 echo "    - trade-entry-BTCUSDT (交易分录)"
 echo "    - trade-entry-ETHUSDT (交易分录)"
 echo "    - account-entry-SYSTEM (SYSTEM账务分录)"
+echo "    - acc.trade.entry.v1 (共享账本分录, 12分区, key=symbol)"
 echo ""
 echo "  私有推送 (Private Push)："
 echo "    - private-order-state (100分区，按 userId 分区)"

@@ -5,11 +5,13 @@ import com.exchange.cfddealer.dto.MarketExecutionResult;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.kafka.core.KafkaTemplate;
 import org.springframework.stereotype.Component;
 
 import java.math.BigDecimal;
 import java.util.HashMap;
+import java.util.Locale;
 import java.util.Map;
 
 @Slf4j
@@ -20,6 +22,15 @@ public class OrderStateProducer {
     private final KafkaTemplate<String, String> kafkaTemplate;
     private final ObjectMapper objectMapper;
     private final CfdDealerProperties properties;
+
+    @Value("${execution.topic-mode:LEGACY_ONLY}")
+    private String topicMode;
+
+    @Value("${execution.topic.shared.order-state:ex.order.state.v1}")
+    private String sharedOrderStateTopic;
+
+    @Value("${spring.application.name:cfd-dealer-core}")
+    private String source;
 
     public void publishFilled(MarketExecutionResult result) {
         try {
@@ -48,21 +59,7 @@ public class OrderStateProducer {
             event.put("referenceVwapPrice", result.getVwapPrice().toPlainString());
             event.put("slippageBps", result.getSlippageBps());
 
-            String payload = objectMapper.writeValueAsString(event);
-            kafkaTemplate.send(topic, String.valueOf(result.getOrderId()), payload)
-                    .whenComplete((sendResult, throwable) -> {
-                        if (throwable == null) {
-                            log.info("[CFD-DEALER] order-state sent, topic={}, orderId={}, offset={}",
-                                    topic,
-                                    result.getOrderId(),
-                                    sendResult.getRecordMetadata().offset());
-                        } else {
-                            log.error("[CFD-DEALER] order-state send failed, topic={}, orderId={}",
-                                    topic,
-                                    result.getOrderId(),
-                                    throwable);
-                        }
-                    });
+            publishWithMode(topic, String.valueOf(result.getOrderId()), result.getSymbol(), event);
         } catch (Exception e) {
             throw new RuntimeException("publish order-state failed", e);
         }
@@ -89,8 +86,7 @@ public class OrderStateProducer {
             event.put("executionMode", "CFD_DEALER");
             event.put("liquiditySource", properties.getLiquiditySource());
 
-            String payload = objectMapper.writeValueAsString(event);
-            kafkaTemplate.send(topic, String.valueOf(orderId), payload);
+            publishWithMode(topic, String.valueOf(orderId), symbol, event);
         } catch (Exception e) {
             throw new RuntimeException("publish rejected order-state failed", e);
         }
@@ -117,10 +113,94 @@ public class OrderStateProducer {
             event.put("executionMode", "CFD_DEALER");
             event.put("liquiditySource", properties.getLiquiditySource());
 
-            String payload = objectMapper.writeValueAsString(event);
-            kafkaTemplate.send(topic, String.valueOf(orderId), payload);
+            publishWithMode(topic, String.valueOf(orderId), symbol, event);
         } catch (Exception e) {
             throw new RuntimeException("publish canceled order-state failed", e);
         }
+    }
+
+    private void publishWithMode(String legacyTopic, String legacyKey, String symbol, Map<String, Object> event) throws Exception {
+        if (shouldSendLegacy()) {
+            String payload = objectMapper.writeValueAsString(event);
+            sendAsync(legacyTopic, legacyKey, payload, event, "legacy");
+        }
+
+        if (shouldSendShared()) {
+            String sharedKey = symbol == null || symbol.isBlank() ? legacyKey : symbol;
+            String sharedPayload = objectMapper.writeValueAsString(buildEnvelope(event));
+            sendAsync(sharedOrderStateTopic, sharedKey, sharedPayload, event, "shared");
+        }
+    }
+
+    private Map<String, Object> buildEnvelope(Map<String, Object> event) {
+        long eventTime = resolveEventTime(event.get("eventTime"));
+        Object eventId = event.get("eventId");
+        Object orderId = event.get("orderId");
+
+        Map<String, Object> envelope = new HashMap<>();
+        envelope.put("eventId", eventId != null ? String.valueOf(eventId) : "ORDER_STATE:" + orderId + ":" + eventTime);
+        envelope.put("eventType", "ORDER_STATE");
+        envelope.put("schemaVersion", "1.0");
+        envelope.put("source", source);
+        envelope.put("eventTime", eventTime);
+        envelope.put("traceId", eventId != null ? String.valueOf(eventId) : "ORDER_STATE_TRACE_" + eventTime);
+        envelope.put("data", event);
+        return envelope;
+    }
+
+    private long resolveEventTime(Object raw) {
+        if (raw instanceof Number number) {
+            return number.longValue();
+        }
+        if (raw != null) {
+            try {
+                return Long.parseLong(String.valueOf(raw));
+            } catch (NumberFormatException ignored) {
+                // no-op
+            }
+        }
+        return System.currentTimeMillis();
+    }
+
+    private void sendAsync(String topic, String key, String payload, Map<String, Object> event, String route) {
+        Object orderId = event.get("orderId");
+        Object eventId = event.get("eventId");
+        kafkaTemplate.send(topic, key, payload).whenComplete((sendResult, throwable) -> {
+            if (throwable == null) {
+                log.info("[CFD-DEALER] order-state sent, route={}, mode={}, topic={}, key={}, orderId={}, eventId={}, offset={}",
+                    route,
+                    normalizeMode(),
+                    topic,
+                    key,
+                    orderId,
+                    eventId,
+                    sendResult.getRecordMetadata().offset());
+            } else {
+                log.error("[CFD-DEALER] order-state send failed, route={}, mode={}, topic={}, key={}, orderId={}, eventId={}",
+                    route,
+                    normalizeMode(),
+                    topic,
+                    key,
+                    orderId,
+                    eventId,
+                    throwable);
+            }
+        });
+    }
+
+    private boolean shouldSendLegacy() {
+        return !"SHARED_ONLY".equals(normalizeMode());
+    }
+
+    private boolean shouldSendShared() {
+        String mode = normalizeMode();
+        return "DUAL_WRITE".equals(mode) || "SHARED_ONLY".equals(mode);
+    }
+
+    private String normalizeMode() {
+        if (topicMode == null || topicMode.isBlank()) {
+            return "LEGACY_ONLY";
+        }
+        return topicMode.trim().toUpperCase(Locale.ROOT);
     }
 }

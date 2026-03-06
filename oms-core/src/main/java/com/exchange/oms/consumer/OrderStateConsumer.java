@@ -11,6 +11,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.kafka.annotation.KafkaListener;
 import org.springframework.kafka.support.KafkaHeaders;
 import org.springframework.messaging.handler.annotation.Header;
@@ -20,6 +21,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;
+import java.util.Locale;
 
 /**
  * 订单状态消费者（Match Engine → OMS）
@@ -65,6 +67,12 @@ public class OrderStateConsumer {
 
     @Autowired(required = false)
     private com.exchange.oms.client.LedgerClient ledgerClient;
+
+    @Value("${execution.topic-mode:LEGACY_ONLY}")
+    private String topicMode;
+
+    @Value("${execution.topic.shared.order-state:ex.order.state.v1}")
+    private String sharedOrderStateTopic;
     
     /**
      * 消费订单状态事件（来自Match Engine）
@@ -79,7 +87,7 @@ public class OrderStateConsumer {
      * - REJECTED：被拒绝
      */
     @KafkaListener(
-        topicPattern = "${oms.kafka.order-state.topic-pattern:order-state-.*}",
+        topicPattern = "${oms.kafka.order-state.topic-pattern:order-state-.*|ex\\.order\\.state\\.v1}",
         groupId = "${spring.kafka.consumer.group-id:oms-order-state}",
         concurrency = "${oms.kafka.order-state.concurrency:3}"  // 可并发消费不同Symbol
     )
@@ -92,15 +100,27 @@ public class OrderStateConsumer {
     ) {
         log.info("[OrderStateConsumer] ⬇️ Receive message, topic={}, partition={}, offset={}",
             topic, partition, offset);
+
+        if (shouldSkipTopic(topic)) {
+            log.debug("[OrderStateConsumer] Skip topic by mode, mode={}, topic={}, offset={}",
+                normalizeTopicMode(), topic, offset);
+            return;
+        }
         
         try {
             // 解析消息
-            JsonNode eventNode = objectMapper.readTree(message);
+            JsonNode rootNode = objectMapper.readTree(message);
+            JsonNode eventNode = unwrapEventData(rootNode);
+            if (eventNode == null || !eventNode.hasNonNull("orderId") || !eventNode.hasNonNull("status")) {
+                log.warn("[OrderStateConsumer] ⚠️ Missing required fields, topic={}, offset={}, payload={}",
+                    topic, offset, message);
+                return;
+            }
             
-            Long orderId = eventNode.get("orderId").asLong();
+            Long orderId = eventNode.path("orderId").asLong();
             Long userId = eventNode.has("userId") ? eventNode.get("userId").asLong() : null;
             String symbol = eventNode.has("symbol") ? eventNode.get("symbol").asText() : "";
-            String status = eventNode.get("status").asText();
+            String status = eventNode.path("status").asText();
             
             // 解析成交相关信息
             BigDecimal filledQuantityDelta = eventNode.has("filledQuantityDelta")
@@ -228,6 +248,38 @@ public class OrderStateConsumer {
                 topic, offset, e);
             throw new RuntimeException("Process order state failed", e);
         }
+    }
+
+    private JsonNode unwrapEventData(JsonNode rootNode) {
+        if (rootNode != null && rootNode.has("data") && rootNode.get("data").isObject()) {
+            return rootNode.get("data");
+        }
+        return rootNode;
+    }
+
+    private boolean shouldSkipTopic(String topic) {
+        if (topic == null || topic.isBlank()) {
+            return false;
+        }
+
+        String mode = normalizeTopicMode();
+        boolean sharedTopic = topic.equals(sharedOrderStateTopic);
+        boolean legacyTopic = topic.startsWith("order-state-");
+
+        if ("SHARED_ONLY".equals(mode)) {
+            return legacyTopic;
+        }
+        if ("LEGACY_ONLY".equals(mode) || "DUAL_WRITE".equals(mode)) {
+            return sharedTopic;
+        }
+        return false;
+    }
+
+    private String normalizeTopicMode() {
+        if (topicMode == null || topicMode.isBlank()) {
+            return "LEGACY_ONLY";
+        }
+        return topicMode.trim().toUpperCase(Locale.ROOT);
     }
     
     /**
