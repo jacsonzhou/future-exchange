@@ -6,6 +6,8 @@ import com.exchange.risk.entity.*;
 import com.exchange.risk.enums.RiskRejectReason;
 import com.exchange.risk.mapper.*;
 import com.exchange.risk.service.HardRiskService;
+import io.github.resilience4j.circuitbreaker.annotation.CircuitBreaker;
+import io.github.resilience4j.ratelimiter.annotation.RateLimiter;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.data.redis.core.StringRedisTemplate;
@@ -56,6 +58,8 @@ public class HardRiskServiceImpl implements HardRiskService {
     private static final String PRE_HOLD_TOTAL_KEY = "oms:margin:prehold:total:%d";
     
     @Override
+    @CircuitBreaker(name = "riskCheck", fallbackMethod = "checkOrderRiskFallback")
+    @RateLimiter(name = "riskCheck")
     public CheckOrderRiskResponse checkOrderRisk(CheckOrderRiskRequest request, Long requiredMargin, Long totalBalance) {
         long startTime = System.currentTimeMillis();
         
@@ -96,10 +100,15 @@ public class HardRiskServiceImpl implements HardRiskService {
             
             return response;
             
+        } catch (IllegalArgumentException | NullPointerException e) {
+            // 参数绑定失败、空指针等 —— 通常是上游请求格式错误
+            log.error("[HardRisk] Invalid request parameters, orderId={}, error={}",
+                request.getOrderId(), e.getMessage(), e);
+            return rejectAndLog(request, RiskRejectReason.SYSTEM_ERROR, null, null);
         } catch (Exception e) {
-            log.error("[HardRisk] Check order risk error", e);
-            // Fail-Close策略：出错即拒单
-            return rejectAndLog(request, RiskRejectReason.INSUFFICIENT_MARGIN, null, null);
+            // 数据库故障、网络超时等其他异常 —— Fail-Close
+            log.error("[HardRisk] Internal error during risk check, orderId={}", request.getOrderId(), e);
+            return rejectAndLog(request, RiskRejectReason.SYSTEM_ERROR, null, null);
         }
     }
     
@@ -117,6 +126,15 @@ public class HardRiskServiceImpl implements HardRiskService {
             RiskUserList userList,
             Long requiredMargin,
             Long totalBalance) {
+        
+        // 参数基础校验（防止上游字段绑定失败导致NPE）
+        if (request.getPrice() == null || request.getQuantity() == null 
+                || request.getSide() == null || request.getLeverage() == null) {
+            log.error("[HardRisk] Missing required fields: price={}, quantity={}, side={}, leverage={}",
+                request.getPrice(), request.getQuantity(), request.getSide(), request.getLeverage());
+            return reject(RiskRejectReason.SYSTEM_ERROR, null, 
+                account.getAvailableMargin() != null ? account.getAvailableMargin().toPlainString() : null);
+        }
         
         // 规则1: 黑名单检查
         if (userList != null && userList.isBlackList()) {
@@ -157,18 +175,22 @@ public class HardRiskServiceImpl implements HardRiskService {
             return reject(RiskRejectReason.ORDER_QTY_EXCEEDED, null, account.getAvailableMargin().toPlainString());
         }
         
-        // 规则6: ReduceOnly检查
+        // 规则6: ReduceOnly检查（支持双向持仓Hedge Mode）
         if (Boolean.TRUE.equals(request.getReduceOnly())) {
             if (position == null || position.getQuantity().compareTo(BigDecimal.ZERO) == 0) {
                 return reject(RiskRejectReason.REDUCE_ONLY_VIOLATION, null, account.getAvailableMargin().toPlainString());
             }
             
-            // 检查是否会增加仓位
+            // 在双向持仓(Hedge Mode)下，ReduceOnly 的意思是：
+            // 下单方向必须能够减少当前该方向持仓的绝对值（即反向操作）
+            // 例如：持有多仓时，SELL 可以减少多仓；持有空仓时，BUY 可以减少空仓
             boolean isBuy = "BUY".equals(request.getSide());
             boolean isLongPosition = position.isLong();
             
-            // ReduceOnly: BUY只能平空仓，SELL只能平多仓
-            if ((isBuy && isLongPosition) || (!isBuy && !isLongPosition)) {
+            // 检查下单是否会净增加仓位（同向开仓）
+            // Net Mode / Hedge Mode 统一逻辑：ReduceOnly 不允许增加同向持仓
+            boolean isAddingPosition = (isBuy && isLongPosition) || (!isBuy && !isLongPosition);
+            if (isAddingPosition) {
                 return reject(RiskRejectReason.REDUCE_ONLY_VIOLATION, null, account.getAvailableMargin().toPlainString());
             }
         }
@@ -263,7 +285,7 @@ public class HardRiskServiceImpl implements HardRiskService {
     private void logRiskCheck(CheckOrderRiskRequest request, CheckOrderRiskResponse response) {
         try {
             RiskCheckLog log = new RiskCheckLog();
-            log.setOrderId(Long.parseLong(request.getOrderId()));
+            log.setOrderId(request.getOrderId() != null ? Long.parseLong(request.getOrderId()) : 0L);
             log.setUserId(request.getUserId());
             log.setSymbol(request.getSymbol());
             log.setResult("PASS".equals(response.getResult()) ? 0 : 1);
@@ -292,6 +314,19 @@ public class HardRiskServiceImpl implements HardRiskService {
     }
     
     /**
+     * 熔断/限流降级方法
+     */
+    @SuppressWarnings("unused")
+    private CheckOrderRiskResponse checkOrderRiskFallback(CheckOrderRiskRequest request,
+                                                           Long requiredMargin,
+                                                           Long totalBalance,
+                                                           Throwable throwable) {
+        log.error("[HardRisk] Circuit breaker or rate limiter triggered, orderId={}, fallback activated",
+            request.getOrderId(), throwable);
+        return rejectAndLog(request, RiskRejectReason.SYSTEM_ERROR, null, null);
+    }
+    
+    /**
      * 从 Redis 获取用户预扣金额
      * 
      * @param userId 用户ID
@@ -299,6 +334,7 @@ public class HardRiskServiceImpl implements HardRiskService {
      */
     private long getPreHoldFromRedis(Long userId) {
         if (stringRedisTemplate == null) {
+            log.error("[HardRisk] Redis template not available, pre-hold check skipped, userId={}", userId);
             return 0L;
         }
         
@@ -307,7 +343,7 @@ public class HardRiskServiceImpl implements HardRiskService {
             String value = stringRedisTemplate.opsForValue().get(key);
             return value != null ? Long.parseLong(value) : 0L;
         } catch (Exception e) {
-            log.warn("[HardRisk] Failed to get pre-hold from Redis, userId={}", userId, e);
+            log.error("[HardRisk] Failed to get pre-hold from Redis, userId={}", userId, e);
             return 0L;
         }
     }

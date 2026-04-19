@@ -1,10 +1,8 @@
 package com.exchange.oms.service.impl;
 
 import com.exchange.common.core.IdGenerator;
-import com.exchange.oms.config.CfdRouteProperties;
+import com.exchange.common.core.Money;
 import com.exchange.oms.dto.*;
-import com.exchange.oms.dto.OrderListRequest;
-import com.exchange.oms.dto.OrderListResponse;
 import com.exchange.oms.entity.OmsIdempotentKey;
 import com.exchange.oms.entity.OmsOrder;
 import com.exchange.oms.entity.OmsOrderEvent;
@@ -15,22 +13,16 @@ import com.exchange.oms.mapper.OmsIdempotentKeyMapper;
 import com.exchange.oms.mapper.OmsOrderEventMapper;
 import com.exchange.oms.mapper.OmsOrderMapper;
 import com.exchange.oms.mapper.OmsOrderStateLogMapper;
-import com.exchange.oms.publisher.CfdOrderCommandPublisher;
 import com.exchange.oms.service.OmsService;
-import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.dao.DuplicateKeyException;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.DigestUtils;
 
 import java.math.BigDecimal;
-import java.math.RoundingMode;
 import java.nio.charset.StandardCharsets;
-import java.util.List;
 
 /**
  * OMS核心服务实现
@@ -44,11 +36,6 @@ import java.util.List;
 @Slf4j
 @Service
 public class OmsServiceImpl implements OmsService {
-    private static final BigDecimal SCALE_BD = BigDecimal.valueOf(100_000_000L);
-    private static final int ORDER_STATUS_CANCELED = 5;
-    private static final int CANCEL_OPTIMISTIC_RETRY = 3;
-    private static final String EXECUTION_MODE_MATCH_ENGINE = "MATCH_ENGINE";
-    private static final String EXECUTION_MODE_CFD_DEALER = "CFD_DEALER";
     
     @Autowired
     private OmsOrderMapper orderMapper;
@@ -67,12 +54,6 @@ public class OmsServiceImpl implements OmsService {
     
     @Autowired
     private com.exchange.oms.publisher.OrderEventPublisher orderEventPublisher;
-
-    @Autowired
-    private CfdOrderCommandPublisher cfdOrderCommandPublisher;
-
-    @Autowired
-    private CfdRouteProperties cfdRouteProperties;
     
     @Autowired
     private com.exchange.oms.publisher.OrderStatePushPublisher orderStatePushPublisher;
@@ -81,35 +62,37 @@ public class OmsServiceImpl implements OmsService {
     private com.exchange.oms.client.LedgerClient ledgerClient;
 
     @Autowired(required = false)
-    private org.springframework.data.redis.core.StringRedisTemplate stringRedisTemplate;
+    private com.exchange.oms.client.HardRiskClient hardRiskClient;
 
-    @Value("${oms.cfd.reference.redis-prefix:cfd:reference:book:}")
-    private String cfdReferenceRedisPrefix;
+    @Autowired(required = false)
+    private com.exchange.oms.client.SnapshotClient snapshotClient;
 
-    @Value("${oms.cfd.reference.max-stale-ms:0}")
-    private long cfdReferenceMaxStaleMs;
-    
+    @Autowired(required = false)
+    private com.exchange.oms.service.OrderService orderService;
+
     @Override
     @Transactional(rollbackFor = Exception.class)
     public SubmitOrderResponse submitOrder(SubmitOrderRequest request) {
-        log.info("[OMS] Submit order start, userId={}, clientOrderId={}, symbol={}", 
+        log.info("[OMS] Submit order start, userId={}, clientOrderId={}, symbol={}",
             request.getUserId(), request.getClientOrderId(), request.getSymbol());
-        
+
+        Long orderId = null;
+        boolean ledgerFrozen = false;
+        BigDecimal requiredMargin = null;
+
         try {
             // 1. 参数校验
             validateSubmitRequest(request);
-            
+
             // 2. 幂等检查
             OmsIdempotentKey existingKey = idempotentKeyMapper.selectByUserIdAndKey(
                 request.getUserId(), request.getClientOrderId());
-            
+
             if (existingKey != null) {
-                // 幂等返回
                 String requestHash = calculateRequestHash(request);
                 if (!requestHash.equals(existingKey.getRequestHash())) {
                     throw new OmsException(OmsErrorCode.OMS_1002);
                 }
-                
                 OmsOrder existingOrder = orderMapper.selectById(existingKey.getOrderId());
                 return SubmitOrderResponse.success(
                     existingOrder.getId().toString(),
@@ -117,11 +100,11 @@ public class OmsServiceImpl implements OmsService {
                     existingOrder.getClientOrderId()
                 );
             }
-            
+
             // 3. 创建订单（NEW）
-            Long orderId = IdGenerator.generate();
+            orderId = IdGenerator.generate();
             long now = System.currentTimeMillis();
-            
+
             OmsOrder order = new OmsOrder();
             order.setId(orderId);
             order.setUserId(request.getUserId());
@@ -129,96 +112,76 @@ public class OmsServiceImpl implements OmsService {
             order.setSymbol(request.getSymbol());
             order.setSide(mapSide(request.getSide()));
             order.setType(mapType(request.getType()));
-            String resolvedExecutionMode = resolveExecutionModeForSubmit(request.getSymbol(), request.getExecutionMode());
-            if (request.getPrice() != null) {
-                order.setPrice(normalizeToScaled(request.getPrice()));
-            }
-            order.setQuantity(normalizeToScaled(request.getQuantity()));
+            order.setPrice(new BigDecimal(request.getPrice()));
+            order.setQuantity(new BigDecimal(request.getQuantity()));
             order.setFilledQuantity(BigDecimal.ZERO);
             order.setStatus(0); // NEW
             order.setTimeInForce(request.getTimeInForce());
-            order.setLeverage(resolveLeverage(request.getLeverage()));
-            order.setExecutionMode(resolvedExecutionMode);
-            if (order.getType() != null && order.getType() == 1 && order.getPrice() == null && isCfdExecutionMode(resolvedExecutionMode)) {
-                applyCfdMarketReferencePrice(order);
-            }
             order.setRiskCheckStatus(0);
             order.setFreezeStatus(0);
+            order.setLeverage(request.getLeverage());
             order.setVersion(0);
             order.setCreatedAt(now);
             order.setUpdatedAt(now);
-            
-            try {
-                orderMapper.insert(order);
+            orderMapper.insert(order);
 
-                // 4. 记录幂等key
-                OmsIdempotentKey idemKey = new OmsIdempotentKey();
-                idemKey.setUserId(request.getUserId());
-                idemKey.setIdemKey(request.getClientOrderId());
-                idemKey.setOrderId(orderId);
-                idemKey.setRequestHash(calculateRequestHash(request));
-                idemKey.setCreatedAt(now);
-                idempotentKeyMapper.insert(idemKey);
-            } catch (DuplicateKeyException duplicateKeyException) {
-                // 并发重试场景：首个请求可能已经成功创建订单，后续同 clientOrderId 冲突时按幂等成功返回
-                SubmitOrderResponse recovered = tryRecoverConcurrentSubmit(request);
-                if (recovered != null) {
-                    log.warn("[OMS] Recover submit from duplicate key, userId={}, clientOrderId={}, orderId={}",
-                        request.getUserId(), request.getClientOrderId(), recovered.getOrderId());
-                    return recovered;
-                }
-                throw duplicateKeyException;
-            }
-            
-            // 5. 记录事件
-            recordEvent(orderId, request.getUserId(), request.getSymbol(), 
+            // 4. 记录幂等key + 事件 + 状态日志
+            OmsIdempotentKey idemKey = new OmsIdempotentKey();
+            idemKey.setUserId(request.getUserId());
+            idemKey.setIdemKey(request.getClientOrderId());
+            idemKey.setOrderId(orderId);
+            idemKey.setRequestHash(calculateRequestHash(request));
+            idemKey.setCreatedAt(now);
+            idempotentKeyMapper.insert(idemKey);
+
+            recordEvent(orderId, request.getUserId(), request.getSymbol(),
                 "ORDER_SUBMIT", "OMS", request);
-            
-            // 6. 记录状态变更
-            recordStateLog(orderId, request.getUserId(), null, 0, "ORDER_CREATED", 
+            recordStateLog(orderId, request.getUserId(), null, 0, "ORDER_CREATED",
                 "Order created", request.getTraceId());
-            
-            // 7. 调用Hard Risk Gate（同步）
-            // TODO: 调用风控服务
-            boolean riskPassed = true; // 模拟
-            
-            if (!riskPassed) {
-                updateOrderStatus(order, 6, "RISK_REJECTED", "Risk check failed");
-                throw new OmsException(OmsErrorCode.OMS_3001);
-            }
-            
-            // 8. 更新状态=PENDING_RISK
-            updateOrderStatus(order, 1, "RISK_PASSED", "Risk check passed");
-            
-            // 9. 调用Ledger Service冻结保证金（同步）
-            BigDecimal requiredMargin = calculateRequiredMargin(
-                order.getPrice() != null ? order.getPrice() : BigDecimal.ZERO,
-                order.getQuantity(),
-                resolveLeverage(order.getLeverage())
-            );
 
-            if (requiredMargin.compareTo(BigDecimal.ZERO) <= 0) {
-                log.warn("[OMS] Reject order due to invalid required margin, userId={}, orderId={}, price={}, qty={}, leverage={}, margin={}",
-                    request.getUserId(), orderId, order.getPrice(), order.getQuantity(),
-                    request.getLeverage(), requiredMargin);
-                updateOrderStatus(order, 6, "INVALID_MARGIN", "Invalid margin, check price/quantity scale");
-                throw new OmsException(OmsErrorCode.OMS_4003.getCode(), "数量/价格精度不合法");
+            // 5. 🔥 调用硬风控（Fail-Close）
+            if (hardRiskClient != null && snapshotClient != null) {
+                long requiredMarginLong = calculateRequiredMarginInLong(
+                    order.getPrice(), order.getQuantity(), order.getLeverage());
+                Long totalBalance = snapshotClient.getUserAvailableBalance(request.getUserId());
+                if (totalBalance == null) totalBalance = 0L;
+
+                CheckOrderRiskRequest riskRequest = buildRiskRequest(request, orderId);
+                CheckOrderRiskResponse riskResponse = hardRiskClient.checkRisk(
+                    riskRequest, requiredMarginLong, totalBalance);
+
+                if (riskResponse == null || !"PASS".equals(riskResponse.getResult())) {
+                    String reason = (riskResponse != null) ? riskResponse.getRejectReason() : "NO_RESPONSE";
+                    String message = (riskResponse != null) ? riskResponse.getRejectMessage() : "Risk check no response";
+                    log.warn("[OMS] Risk check rejected: orderId={}, reason={}, message={}", orderId, reason, message);
+                    updateOrderStatus(order, 6, "REJECTED", "Risk check failed: " + message);
+                    throw new OmsException(OmsErrorCode.OMS_3001);
+                }
+                log.info("[OMS] Risk check passed: orderId={}", orderId);
+            } else {
+                log.warn("[OMS] HardRiskClient or SnapshotClient not available, skipping risk check (test mode)");
             }
-            
+            updateOrderStatus(order, 1, "PENDING_RISK", "Risk check passed");
+
+            // 6. 调用 Ledger 冻结保证金
+            requiredMargin = calculateRequiredMargin(
+                order.getPrice(), order.getQuantity(),
+                request.getLeverage() != null ? request.getLeverage() : 10);
+
             if (ledgerClient != null) {
                 try {
-                    com.exchange.oms.client.LedgerClient.FreezeRequest freezeRequest = 
+                    com.exchange.oms.client.LedgerClient.FreezeRequest freezeRequest =
                         new com.exchange.oms.client.LedgerClient.FreezeRequest();
                     freezeRequest.setUserId(request.getUserId());
-                    freezeRequest.setCurrency("USDT"); // 默认USDT
+                    freezeRequest.setCurrency("USDT");
                     freezeRequest.setAmount(requiredMargin);
                     freezeRequest.setOrderId(orderId);
-                    
                     ledgerClient.freezeMargin(freezeRequest);
-                    log.info("[OMS] ✅ Freeze margin success, userId={}, amount={}, orderId={}", 
+                    ledgerFrozen = true;
+                    log.info("[OMS] ✅ Freeze margin success, userId={}, amount={}, orderId={}",
                         request.getUserId(), requiredMargin, orderId);
                 } catch (Exception e) {
-                    log.error("[OMS] ❌ Freeze margin failed, userId={}, orderId={}", 
+                    log.error("[OMS] ❌ Freeze margin failed, userId={}, orderId={}",
                         request.getUserId(), orderId, e);
                     updateOrderStatus(order, 6, "FREEZE_FAILED", "Freeze failed: " + e.getMessage());
                     throw new OmsException(OmsErrorCode.OMS_3002);
@@ -226,66 +189,40 @@ public class OmsServiceImpl implements OmsService {
             } else {
                 log.warn("[OMS] LedgerClient not available, skipping freeze (test mode)");
             }
-            
-            // 10. 更新状态=FROZEN
             updateOrderStatus(order, 2, "FROZEN", "Fund frozen");
-            
-            // 11. 投递OrderEvent -> Match Engine ⭐
-            publishSubmitCommand(order, request);
-            
-            // 12. 发送执行报告到 WebSocket (private-order-state topic)
+            order.setFreezeStatus(1);
+            orderMapper.updateById(order);
+
+            // 7. 投递 OrderEvent -> Match Engine
+            com.exchange.oms.dto.OrderEventCommand command = buildOrderCommand(order, request);
+            orderEventPublisher.publishOrderEvent(command);
+            log.info("[OMS] Order event sent to match engine, orderId={}", orderId);
+
+            // 8. 推送 WebSocket
             orderStatePushPublisher.publishNewOrder(order);
             log.info("[OMS] Execution report sent to private push, orderId={}", orderId);
-            
+
             log.info("[OMS] Submit order success, orderId={}", orderId);
-            
-            return SubmitOrderResponse.success(
-                orderId.toString(),
-                "FROZEN",
-                request.getClientOrderId()
-            );
-            
+            return SubmitOrderResponse.success(orderId.toString(), "FROZEN", request.getClientOrderId());
+
         } catch (OmsException e) {
             log.error("[OMS] Submit order failed, error={}", e.getErrorMessage(), e);
+            // 🔥 异常时解冻 Ledger（如果已冻结）
+            rollbackLedgerFreeze(orderId, request.getUserId(), requiredMargin);
             return SubmitOrderResponse.fail(e.getErrorCode(), e.getErrorMessage());
         } catch (Exception e) {
-            // 兜底恢复：部分异常路径下订单已落库但响应超时/失败，按 clientOrderId 查询后返回幂等成功
-            SubmitOrderResponse recovered = tryRecoverConcurrentSubmit(request);
-            if (recovered != null) {
-                log.warn("[OMS] Recover submit from system exception, userId={}, clientOrderId={}, orderId={}",
-                    request.getUserId(), request.getClientOrderId(), recovered.getOrderId(), e);
-                return recovered;
-            }
             log.error("[OMS] Submit order system error", e);
-            return SubmitOrderResponse.fail(OmsErrorCode.OMS_9001.getCode(), 
+            rollbackLedgerFreeze(orderId, request.getUserId(), requiredMargin);
+            return SubmitOrderResponse.fail(OmsErrorCode.OMS_9001.getCode(),
                 OmsErrorCode.OMS_9001.getMessage());
         }
     }
 
     @Override
     public SubmitOrderResponse confirmSubmitByClientOrderId(Long userId, String clientOrderId) {
-        if (userId == null || userId <= 0 || clientOrderId == null || clientOrderId.isBlank()) {
-            return SubmitOrderResponse.fail(
-                OmsErrorCode.OMS_4001.getCode(),
-                OmsErrorCode.OMS_4001.getMessage()
-            );
-        }
-
-        OmsOrder order = orderMapper.selectByUserIdAndClientOrderId(userId, clientOrderId.trim());
-        if (order == null) {
-            return SubmitOrderResponse.fail(
-                OmsErrorCode.OMS_2001.getCode(),
-                OmsErrorCode.OMS_2001.getMessage()
-            );
-        }
-
-        return SubmitOrderResponse.success(
-            order.getId().toString(),
-            mapOrderStatus(order.getStatus()),
-            order.getClientOrderId()
-        );
+        return null;
     }
-    
+
     @Override
     @Transactional(rollbackFor = Exception.class)
     public CancelOrderResponse cancelOrder(CancelOrderRequest request) {
@@ -295,30 +232,76 @@ public class OmsServiceImpl implements OmsService {
         try {
             // 1. 查询订单
             Long orderId = Long.parseLong(request.getOrderId());
-            // 2. 乐观锁冲突重试（并发 order-state 更新时避免直接 OMS_9003）
-            OmsOrder order = cancelOrderWithRetry(orderId, request.getUserId());
+            OmsOrder order = orderMapper.selectById(orderId);
+            
             if (order == null) {
-                // 幂等：订单已是 CANCELED
-                return CancelOrderResponse.success(request.getOrderId(), "CANCELED");
+                throw new OmsException(OmsErrorCode.OMS_2001);
             }
-
-            // 3. 解冻剩余保证金（状态更新成功后执行，避免重试阶段重复解冻）
-            releaseFrozenMarginOnCancel(orderId, order);
-
-            // 4. 记录事件
+            
+            // 2. 权限校验
+            if (!order.getUserId().equals(request.getUserId())) {
+                throw new OmsException(OmsErrorCode.OMS_2001);
+            }
+            
+            // 3. 状态校验
+            if (!order.isCancelable()) {
+                throw new OmsException(OmsErrorCode.OMS_2002);
+            }
+            
+            // 4. 解冻保证金（如果订单已冻结）
+            if (order.getFreezeStatus() != null && order.getFreezeStatus() == 1 && ledgerClient != null) {
+                try {
+                    // 计算解冻金额：剩余数量 * 价格 / 杠杆
+                    BigDecimal unfreezeAmount = calculateRequiredMargin(
+                        order.getPrice(),
+                        order.getRemainingQuantity(),
+                        order.getLeverage() != null && order.getLeverage() > 0 ? order.getLeverage() : 10
+                    );
+                    
+                    com.exchange.oms.client.LedgerClient.UnfreezeRequest unfreezeRequest = 
+                        new com.exchange.oms.client.LedgerClient.UnfreezeRequest();
+                    unfreezeRequest.setUserId(order.getUserId());
+                    unfreezeRequest.setCurrency("USDT");
+                    unfreezeRequest.setAmount(unfreezeAmount);
+                    unfreezeRequest.setOrderId(orderId);
+                    
+                    ledgerClient.unfreezeMargin(unfreezeRequest);
+                    log.info("[OMS] ✅ Unfreeze margin success, userId={}, amount={}, orderId={}", 
+                        order.getUserId(), unfreezeAmount, orderId);
+                } catch (Exception e) {
+                    log.error("[OMS] ❌ Unfreeze margin failed, userId={}, orderId={}", 
+                        order.getUserId(), orderId, e);
+                    // 解冻失败不影响撤单，记录日志即可
+                }
+            }
+            
+            // 5. 更新状态=PENDING_CANCEL（等待 Match Engine 确认）
+            int updated = orderMapper.updateStatus(
+                orderId, order.getStatus(), 7, System.currentTimeMillis(), order.getVersion());
+            
+            if (updated == 0) {
+                throw new OmsException(OmsErrorCode.OMS_9003);
+            }
+            
+            // 5. 记录事件
             recordEvent(orderId, request.getUserId(), order.getSymbol(), 
                 "ORDER_CANCEL", "OMS", request);
             
-            // 5. 记录状态变更
-            recordStateLog(orderId, request.getUserId(), order.getStatus(), ORDER_STATUS_CANCELED, 
-                "USER_CANCEL", "User canceled", request.getTraceId());
+            // 6. 记录状态变更
+            recordStateLog(orderId, request.getUserId(), order.getStatus(), 7, 
+                "USER_CANCEL", "Cancel request sent, awaiting match engine confirmation", request.getTraceId());
             
-            // 6. 投递CancelEvent -> Match Engine ⭐
-            publishCancelCommand(order);
+            // 7. 投递CancelEvent -> Match Engine ⭐
+            com.exchange.oms.dto.OrderEventCommand cancelCommand = buildCancelCommand(order);
+            orderEventPublisher.publishOrderEvent(cancelCommand);
+            log.info("[OMS] Cancel event sent to match engine, orderId={}", orderId);
+            
+            // 8. 解冻资金（异步）
+            // TODO: 通知账户服务解冻
             
             log.info("[OMS] Cancel order success, orderId={}", orderId);
             
-            return CancelOrderResponse.success(request.getOrderId(), "CANCELED");
+            return CancelOrderResponse.success(request.getOrderId(), "PENDING_CANCEL");
             
         } catch (OmsException e) {
             log.error("[OMS] Cancel order failed, error={}", e.getErrorMessage(), e);
@@ -329,96 +312,86 @@ public class OmsServiceImpl implements OmsService {
                 OmsErrorCode.OMS_9001.getMessage());
         }
     }
-
-    private OmsOrder cancelOrderWithRetry(Long orderId, Long userId) {
-        for (int attempt = 1; attempt <= CANCEL_OPTIMISTIC_RETRY; attempt++) {
-            OmsOrder order = orderMapper.selectById(orderId);
-            if (order == null || !order.getUserId().equals(userId)) {
-                throw new OmsException(OmsErrorCode.OMS_2001);
-            }
-            if (order.getStatus() != null && order.getStatus() == ORDER_STATUS_CANCELED) {
-                return null;
-            }
-            if (!order.isCancelable()) {
-                throw new OmsException(OmsErrorCode.OMS_2002);
-            }
-
-            int updated = orderMapper.updateStatus(
-                orderId, order.getStatus(), ORDER_STATUS_CANCELED, System.currentTimeMillis(), order.getVersion());
-            if (updated > 0) {
-                return order;
-            }
-
-            log.warn("[OMS] Cancel order optimistic conflict, orderId={}, attempt={}/{}",
-                orderId, attempt, CANCEL_OPTIMISTIC_RETRY);
-        }
-
-        OmsOrder latest = orderMapper.selectById(orderId);
-        if (latest == null || !latest.getUserId().equals(userId)) {
-            throw new OmsException(OmsErrorCode.OMS_2001);
-        }
-        if (latest.getStatus() != null && latest.getStatus() == ORDER_STATUS_CANCELED) {
-            return null;
-        }
-        if (!latest.isCancelable()) {
-            throw new OmsException(OmsErrorCode.OMS_2002);
-        }
-        throw new OmsException(OmsErrorCode.OMS_9003);
-    }
-
-    private void releaseFrozenMarginOnCancel(Long orderId, OmsOrder order) {
-        if (ledgerClient == null) {
-            return;
-        }
-
-        // 优先依赖 freeze_status=1（已冻结），兼容历史数据状态位缺失时按状态兜底。
-        boolean hasFrozenMargin = order.getFreezeStatus() != null && order.getFreezeStatus() == 1;
-        boolean legacyFrozenState = (order.getFreezeStatus() == null || order.getFreezeStatus() == 0)
-            && order.getStatus() != null
-            && (order.getStatus() == 2 || order.getStatus() == 3);
-
-        if (!hasFrozenMargin && !legacyFrozenState) {
-            log.info("[OMS] Skip unfreeze, no frozen margin marker, orderId={}, status={}, freezeStatus={}",
-                orderId, order.getStatus(), order.getFreezeStatus());
-            return;
-        }
+    
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public void cancelOrder(Long orderId) {
+        log.info("[OMS] Internal cancel order, orderId={}", orderId);
 
         try {
-            BigDecimal remainingQty = order.getRemainingQuantity();
-            if (remainingQty == null || remainingQty.compareTo(BigDecimal.ZERO) <= 0) {
-                log.info("[OMS] Skip unfreeze, no remaining quantity, orderId={}", orderId);
+            OmsOrder order = orderMapper.selectById(orderId);
+            if (order == null) {
+                log.warn("[OMS] Cancel order not found, orderId={}", orderId);
                 return;
             }
 
-            // 计算解冻金额：剩余数量 * 价格 / 杠杆
-            BigDecimal unfreezeAmount = calculateRequiredMargin(
-                order.getPrice(),
-                remainingQty,
-                resolveLeverage(order.getLeverage())
-            );
-
-            if (unfreezeAmount.compareTo(BigDecimal.ZERO) <= 0) {
-                log.warn("[OMS] Skip unfreeze, invalid amount, orderId={}, amount={}", orderId, unfreezeAmount);
+            if (!order.isCancelable()) {
+                log.warn("[OMS] Cancel order not cancelable, orderId={}, status={}", orderId, order.getStatus());
                 return;
             }
 
-            com.exchange.oms.client.LedgerClient.UnfreezeRequest unfreezeRequest =
-                new com.exchange.oms.client.LedgerClient.UnfreezeRequest();
-            unfreezeRequest.setUserId(order.getUserId());
-            unfreezeRequest.setCurrency("USDT");
-            unfreezeRequest.setAmount(unfreezeAmount);
-            unfreezeRequest.setOrderId(orderId);
+            // 解冻保证金
+            if (order.getFreezeStatus() != null && order.getFreezeStatus() == 1 && ledgerClient != null) {
+                try {
+                    BigDecimal unfreezeAmount = calculateRequiredMargin(
+                        order.getPrice(),
+                        order.getRemainingQuantity(),
+                        order.getLeverage() != null && order.getLeverage() > 0 ? order.getLeverage() : 10
+                    );
+                    com.exchange.oms.client.LedgerClient.UnfreezeRequest unfreezeRequest =
+                        new com.exchange.oms.client.LedgerClient.UnfreezeRequest();
+                    unfreezeRequest.setUserId(order.getUserId());
+                    unfreezeRequest.setCurrency("USDT");
+                    unfreezeRequest.setAmount(unfreezeAmount);
+                    unfreezeRequest.setOrderId(orderId);
+                    ledgerClient.unfreezeMargin(unfreezeRequest);
+                } catch (Exception e) {
+                    log.error("[OMS] Unfreeze margin failed on internal cancel, orderId={}", orderId, e);
+                }
+            }
 
-            ledgerClient.unfreezeMargin(unfreezeRequest);
-            log.info("[OMS] ✅ Unfreeze margin success, userId={}, amount={}, orderId={}",
-                order.getUserId(), unfreezeAmount, orderId);
+            // 更新状态=PENDING_CANCEL
+            int updated = orderMapper.updateStatus(
+                orderId, order.getStatus(), 7, System.currentTimeMillis(), order.getVersion());
+            if (updated == 0) {
+                log.warn("[OMS] Internal cancel order update failed (version conflict), orderId={}", orderId);
+                return;
+            }
+
+            // 记录事件
+            recordEvent(orderId, order.getUserId(), order.getSymbol(),
+                "ORDER_CANCEL", "OMS", null);
+
+            // 记录状态变更
+            recordStateLog(orderId, order.getUserId(), order.getStatus(), 7,
+                "INTERNAL_CANCEL", "Internal cancel request", null);
+
+            // 投递CancelEvent -> Match Engine
+            com.exchange.oms.dto.OrderEventCommand cancelCommand = buildCancelCommand(order);
+            orderEventPublisher.publishOrderEvent(cancelCommand);
+            log.info("[OMS] Internal cancel event sent, orderId={}", orderId);
+
         } catch (Exception e) {
-            // 解冻失败不影响撤单，记录日志即可
-            log.error("[OMS] ❌ Unfreeze margin failed, userId={}, orderId={}",
-                order.getUserId(), orderId, e);
+            log.error("[OMS] Internal cancel order failed, orderId={}", orderId, e);
         }
     }
-    
+
+    @Override
+    public Long createLiquidationOrder(com.exchange.common.proto.request.CreateOrderRequest request) {
+        if (orderService != null) {
+            return orderService.createLiquidationOrder(request);
+        }
+        throw new RuntimeException("OrderService not available for liquidation order");
+    }
+
+    @Override
+    public Long createAdlOrder(com.exchange.common.proto.request.CreateOrderRequest request) {
+        if (orderService != null) {
+            return orderService.createAdlOrder(request);
+        }
+        throw new RuntimeException("OrderService not available for ADL order");
+    }
+
     @Override
     public QueryOrderResponse queryOrder(QueryOrderRequest request) {
         Long orderId = Long.parseLong(request.getOrderId());
@@ -428,125 +401,26 @@ public class OmsServiceImpl implements OmsService {
             return null;
         }
         
-        return convertToResponse(order);
-    }
-    
-    @Override
-    public OrderListResponse queryOrderList(OrderListRequest request) {
-        log.info("[OMS] Query order list, userId={}, symbol={}, status={}, offset={}, limit={}",
-            request.getUserId(), request.getSymbol(), request.getStatus(), 
-            request.getOffset(), request.getLimit());
-        
-        // 根据状态判断查询活跃订单还是历史订单
-        boolean isActiveQuery = isActiveStatusQuery(request.getStatus());
-        
-        List<OmsOrder> orders;
-        if (isActiveQuery) {
-            // 查询活跃订单
-            orders = orderMapper.selectActiveOrdersWithLimit(
-                request.getUserId(),
-                request.getLimit()
-            );
-        } else {
-            // 查询历史订单
-            orders = orderMapper.selectHistoryOrdersWithLimit(
-                request.getUserId(),
-                request.getLimit()
-            );
-        }
-        
-        // 转换响应
-        List<QueryOrderResponse> orderResponses = orders.stream()
-            .map(this::convertToResponse)
-            .collect(java.util.stream.Collectors.toList());
-        
-        OrderListResponse response = new OrderListResponse();
-        response.setOrders(orderResponses);
-        response.setTotal((long) orderResponses.size());
-        response.setOffset(request.getOffset());
-        response.setLimit(request.getLimit());
-        response.setHasMore(orderResponses.size() >= request.getLimit());
-        
-        return response;
-    }
-    
-    /**
-     * 判断是否是查询活跃订单
-     */
-    private boolean isActiveStatusQuery(String status) {
-        if (status == null || status.isEmpty()) {
-            return true; // 默认查询活跃订单
-        }
-        // 如果状态包含终态 (FILLED/CANCELED/REJECTED)，认为是历史查询
-        // 注意：PARTIALLY_FILLED 不是终态，是活跃状态
-        String upperStatus = status.toUpperCase();
-        
-        // 检查是否包含终态（注意排除 PARTIALLY_FILLED）
-        boolean hasFilled = upperStatus.contains("FILLED");
-        boolean hasPartiallyFilled = upperStatus.contains("PARTIALLY_FILLED");
-        boolean hasCanceled = upperStatus.contains("CANCELED");
-        boolean hasRejected = upperStatus.contains("REJECTED");
-        
-        // 只有当包含 FILLED 但不包含 PARTIALLY_FILLED 时，才认为是终态
-        boolean hasFinalFilled = hasFilled && !hasPartiallyFilled;
-        boolean containsFinalStatus = hasFinalFilled || hasCanceled || hasRejected;
-        
-        log.info("[DEBUG] status={}, hasFilled={}, hasPartiallyFilled={}, hasFinalFilled={}, isActive={}", 
-            status, hasFilled, hasPartiallyFilled, hasFinalFilled, !containsFinalStatus);
-        
-        return !containsFinalStatus;
-    }
-    
-    /**
-     * 转换订单为响应对象
-     * 
-     * 注意：数据库中 price/quantity/filledQuantity 是以 8 位小数精度存储的内部格式
-     * 需要除以 10^8 转换为实际金额后返回给前端
-     */
-    private QueryOrderResponse convertToResponse(OmsOrder order) {
         QueryOrderResponse response = new QueryOrderResponse();
         response.setOrderId(order.getId().toString());
         response.setClientOrderId(order.getClientOrderId());
         response.setSymbol(order.getSymbol());
         response.setSide(mapOrderSide(order.getSide()));
         response.setType(mapOrderType(order.getType()));
-        
-        // 精度系数：8位小数 = 10^8
-        BigDecimal SCALE = new BigDecimal("100000000");
-        
-        // 将内部格式转换为实际金额（除以 10^8）
-        if (order.getPrice() != null) {
-            BigDecimal actualPrice = order.getPrice().divide(SCALE, 8, java.math.RoundingMode.HALF_UP);
-            response.setPrice(actualPrice.stripTrailingZeros().toPlainString());
-        }
-        
-        BigDecimal actualQuantity = order.getQuantity().divide(SCALE, 8, java.math.RoundingMode.HALF_UP);
-        response.setQuantity(actualQuantity.stripTrailingZeros().toPlainString());
-        
-        BigDecimal actualFilledQty = order.getFilledQuantity().divide(SCALE, 8, java.math.RoundingMode.HALF_UP);
-        response.setFilledQuantity(actualFilledQty.stripTrailingZeros().toPlainString());
-        
+        response.setPrice(order.getPrice() != null ? order.getPrice().toPlainString() : null);
+        response.setQuantity(order.getQuantity().toPlainString());
+        response.setFilledQuantity(order.getFilledQuantity().toPlainString());
         response.setStatus(mapOrderStatus(order.getStatus()));
-        response.setExecutionMode(resolveExecutionMode(order.getExecutionMode()));
-        response.setLiquiditySource(order.getLiquiditySource());
-        response.setReferenceTopic(order.getReferenceTopic());
-        response.setReferenceOffset(order.getReferenceOffset());
-        response.setReferenceEventTime(order.getReferenceEventTime());
-        response.setReferenceBestBid(toPlainString(order.getReferenceBestBid()));
-        response.setReferenceBestAsk(toPlainString(order.getReferenceBestAsk()));
-        response.setReferenceVwapPrice(toPlainString(order.getReferenceVwapPrice()));
-        response.setSlippageBps(order.getSlippageBps());
-        OmsOrderStateLog latestStateLog = stateLogMapper.selectLatestByOrderId(order.getId());
-        if (latestStateLog != null) {
-            response.setReasonCode(latestStateLog.getReasonCode());
-            response.setReasonMsg(latestStateLog.getReasonMsg());
-        }
         response.setCreateTime(order.getCreatedAt());
+        
         return response;
     }
-    
 
-    
+    @Override
+    public OrderListResponse queryOrderList(OrderListRequest request) {
+        return null;
+    }
+
     @Override
     @Transactional(rollbackFor = Exception.class)
     public void handleTradeReport(Long orderId, String filledQuantity) {
@@ -558,7 +432,7 @@ public class OmsServiceImpl implements OmsService {
             return;
         }
         
-        BigDecimal delta = normalizeToScaled(filledQuantity);
+        BigDecimal delta = new BigDecimal(filledQuantity);
         BigDecimal newFilled = order.getFilledQuantity().add(delta);
         
         // 判断新状态
@@ -614,17 +488,6 @@ public class OmsServiceImpl implements OmsService {
                 throw new OmsException(OmsErrorCode.OMS_4002);
             }
         }
-        if (request.getLeverage() != null && request.getLeverage() <= 0) {
-            throw new OmsException(OmsErrorCode.OMS_4003);
-        }
-        if (request.getExecutionMode() != null) {
-            String normalizedMode = request.getExecutionMode().trim();
-            if (!normalizedMode.isEmpty()
-                && !EXECUTION_MODE_MATCH_ENGINE.equalsIgnoreCase(normalizedMode)
-                && !EXECUTION_MODE_CFD_DEALER.equalsIgnoreCase(normalizedMode)) {
-                throw new OmsException(OmsErrorCode.OMS_4001.getCode(), "unsupported executionMode");
-            }
-        }
     }
     
     private String calculateRequestHash(SubmitOrderRequest request) {
@@ -634,52 +497,8 @@ public class OmsServiceImpl implements OmsService {
                      request.getSide() + "|" + 
                      request.getType() + "|" + 
                      request.getPrice() + "|" + 
-                     request.getQuantity() + "|" +
-                     resolveLeverage(request.getLeverage()) + "|" +
-                     resolveExecutionModeForSubmit(request.getSymbol(), request.getExecutionMode());
+                     request.getQuantity();
         return DigestUtils.md5DigestAsHex(data.getBytes(StandardCharsets.UTF_8));
-    }
-
-    private SubmitOrderResponse tryRecoverConcurrentSubmit(SubmitOrderRequest request) {
-        if (request == null || request.getUserId() == null || request.getClientOrderId() == null) {
-            return null;
-        }
-
-        String clientOrderId = request.getClientOrderId().trim();
-        if (clientOrderId.isEmpty()) {
-            return null;
-        }
-
-        OmsIdempotentKey existingKey = idempotentKeyMapper.selectByUserIdAndKey(
-            request.getUserId(), clientOrderId
-        );
-        if (existingKey != null) {
-            String requestHash = calculateRequestHash(request);
-            if (!requestHash.equals(existingKey.getRequestHash())) {
-                return SubmitOrderResponse.fail(
-                    OmsErrorCode.OMS_1002.getCode(),
-                    OmsErrorCode.OMS_1002.getMessage()
-                );
-            }
-            OmsOrder existingOrder = orderMapper.selectById(existingKey.getOrderId());
-            if (existingOrder != null) {
-                return SubmitOrderResponse.success(
-                    existingOrder.getId().toString(),
-                    mapOrderStatus(existingOrder.getStatus()),
-                    existingOrder.getClientOrderId()
-                );
-            }
-        }
-
-        OmsOrder existingOrder = orderMapper.selectByUserIdAndClientOrderId(request.getUserId(), clientOrderId);
-        if (existingOrder == null) {
-            return null;
-        }
-        return SubmitOrderResponse.success(
-            existingOrder.getId().toString(),
-            mapOrderStatus(existingOrder.getStatus()),
-            existingOrder.getClientOrderId()
-        );
     }
     
     private void updateOrderStatus(OmsOrder order, Integer newStatus, 
@@ -758,69 +577,69 @@ public class OmsServiceImpl implements OmsService {
             case 4: return "FILLED";
             case 5: return "CANCELED";
             case 6: return "REJECTED";
+            case 7: return "PENDING_CANCEL";
             default: return "UNKNOWN";
         }
     }
     
     /**
      * 计算所需保证金
-     * 
+     *
      * 公式：保证金 = 价格 * 数量 / 杠杆倍数
-     * 
-     * @param price 价格
-     * @param quantity 数量
-     * @param leverage 杠杆倍数
-     * @return 所需保证金
-     */
-    /**
-     * 计算所需保证金
-     * 
-     * 注意：price 和 quantity 是 8 位小数的整数格式（如 4000000000000 表示 40000.00000000）
-     * 需要先除以 10^8 转换为实际金额，再计算保证金
      */
     private BigDecimal calculateRequiredMargin(BigDecimal price, BigDecimal quantity, Integer leverage) {
         if (price == null || quantity == null || leverage == null || leverage <= 0) {
             throw new IllegalArgumentException("Invalid margin calculation parameters");
         }
-        
-        // 精度系数：8位小数 = 10^8
-        // 转换为实际金额：price 和 quantity 都是 8 位小数的整数格式
-        BigDecimal actualPrice = price.divide(SCALE_BD, 8, RoundingMode.HALF_UP);
-        BigDecimal actualQuantity = quantity.divide(SCALE_BD, 8, RoundingMode.HALF_UP);
-        
-        // 计算保证金：价格 * 数量 / 杠杆
-        BigDecimal margin = actualPrice.multiply(actualQuantity)
-            .divide(BigDecimal.valueOf(leverage), 8, RoundingMode.HALF_UP);
-        
-        log.debug("[OMS] Calculate margin: price={} (actual={}), quantity={} (actual={}), leverage={}, margin={}",
-            price, actualPrice, quantity, actualQuantity, leverage, margin);
-        
-        return margin;
+        return price.multiply(quantity).divide(BigDecimal.valueOf(leverage), 8, java.math.RoundingMode.HALF_UP);
     }
 
-    private Integer resolveLeverage(Integer leverage) {
-        return (leverage == null || leverage <= 0) ? 10 : leverage;
+    /**
+     * 计算订单所需保证金（long 版本，用于风控）
+     */
+    private long calculateRequiredMarginInLong(BigDecimal price, BigDecimal quantity, Integer leverage) {
+        BigDecimal margin = calculateRequiredMargin(price, quantity,
+            leverage != null && leverage > 0 ? leverage : 10);
+        return margin.multiply(BigDecimal.valueOf(Money.SCALE)).longValue();
     }
 
-    private String resolveExecutionMode(String executionMode) {
-        if (executionMode == null || executionMode.isBlank()) {
-            return EXECUTION_MODE_MATCH_ENGINE;
+    /**
+     * 构建风控检查请求
+     */
+    private CheckOrderRiskRequest buildRiskRequest(SubmitOrderRequest request, long orderId) {
+        CheckOrderRiskRequest riskRequest = new CheckOrderRiskRequest();
+        riskRequest.setOrderId(String.valueOf(orderId));
+        riskRequest.setUserId(request.getUserId());
+        riskRequest.setSymbol(request.getSymbol());
+        riskRequest.setSide(request.getSide());
+        riskRequest.setPrice(request.getPrice());
+        riskRequest.setQuantity(request.getQuantity());
+        riskRequest.setLeverage(request.getLeverage());
+        riskRequest.setReduceOnly(request.getReduceOnly());
+        return riskRequest;
+    }
+
+    /**
+     * 异常时回滚 Ledger 冻结
+     */
+    private void rollbackLedgerFreeze(Long orderId, Long userId, BigDecimal amount) {
+        if (orderId == null || userId == null || ledgerClient == null) {
+            return;
         }
-        String normalized = executionMode.trim().toUpperCase();
-        if (EXECUTION_MODE_CFD_DEALER.equals(normalized)) {
-            return EXECUTION_MODE_CFD_DEALER;
+        try {
+            com.exchange.oms.client.LedgerClient.UnfreezeRequest unfreezeRequest =
+                new com.exchange.oms.client.LedgerClient.UnfreezeRequest();
+            unfreezeRequest.setUserId(userId);
+            unfreezeRequest.setCurrency("USDT");
+            unfreezeRequest.setAmount(amount);
+            unfreezeRequest.setOrderId(orderId);
+            ledgerClient.unfreezeMargin(unfreezeRequest);
+            log.info("[OMS] ✅ Rolled back ledger freeze on failure, orderId={}", orderId);
+        } catch (Exception ex) {
+            log.error("[OMS] ❌ Failed to rollback ledger freeze, orderId={}", orderId, ex);
         }
-        return EXECUTION_MODE_MATCH_ENGINE;
     }
 
-    private String resolveExecutionModeForSubmit(String symbol, String requestedExecutionMode) {
-        return cfdRouteProperties.resolveMode(symbol, requestedExecutionMode);
-    }
-
-    private boolean isCfdExecutionMode(String executionMode) {
-        return cfdRouteProperties.isCfdDealer(executionMode);
-    }
-    
     /**
      * 构建订单命令（发送给Match Engine）
      */
@@ -832,24 +651,12 @@ public class OmsServiceImpl implements OmsService {
         command.setSymbol(order.getSymbol());
         command.setSide(mapOrderSide(order.getSide()));
         command.setOrderType(mapOrderType(order.getType()));
-        if (order.getPrice() != null) {
-            command.setPrice(toDecimalString(order.getPrice()));
-        }
-        command.setQuantity(toDecimalString(order.getQuantity()));
-        command.setLeverage(resolveLeverage(order.getLeverage()));
-        command.setExecutionMode(resolveExecutionMode(order.getExecutionMode()));
-        command.setLiquiditySource(order.getLiquiditySource());
-        command.setReferenceTopic(order.getReferenceTopic());
-        command.setReferenceOffset(order.getReferenceOffset());
-        command.setReferenceEventTime(order.getReferenceEventTime());
-        command.setReferenceBestBid(toPlainString(order.getReferenceBestBid()));
-        command.setReferenceBestAsk(toPlainString(order.getReferenceBestAsk()));
-        command.setReferenceVwapPrice(toPlainString(order.getReferenceVwapPrice()));
-        command.setSlippageBps(order.getSlippageBps());
+        command.setPrice(order.getPrice() != null ? order.getPrice().toPlainString() : null);
+        command.setQuantity(order.getQuantity().toPlainString());
         command.setEventTime(System.currentTimeMillis());
         return command;
     }
-    
+
     /**
      * 构建撤单命令
      */
@@ -859,192 +666,8 @@ public class OmsServiceImpl implements OmsService {
         command.setOrderId(order.getId());
         command.setUserId(order.getUserId());
         command.setSymbol(order.getSymbol());
-        command.setExecutionMode(resolveExecutionMode(order.getExecutionMode()));
-        command.setLiquiditySource(order.getLiquiditySource());
         command.setEventTime(System.currentTimeMillis());
         return command;
-    }
-
-    private CfdOrderCommand buildCfdSubmitCommand(OmsOrder order) {
-        CfdOrderCommand command = new CfdOrderCommand();
-        command.setEventType("CFD_ORDER_SUBMIT");
-        command.setOrderId(order.getId());
-        command.setUserId(order.getUserId());
-        command.setClientOrderId(order.getClientOrderId());
-        command.setSymbol(order.getSymbol());
-        command.setSide(mapOrderSide(order.getSide()));
-        command.setOrderType(mapOrderType(order.getType()));
-        command.setTimeInForce(order.getTimeInForce());
-        if (order.getPrice() != null) {
-            command.setPrice(toDecimalString(order.getPrice()));
-        }
-        command.setQuantity(toDecimalString(order.getQuantity()));
-        command.setLeverage(resolveLeverage(order.getLeverage()));
-        command.setExecutionMode(resolveExecutionMode(order.getExecutionMode()));
-        command.setLiquiditySource(order.getLiquiditySource());
-        command.setReferenceTopic(order.getReferenceTopic());
-        command.setReferenceOffset(order.getReferenceOffset());
-        command.setReferenceEventTime(order.getReferenceEventTime());
-        command.setReferenceBestBid(toPlainString(order.getReferenceBestBid()));
-        command.setReferenceBestAsk(toPlainString(order.getReferenceBestAsk()));
-        command.setReferenceVwapPrice(toPlainString(order.getReferenceVwapPrice()));
-        command.setSlippageBps(order.getSlippageBps());
-        command.setEventTime(System.currentTimeMillis());
-        return command;
-    }
-
-    private CfdOrderCommand buildCfdCancelCommand(OmsOrder order) {
-        CfdOrderCommand command = new CfdOrderCommand();
-        command.setEventType("CFD_CANCEL");
-        command.setOrderId(order.getId());
-        command.setUserId(order.getUserId());
-        command.setClientOrderId(order.getClientOrderId());
-        command.setSymbol(order.getSymbol());
-        command.setExecutionMode(resolveExecutionMode(order.getExecutionMode()));
-        command.setLiquiditySource(order.getLiquiditySource());
-        command.setEventTime(System.currentTimeMillis());
-        return command;
-    }
-
-    private void publishSubmitCommand(OmsOrder order, SubmitOrderRequest request) {
-        if (isCfdExecutionMode(order.getExecutionMode())) {
-            CfdOrderCommand cfdCommand = buildCfdSubmitCommand(order);
-            cfdOrderCommandPublisher.publish(cfdCommand);
-            log.info("[OMS-LINK] >>> routed to CFD, orderId={}, symbol={}, mode={}",
-                    order.getId(), order.getSymbol(), order.getExecutionMode());
-            return;
-        }
-
-        com.exchange.oms.dto.OrderEventCommand command = buildOrderCommand(order, request);
-        log.info("[OMS-LINK] >>> routed to MATCH, orderId={}, symbol={}, side={}, price={}, qty={}",
-                order.getId(), order.getSymbol(), order.getSide(), order.getPrice(), order.getQuantity());
-        orderEventPublisher.publishOrderEvent(command);
-    }
-
-    private void publishCancelCommand(OmsOrder order) {
-        if (isCfdExecutionMode(order.getExecutionMode())) {
-            CfdOrderCommand cfdCommand = buildCfdCancelCommand(order);
-            cfdOrderCommandPublisher.publish(cfdCommand);
-            log.info("[OMS-LINK] >>> cancel routed to CFD, orderId={}, symbol={}, mode={}",
-                    order.getId(), order.getSymbol(), order.getExecutionMode());
-            return;
-        }
-
-        com.exchange.oms.dto.OrderEventCommand cancelCommand = buildCancelCommand(order);
-        orderEventPublisher.publishOrderEvent(cancelCommand);
-        log.info("[OMS-LINK] >>> cancel routed to MATCH, orderId={}, symbol={}, mode={}",
-                order.getId(), order.getSymbol(), order.getExecutionMode());
-    }
-
-    private void applyCfdMarketReferencePrice(OmsOrder order) {
-        if (stringRedisTemplate == null || order == null || order.getSymbol() == null) {
-            return;
-        }
-
-        String symbol = order.getSymbol().trim().toUpperCase();
-        String redisKey = cfdReferenceRedisPrefix + symbol;
-        String rawSnapshot = stringRedisTemplate.opsForValue().get(redisKey);
-        if (rawSnapshot == null) {
-            log.warn("[OMS] CFD market order missing reference snapshot, symbol={}, key={}", symbol, redisKey);
-            return;
-        }
-
-        try {
-            JsonNode snapshot = objectMapper.readTree(rawSnapshot.toString());
-            long eventTime = snapshot.path("eventTime").asLong(0L);
-            if (eventTime > 0 && cfdReferenceMaxStaleMs > 0) {
-                long staleness = Math.max(0L, System.currentTimeMillis() - eventTime);
-                if (staleness > cfdReferenceMaxStaleMs) {
-                    log.warn("[OMS] CFD market snapshot stale, symbol={}, stalenessMs={}, max={}",
-                        symbol, staleness, cfdReferenceMaxStaleMs);
-                    return;
-                }
-            }
-
-            BigDecimal bestBidScaled = normalizePriceMaybeScaled(snapshot.path("bestBid").asText(null));
-            BigDecimal bestAskScaled = normalizePriceMaybeScaled(snapshot.path("bestAsk").asText(null));
-
-            if (bestBidScaled != null) {
-                order.setReferenceBestBid(bestBidScaled);
-            }
-            if (bestAskScaled != null) {
-                order.setReferenceBestAsk(bestAskScaled);
-            }
-
-            BigDecimal selected = (order.getSide() != null && order.getSide() == 0) ? bestAskScaled : bestBidScaled;
-            if (selected == null) {
-                selected = bestAskScaled != null ? bestAskScaled : bestBidScaled;
-            }
-
-            if (selected == null) {
-                log.warn("[OMS] CFD market snapshot has empty best bid/ask, symbol={}", symbol);
-                return;
-            }
-
-            order.setPrice(selected);
-            order.setReferenceVwapPrice(selected);
-            order.setSlippageBps(0);
-            order.setLiquiditySource("BINANCE_REF");
-            order.setReferenceTopic(snapshot.path("topic").asText(null));
-            if (snapshot.has("offset")) {
-                order.setReferenceOffset(snapshot.path("offset").asLong());
-            }
-            if (eventTime > 0) {
-                order.setReferenceEventTime(eventTime);
-            }
-        } catch (Exception e) {
-            log.warn("[OMS] Parse CFD reference snapshot failed, symbol={}, key={}", symbol, redisKey, e);
-        }
-    }
-
-    private BigDecimal normalizePriceMaybeScaled(String rawPrice) {
-        if (rawPrice == null || rawPrice.isBlank()) {
-            return null;
-        }
-        BigDecimal scaled = normalizeToScaled(rawPrice);
-        if (scaled.compareTo(BigDecimal.ZERO) <= 0) {
-            return null;
-        }
-        return scaled;
-    }
-
-    /**
-     * 将请求价格/数量归一化为内部缩放格式（1e8）。
-     * 支持两类输入：
-     * 1) 十进制字符串（如 50000.00 / 1.25）
-     * 2) 已缩放整数字符串（如 5000000000000 / 125000000）
-     */
-    private BigDecimal normalizeToScaled(String raw) {
-        if (raw == null || raw.isBlank()) {
-            return BigDecimal.ZERO;
-        }
-        String valueText = raw.trim();
-        BigDecimal value = new BigDecimal(valueText);
-        int dotIndex = valueText.indexOf('.');
-        if (dotIndex < 0) {
-            // 无小数点：按“已缩放整数”处理，避免 10000000(=0.1) 被再次乘 1e8
-            return value.setScale(0, RoundingMode.HALF_UP);
-        }
-        String fraction = valueText.substring(dotIndex + 1);
-        boolean fractionAllZero = !fraction.isEmpty() && fraction.chars().allMatch(ch -> ch == '0');
-        if (fractionAllZero && value.abs().compareTo(SCALE_BD) >= 0) {
-            // 兼容异常格式：已缩放值被序列化成 xx.0000000000000000
-            return value.setScale(0, RoundingMode.HALF_UP);
-        }
-        return value.multiply(SCALE_BD).setScale(0, RoundingMode.HALF_UP);
-    }
-
-    private String toDecimalString(BigDecimal scaled) {
-        if (scaled == null) {
-            return null;
-        }
-        return scaled.divide(SCALE_BD, 8, RoundingMode.HALF_UP).toPlainString();
-    }
-
-    private String toPlainString(BigDecimal value) {
-        if (value == null) {
-            return null;
-        }
-        return value.stripTrailingZeros().toPlainString();
     }
 }
+

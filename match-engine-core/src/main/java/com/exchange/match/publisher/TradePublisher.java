@@ -203,15 +203,15 @@ public class TradePublisher {
         event.put("sequence", trade.getMatchSequence() != null ? trade.getMatchSequence() : 0L);
         event.put("tradeId", trade.getTradeId());
         
-        // 价格和数量：BigDecimal 转换为 long（使用 Money 工具类）
+        // 价格和数量：BigDecimal 精确转换为 long（避免 double 精度丢失）
         if (trade.getPrice() != null) {
-            event.put("price", Money.of(trade.getPrice().doubleValue()));
+            event.put("price", trade.getPrice().multiply(BigDecimal.valueOf(Money.SCALE)).setScale(0, java.math.RoundingMode.HALF_UP).longValue());
         } else {
             event.put("price", 0L);
         }
         
         if (trade.getQuantity() != null) {
-            event.put("quantity", Money.of(trade.getQuantity().doubleValue()));
+            event.put("quantity", trade.getQuantity().multiply(BigDecimal.valueOf(Money.SCALE)).setScale(0, java.math.RoundingMode.HALF_UP).longValue());
         } else {
             event.put("quantity", 0L);
         }

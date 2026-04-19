@@ -129,7 +129,9 @@ public class OrderStateConsumer {
             
             BigDecimal lastFilledPrice = eventNode.has("lastFilledPrice")
                 ? normalizeToScaled(eventNode.get("lastFilledPrice").asText())
-                : BigDecimal.ZERO;
+                : (eventNode.has("avgPrice")
+                    ? normalizeToScaled(eventNode.get("avgPrice").asText())
+                    : BigDecimal.ZERO);
                 
             Long tradeId = eventNode.has("tradeId") ? eventNode.get("tradeId").asLong() : null;
             BigDecimal fee = eventNode.has("fee") ? new BigDecimal(eventNode.get("fee").asText()) : BigDecimal.ZERO;
@@ -150,7 +152,19 @@ public class OrderStateConsumer {
             // 获取旧状态
             Integer oldStatus = order.getStatus();
             Integer newStatus = mapStatus(status);
-            
+
+            // 🔥 终态保护：已成交订单不允许被回退到非终态
+            if (oldStatus != null && oldStatus == 4) { // FILLED
+                log.warn("[OrderStateConsumer] Order already FILLED, skip state change, orderId={}, incomingStatus={}",
+                    orderId, status);
+                return;
+            }
+            if (oldStatus != null && (oldStatus == 5 || oldStatus == 6)) { // CANCELED / REJECTED
+                log.debug("[OrderStateConsumer] Order already in final state, skip, orderId={}, oldStatus={}",
+                    orderId, oldStatus);
+                return;
+            }
+
             // 计算新的已成交数量
             BigDecimal oldFilledQty = order.getFilledQuantity() != null ? 
                     order.getFilledQuantity() : BigDecimal.ZERO;
@@ -168,8 +182,13 @@ public class OrderStateConsumer {
                     orderId, filledQuantityDelta, effectiveFilledDelta, oldFilledQty, orderQty);
             }
 
-            // 达到总量时强制终态，避免上游状态延迟/重复导致 PARTIALLY_FILLED 残留
+            // 🔥 强制终态保护：已成交满必须设为 FILLED，无论上游发来什么状态
+            // 此判断无条件执行，即使 filledDelta == 0（例如撤单时订单已完全成交）
             if (orderQty.compareTo(BigDecimal.ZERO) > 0 && newFilledQty.compareTo(orderQty) >= 0) {
+                if (newStatus == null || newStatus != 4) {
+                    log.info("[OrderStateConsumer] Force FILLED due to full fill, orderId={}, incomingStatus={}, filled={}/{}",
+                        orderId, status, newFilledQty, orderQty);
+                }
                 newStatus = 4; // FILLED
             }
             
@@ -343,6 +362,8 @@ public class OrderStateConsumer {
                 return 5;
             case "REJECTED":
                 return 6;
+            case "PENDING_CANCEL":
+                return 7;
             default:
                 log.warn("[OrderStateConsumer] Unknown status: {}", status);
                 return null;
@@ -361,6 +382,7 @@ public class OrderStateConsumer {
             case 4: return "FILLED";
             case 5: return "CANCELED";
             case 6: return "REJECTED";
+            case 7: return "PENDING_CANCEL";
             default: return "UNKNOWN";
         }
     }
@@ -422,9 +444,8 @@ public class OrderStateConsumer {
         if (price == null || quantity == null || leverage <= 0) {
             return BigDecimal.ZERO;
         }
-        BigDecimal actualPrice = price.divide(SCALE_BD, 8, RoundingMode.HALF_UP);
-        BigDecimal actualQuantity = quantity.divide(SCALE_BD, 8, RoundingMode.HALF_UP);
-        return actualPrice.multiply(actualQuantity)
+        // OmsOrder 的 price/quantity 为实际金额（未缩放），直接计算即可
+        return price.multiply(quantity)
             .divide(BigDecimal.valueOf(leverage), 8, RoundingMode.HALF_UP);
     }
 

@@ -23,8 +23,12 @@ import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
+import java.util.Comparator;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.stream.Collectors;
 
 /**
  * Ledger Service 核心实现（生产级 - 重构版）
@@ -114,6 +118,7 @@ public class LedgerServiceImpl implements LedgerService {
             
             // 3. 设置成对分录ID
             setPairEntryIds(entries);
+            fillRealBalances(entries);
             
             // 4. 写入ledger_entry（批量插入，性能优化）
             if (!entries.isEmpty()) {
@@ -242,37 +247,40 @@ public class LedgerServiceImpl implements LedgerService {
             throw new IllegalArgumentException("Invalid freeze parameters: userId=" + userId + ", amount=" + actualAmount);
         }
         
-        // 检查余额是否充足（从快照查询，可选，如果快照服务未启动则跳过）
-        if (accountSnapshotMapper != null) {
-            try {
-                AccountSnapshot snapshot = accountSnapshotMapper.selectOne(
-                    new LambdaQueryWrapper<AccountSnapshot>()
-                        .eq(AccountSnapshot::getUserId, userId)
-                        .last("LIMIT 1")
-                );
-                
-                if (snapshot == null) {
-                    log.warn("[LedgerService] ⚠️ Account snapshot not found for userId={}, skipping balance check", userId);
-                    // 快照不存在可能是首次操作，允许继续
-                } else {
-                    if (snapshot.getAvailable() == null || snapshot.getAvailable().compareTo(actualAmount) < 0) {
-                        log.error("[LedgerService] ❌ Insufficient balance: userId={}, available={}, required={}", 
+        // 🔥 余额检查：优先基于 Ledger 真相源精确计算，snapshot 仅作为快速缓存参考
+        BigDecimal ledgerAvailable = getAvailableBalanceFromLedger(userId);
+        if (ledgerAvailable != null) {
+            if (ledgerAvailable.compareTo(actualAmount) < 0) {
+                log.error("[LedgerService] ❌ Insufficient balance (ledger truth): userId={}, available={}, required={}",
+                    userId, ledgerAvailable, actualAmount);
+                throw new RuntimeException("Insufficient balance: available=" + ledgerAvailable + ", required=" + actualAmount);
+            }
+            log.info("[LedgerService] Balance check passed (ledger truth): userId={}, available={}, required={}",
+                userId, ledgerAvailable, actualAmount);
+        } else {
+            // Ledger 计算失败时，尝试用 snapshot 做快速兜底检查
+            if (accountSnapshotMapper != null) {
+                try {
+                    AccountSnapshot snapshot = accountSnapshotMapper.selectOne(
+                        new LambdaQueryWrapper<AccountSnapshot>()
+                            .eq(AccountSnapshot::getUserId, userId)
+                            .last("LIMIT 1")
+                    );
+                    if (snapshot != null && snapshot.getAvailable() != null
+                            && snapshot.getAvailable().compareTo(actualAmount) < 0) {
+                        log.error("[LedgerService] ❌ Insufficient balance (snapshot fallback): userId={}, available={}, required={}",
                             userId, snapshot.getAvailable(), actualAmount);
                         throw new RuntimeException("Insufficient balance: available=" + snapshot.getAvailable() + ", required=" + actualAmount);
                     }
-                    
-                    log.info("[LedgerService] Balance check passed: userId={}, available={}, required={}", 
-                        userId, snapshot.getAvailable(), actualAmount);
+                    log.warn("[LedgerService] ⚠️ Ledger balance calc failed, using snapshot fallback for userId={}", userId);
+                } catch (RuntimeException e) {
+                    throw e;
+                } catch (Exception e) {
+                    log.warn("[LedgerService] ⚠️ Snapshot fallback also failed, proceed without balance check: {}", e.getMessage());
                 }
-            } catch (RuntimeException e) {
-                // 余额不足异常直接抛出
-                throw e;
-            } catch (Exception e) {
-                log.warn("[LedgerService] ⚠️ Balance check failed (non-critical): {}", e.getMessage());
-                // 其他异常（如数据库连接问题）不影响冻结操作，继续执行
+            } else {
+                log.warn("[LedgerService] ⚠️ Cannot verify balance (ledger failed & snapshot unavailable), proceed anyway");
             }
-        } else {
-            log.warn("[LedgerService] ⚠️ AccountSnapshotMapper not available, skipping balance check");
         }
         
         // 生成分录
@@ -301,6 +309,7 @@ public class LedgerServiceImpl implements LedgerService {
         ));
         
         setPairEntryIds(entries);
+        fillRealBalances(entries);
         
         // 写入LedgerEntry（批量插入）
         if (!entries.isEmpty()) {
@@ -362,6 +371,7 @@ public class LedgerServiceImpl implements LedgerService {
         ));
         
         setPairEntryIds(entries);
+        fillRealBalances(entries);
         
         // 写入LedgerEntry（批量插入）
         if (!entries.isEmpty()) {
@@ -440,15 +450,21 @@ public class LedgerServiceImpl implements LedgerService {
     
     /**
      * 生成成交分录
+     *
+     * FIXME: 当前逻辑假设 Buy=开仓、Sell=平仓。但系统在 Net Mode（单向持仓）下，
+     * 反向下单数量超过当前持仓时，会同时发生"平仓+反向开仓"。
+     * 例如：持有多仓10，Sell 15 → 平多仓10 + 开空仓5。
+     * Ledger 统一按 Sell=平仓处理，导致开空仓5的部分分录方向错误（应为 available→position_margin）。
+     * 正确做法应由 Clearing 层根据实际持仓变化拆分平仓/开仓数量，Ledger 再分别生成分录。
      */
     private List<LedgerEntry> generateTradeEntries(TradeDTO trade, BigDecimal price, BigDecimal quantity) {
         List<LedgerEntry> entries = new ArrayList<>();
         BigDecimal makerMarginAmount = calculateMarginByLeverage(price, quantity, trade.getMakerLeverageOrDefault());
         BigDecimal takerMarginAmount = calculateMarginByLeverage(price, quantity, trade.getTakerLeverageOrDefault());
-        
+
         // Maker分录
         if (trade.getIsMakerBuy()) {
-            // Maker买入：available减少，position增加
+            // Maker买入：available减少，position增加（FIXME：假设为开多仓）
             entries.add(createEntry(
                 trade.getMakerUserId(),
                 AccountType.USER_AVAILABLE,
@@ -458,7 +474,7 @@ public class LedgerServiceImpl implements LedgerService {
                 trade.getTradeId(),
                 trade.getMakerOrderId()
             ));
-            
+
             entries.add(createEntry(
                 trade.getMakerUserId(),
                 AccountType.USER_POSITION_MARGIN,
@@ -469,7 +485,7 @@ public class LedgerServiceImpl implements LedgerService {
                 trade.getMakerOrderId()
             ));
         } else {
-            // Maker卖出
+            // Maker卖出（FIXME：假设为平多仓；若实际为开空仓则分录方向相反）
             entries.add(createEntry(
                 trade.getMakerUserId(),
                 AccountType.USER_POSITION_MARGIN,
@@ -479,7 +495,7 @@ public class LedgerServiceImpl implements LedgerService {
                 trade.getTradeId(),
                 trade.getMakerOrderId()
             ));
-            
+
             entries.add(createEntry(
                 trade.getMakerUserId(),
                 AccountType.USER_AVAILABLE,
@@ -490,10 +506,10 @@ public class LedgerServiceImpl implements LedgerService {
                 trade.getMakerOrderId()
             ));
         }
-        
+
         // Taker分录
         if (!trade.getIsMakerBuy()) {
-            // Taker买入
+            // Taker买入：available减少，position增加（FIXME：假设为开多仓）
             entries.add(createEntry(
                 trade.getTakerUserId(),
                 AccountType.USER_AVAILABLE,
@@ -503,7 +519,7 @@ public class LedgerServiceImpl implements LedgerService {
                 trade.getTradeId(),
                 trade.getTakerOrderId()
             ));
-            
+
             entries.add(createEntry(
                 trade.getTakerUserId(),
                 AccountType.USER_POSITION_MARGIN,
@@ -514,7 +530,7 @@ public class LedgerServiceImpl implements LedgerService {
                 trade.getTakerOrderId()
             ));
         } else {
-            // Taker卖出
+            // Taker卖出（FIXME：假设为平多仓；若实际为开空仓则分录方向相反）
             entries.add(createEntry(
                 trade.getTakerUserId(),
                 AccountType.USER_POSITION_MARGIN,
@@ -524,7 +540,7 @@ public class LedgerServiceImpl implements LedgerService {
                 trade.getTradeId(),
                 trade.getTakerOrderId()
             ));
-            
+
             entries.add(createEntry(
                 trade.getTakerUserId(),
                 AccountType.USER_AVAILABLE,
@@ -702,6 +718,74 @@ public class LedgerServiceImpl implements LedgerService {
         return LocalDate.now().format(DateTimeFormatter.ofPattern("yyyyMM"));
     }
     
+    /**
+     * 🔥 从 Ledger 真相源精确计算账户可用余额
+     * 
+     * 替代 snapshot 查询，避免依赖可能延迟的派生数据。
+     * 公式：SUM(debit) - SUM(credit) WHERE account_type = USER_AVAILABLE
+     * 
+     * @param userId 用户ID
+     * @return 可用余额；计算失败时返回 null（调用方应优雅降级）
+     */
+    private BigDecimal getAvailableBalanceFromLedger(Long userId) {
+        try {
+            String tableMonth = getCurrentTableMonth();
+            BigDecimal balance = ledgerEntryMapper.calculateBalance(
+                tableMonth, userId, AccountType.USER_AVAILABLE.getCode(), CURRENCY);
+            return balance != null ? balance : BigDecimal.ZERO;
+        } catch (Exception e) {
+            log.warn("[LedgerService] Failed to calculate available balance from ledger, userId={}, err={}",
+                userId, e.getMessage());
+            return null;
+        }
+    }
+    
+    /**
+     * 🔥 为分录列表填充真实的 balance_before / balance_after
+     * 
+     * 修复：原实现固定写 BigDecimal.ZERO，导致余额快照字段失去审计价值。
+     * 本方法基于 ledger_entry 实时计算每笔分录前的真实余额，并顺序累加。
+     * 
+     * @param entries 待填充的分录列表（必须在 batchInsert 前调用）
+     */
+    private void fillRealBalances(List<LedgerEntry> entries) {
+        if (entries == null || entries.isEmpty()) {
+            return;
+        }
+        
+        String tableMonth = getCurrentTableMonth();
+        Map<String, BigDecimal> currentBalanceMap = new HashMap<>();
+        Map<String, BigDecimal> runningBalanceMap = new HashMap<>();
+        
+        // 第一步：为每个 (userId, accountType) 组合查询当前真实余额
+        for (LedgerEntry entry : entries) {
+            String key = entry.getUserId() + ":" + entry.getAccountType();
+            if (!currentBalanceMap.containsKey(key)) {
+                try {
+                    BigDecimal balance = ledgerEntryMapper.calculateBalance(
+                        tableMonth, entry.getUserId(), entry.getAccountType(), CURRENCY);
+                    currentBalanceMap.put(key, balance != null ? balance : BigDecimal.ZERO);
+                } catch (Exception e) {
+                    log.warn("[LedgerService] fillRealBalances: cannot get balance for key={}, err={}",
+                        key, e.getMessage());
+                    currentBalanceMap.put(key, BigDecimal.ZERO);
+                }
+            }
+        }
+        
+        // 第二步：顺序遍历，balance_before 取当前累计值（含本批前面同账户分录）
+        for (LedgerEntry entry : entries) {
+            String key = entry.getUserId() + ":" + entry.getAccountType();
+            BigDecimal before = runningBalanceMap.getOrDefault(key, currentBalanceMap.getOrDefault(key, BigDecimal.ZERO));
+            BigDecimal after = before.add(entry.getDebit()).subtract(entry.getCredit());
+            
+            entry.setBalanceBefore(before);
+            entry.setBalanceAfter(after);
+            
+            runningBalanceMap.put(key, after);
+        }
+    }
+    
     // ==================== 初始资金相关 ====================
     
     /**
@@ -753,6 +837,7 @@ public class LedgerServiceImpl implements LedgerService {
         ));
         
         setPairEntryIds(entries);
+        fillRealBalances(entries);
         
         // 写入LedgerEntry（批量插入，性能优化）
         if (!entries.isEmpty()) {
@@ -790,21 +875,166 @@ public class LedgerServiceImpl implements LedgerService {
     
     /**
      * 获取账户快照
+     * 
+     * 修复：原实现硬编码返回全0，现优先从 account_snapshot 查询，
+     * 若 snapshot 不存在或 Mapper 未就绪，则从 ledger_entry 实时计算余额。
      */
     @Override
     public com.exchange.ledger.entity.AccountSnapshot getAccountSnapshot(Long userId) {
-        // 从数据库查询最新的账户快照
-        // 这里简化处理，实际应该从 account_snapshot 表查询
-        com.exchange.ledger.entity.AccountSnapshot snapshot = new com.exchange.ledger.entity.AccountSnapshot();
-        snapshot.setUserId(userId);
-        snapshot.setCurrency(CURRENCY);
-        snapshot.setAvailable(BigDecimal.ZERO);
-        snapshot.setFrozen(BigDecimal.ZERO);
-        snapshot.setPositionMargin(BigDecimal.ZERO);
-        snapshot.setUnrealizedPnl(BigDecimal.ZERO);
-        snapshot.setRealizedPnl(BigDecimal.ZERO);
-        snapshot.setEquity(BigDecimal.ZERO);
-        return snapshot;
+        com.exchange.ledger.entity.AccountSnapshot result = new com.exchange.ledger.entity.AccountSnapshot();
+        result.setUserId(userId);
+        result.setCurrency(CURRENCY);
+        
+        // 优先从 snapshot 表读取（快速路径）
+        if (accountSnapshotMapper != null) {
+            try {
+                AccountSnapshot snapshot = accountSnapshotMapper.selectOne(
+                    new LambdaQueryWrapper<AccountSnapshot>()
+                        .eq(AccountSnapshot::getUserId, userId)
+                        .last("LIMIT 1")
+                );
+                if (snapshot != null) {
+                    result.setAvailable(snapshot.getAvailable());
+                    result.setFrozen(snapshot.getFrozen());
+                    result.setPositionMargin(snapshot.getPositionMargin());
+                    result.setUnrealizedPnl(snapshot.getUnrealizedPnl());
+                    result.setRealizedPnl(snapshot.getRealizedPnl());
+                    result.setEquity(snapshot.getEquity());
+                    return result;
+                }
+            } catch (Exception e) {
+                log.warn("[LedgerService] getAccountSnapshot: snapshot query failed, fallback to ledger, userId={}, err={}",
+                    userId, e.getMessage());
+            }
+        }
+        
+        // Fallback：从 ledger_entry 实时计算（真相源）
+        String tableMonth = getCurrentTableMonth();
+        try {
+            BigDecimal available = ledgerEntryMapper.calculateBalance(
+                tableMonth, userId, AccountType.USER_AVAILABLE.getCode(), CURRENCY);
+            BigDecimal frozen = ledgerEntryMapper.calculateBalance(
+                tableMonth, userId, AccountType.USER_FROZEN.getCode(), CURRENCY);
+            BigDecimal positionMargin = ledgerEntryMapper.calculateBalance(
+                tableMonth, userId, AccountType.USER_POSITION_MARGIN.getCode(), CURRENCY);
+            
+            result.setAvailable(available != null ? available : BigDecimal.ZERO);
+            result.setFrozen(frozen != null ? frozen : BigDecimal.ZERO);
+            result.setPositionMargin(positionMargin != null ? positionMargin : BigDecimal.ZERO);
+            result.setEquity(result.getAvailable().add(result.getFrozen()).add(result.getPositionMargin()));
+        } catch (Exception e) {
+            log.error("[LedgerService] getAccountSnapshot: ledger calc also failed, return zeros, userId={}, err={}",
+                userId, e.getMessage());
+            result.setAvailable(BigDecimal.ZERO);
+            result.setFrozen(BigDecimal.ZERO);
+            result.setPositionMargin(BigDecimal.ZERO);
+            result.setEquity(BigDecimal.ZERO);
+        }
+        
+        result.setUnrealizedPnl(BigDecimal.ZERO);
+        result.setRealizedPnl(BigDecimal.ZERO);
+        return result;
+    }
+    
+    /**
+     * 🔥 分页查询 Ledger Entry（用于 snapshot-account-core 直接 Replay）
+     *
+     * 支持跨月表查询，按 biz_seq 升序返回。
+     * 遍历各月 ledger_entry_YYYYMM 表，合并后按 biz_seq 排序取前 limit 条。
+     *
+     * @param userId 用户ID（可选，null 表示所有用户）
+     * @param startBizSeq 起始 biz_seq（包含），默认 0
+     * @param limit 最大返回条数，默认 5000
+     * @return LedgerEntry 列表（已按 biz_seq 排序）
+     */
+    @Override
+    public List<LedgerEntry> queryLedgerEntries(Long userId, Long startBizSeq, Integer limit) {
+        List<LedgerEntry> result = new ArrayList<>();
+        int pageLimit = (limit != null && limit > 0) ? limit : 5000;
+        Long startSeq = (startBizSeq != null) ? startBizSeq : 0L;
+        
+        // 🔥 优化：先确定最早有数据的月份，避免遍历大量空表
+        LocalDate currentMonth = LocalDate.now();
+        LocalDate earliestDataMonth = findEarliestDataMonth(currentMonth, startSeq);
+        
+        if (earliestDataMonth == null) {
+            log.info("[LedgerService] No data found across all tables for startSeq={}", startSeq);
+            return result;
+        }
+        
+        log.debug("[LedgerService] Query range: {} ~ {}, startSeq={}, limit={}",
+            earliestDataMonth, currentMonth, startSeq, pageLimit);
+        
+        // 从最早有数据的月份正向遍历到当前月份
+        LocalDate iterateMonth = earliestDataMonth;
+        while (!iterateMonth.isAfter(currentMonth)) {
+            String tableMonth = iterateMonth.format(DateTimeFormatter.ofPattern("yyyyMM"));
+            try {
+                // 检查该表是否有符合条件的数据
+                Long maxSeq = ledgerEntryMapper.selectMaxBizSeq(tableMonth);
+                if (maxSeq == null || maxSeq < startSeq) {
+                    iterateMonth = iterateMonth.plusMonths(1);
+                    continue;
+                }
+                
+                // 查询该表符合条件的 entries
+                List<LedgerEntry> batch = ledgerEntryMapper.selectByBizSeqRange(
+                    tableMonth, startSeq, Long.MAX_VALUE, pageLimit
+                );
+                
+                if (batch != null && !batch.isEmpty()) {
+                    // 如果指定了 userId，过滤
+                    if (userId != null) {
+                        batch = batch.stream()
+                            .filter(e -> userId.equals(e.getUserId()))
+                            .collect(Collectors.toList());
+                    }
+                    result.addAll(batch);
+                }
+            } catch (Exception e) {
+                log.debug("[LedgerService] Table query skipped: ledger_entry_{}, err={}",
+                    tableMonth, e.getMessage());
+            }
+            iterateMonth = iterateMonth.plusMonths(1);
+        }
+        
+        // 按 biz_seq 升序排序，取前 limit 条
+        result.sort(Comparator.comparing(LedgerEntry::getBizSeq));
+        if (result.size() > pageLimit) {
+            return result.subList(0, pageLimit);
+        }
+        return result;
+    }
+    
+    /**
+     * 🔥 查找最早有数据的月份（优化遍历范围）
+     * 
+     * 从当前月份往前遍历，使用 selectMinBizSeq 找到第一个有数据的表。
+     * 最多遍历 36 个月。
+     * 
+     * @param currentMonth 当前月份
+     * @param startBizSeq 起始 biz_seq
+     * @return 最早有数据的月份；如果没有数据返回 null
+     */
+    private LocalDate findEarliestDataMonth(LocalDate currentMonth, Long startBizSeq) {
+        LocalDate earliestCheck = currentMonth.minusMonths(36);
+        LocalDate checkMonth = currentMonth;
+        LocalDate foundMonth = null;
+        
+        while (!checkMonth.isBefore(earliestCheck)) {
+            String tableMonth = checkMonth.format(DateTimeFormatter.ofPattern("yyyyMM"));
+            try {
+                Long maxSeq = ledgerEntryMapper.selectMaxBizSeq(tableMonth);
+                if (maxSeq != null && maxSeq >= startBizSeq) {
+                    foundMonth = checkMonth;
+                }
+            } catch (Exception e) {
+                log.debug("[LedgerService] Table not found: ledger_entry_{}", tableMonth);
+            }
+            checkMonth = checkMonth.minusMonths(1);
+        }
+        
+        return foundMonth;
     }
     
     /**
