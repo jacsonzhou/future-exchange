@@ -53,7 +53,10 @@ public class LedgerServiceImpl implements LedgerService {
     
     @Autowired(required = false)
     private AccountSnapshotMapper accountSnapshotMapper;
-    
+
+    @Autowired(required = false)
+    private com.exchange.ledger.client.PositionSnapshotClient positionSnapshotClient;
+
     @Autowired(required = false)
     private RedisTemplate<String, Object> redisTemplate;
     
@@ -451,107 +454,25 @@ public class LedgerServiceImpl implements LedgerService {
     /**
      * 生成成交分录
      *
-     * FIXME: 当前逻辑假设 Buy=开仓、Sell=平仓。但系统在 Net Mode（单向持仓）下，
-     * 反向下单数量超过当前持仓时，会同时发生"平仓+反向开仓"。
-     * 例如：持有多仓10，Sell 15 → 平多仓10 + 开空仓5。
-     * Ledger 统一按 Sell=平仓处理，导致开空仓5的部分分录方向错误（应为 available→position_margin）。
-     * 正确做法应由 Clearing 层根据实际持仓变化拆分平仓/开仓数量，Ledger 再分别生成分录。
+     * Net Mode 下根据持仓拆分平仓/开仓分录。
+     * - 平仓：position_margin → available
+     * - 开仓：available → position_margin
      */
     private List<LedgerEntry> generateTradeEntries(TradeDTO trade, BigDecimal price, BigDecimal quantity) {
         List<LedgerEntry> entries = new ArrayList<>();
-        BigDecimal makerMarginAmount = calculateMarginByLeverage(price, quantity, trade.getMakerLeverageOrDefault());
-        BigDecimal takerMarginAmount = calculateMarginByLeverage(price, quantity, trade.getTakerLeverageOrDefault());
 
-        // Maker分录
-        if (trade.getIsMakerBuy()) {
-            // Maker买入：available减少，position增加（FIXME：假设为开多仓）
-            entries.add(createEntry(
-                trade.getMakerUserId(),
-                AccountType.USER_AVAILABLE,
-                BigDecimal.ZERO,
-                makerMarginAmount,
-                BusinessType.TRADE_SETTLE,
-                trade.getTradeId(),
-                trade.getMakerOrderId()
-            ));
+        // Maker 分录
+        entries.addAll(generateUserTradeEntries(
+            trade.getMakerUserId(), trade.getMakerOrderId(), trade.getTradeId(),
+            trade.getIsMakerBuy(), price, quantity, trade.getMakerLeverageOrDefault(), trade.getSymbol()
+        ));
 
-            entries.add(createEntry(
-                trade.getMakerUserId(),
-                AccountType.USER_POSITION_MARGIN,
-                makerMarginAmount,
-                BigDecimal.ZERO,
-                BusinessType.TRADE_SETTLE,
-                trade.getTradeId(),
-                trade.getMakerOrderId()
-            ));
-        } else {
-            // Maker卖出（FIXME：假设为平多仓；若实际为开空仓则分录方向相反）
-            entries.add(createEntry(
-                trade.getMakerUserId(),
-                AccountType.USER_POSITION_MARGIN,
-                BigDecimal.ZERO,
-                makerMarginAmount,
-                BusinessType.TRADE_SETTLE,
-                trade.getTradeId(),
-                trade.getMakerOrderId()
-            ));
+        // Taker 分录
+        entries.addAll(generateUserTradeEntries(
+            trade.getTakerUserId(), trade.getTakerOrderId(), trade.getTradeId(),
+            !trade.getIsMakerBuy(), price, quantity, trade.getTakerLeverageOrDefault(), trade.getSymbol()
+        ));
 
-            entries.add(createEntry(
-                trade.getMakerUserId(),
-                AccountType.USER_AVAILABLE,
-                makerMarginAmount,
-                BigDecimal.ZERO,
-                BusinessType.TRADE_SETTLE,
-                trade.getTradeId(),
-                trade.getMakerOrderId()
-            ));
-        }
-
-        // Taker分录
-        if (!trade.getIsMakerBuy()) {
-            // Taker买入：available减少，position增加（FIXME：假设为开多仓）
-            entries.add(createEntry(
-                trade.getTakerUserId(),
-                AccountType.USER_AVAILABLE,
-                BigDecimal.ZERO,
-                takerMarginAmount,
-                BusinessType.TRADE_SETTLE,
-                trade.getTradeId(),
-                trade.getTakerOrderId()
-            ));
-
-            entries.add(createEntry(
-                trade.getTakerUserId(),
-                AccountType.USER_POSITION_MARGIN,
-                takerMarginAmount,
-                BigDecimal.ZERO,
-                BusinessType.TRADE_SETTLE,
-                trade.getTradeId(),
-                trade.getTakerOrderId()
-            ));
-        } else {
-            // Taker卖出（FIXME：假设为平多仓；若实际为开空仓则分录方向相反）
-            entries.add(createEntry(
-                trade.getTakerUserId(),
-                AccountType.USER_POSITION_MARGIN,
-                BigDecimal.ZERO,
-                takerMarginAmount,
-                BusinessType.TRADE_SETTLE,
-                trade.getTradeId(),
-                trade.getTakerOrderId()
-            ));
-
-            entries.add(createEntry(
-                trade.getTakerUserId(),
-                AccountType.USER_AVAILABLE,
-                takerMarginAmount,
-                BigDecimal.ZERO,
-                BusinessType.TRADE_SETTLE,
-                trade.getTradeId(),
-                trade.getTakerOrderId()
-            ));
-        }
-        
         // 手续费分录（修复：使用转换方法）
         BigDecimal makerFee = trade.getMakerFeeAsBigDecimal();
         if (makerFee != null && makerFee.compareTo(BigDecimal.ZERO) > 0) {
@@ -686,6 +607,85 @@ public class LedgerServiceImpl implements LedgerService {
         return entry;
     }
     
+    /**
+     * 生成单个用户的成交分录（Net Mode 下拆分平仓/开仓）
+     */
+    private List<LedgerEntry> generateUserTradeEntries(Long userId, Long orderId, String tradeId,
+                                                         boolean isBuy, BigDecimal price, BigDecimal quantity,
+                                                         int leverage, String symbol) {
+        List<LedgerEntry> entries = new ArrayList<>();
+
+        // 查询净持仓
+        BigDecimal netPosition = queryNetPosition(userId, symbol);
+
+        BigDecimal closeQty = BigDecimal.ZERO;
+        BigDecimal openQty = quantity;
+
+        if (isBuy) {
+            // BUY：先平空仓，剩余开多仓
+            if (netPosition != null && netPosition.compareTo(BigDecimal.ZERO) < 0) {
+                BigDecimal shortSize = netPosition.abs();
+                closeQty = shortSize.min(quantity);
+                openQty = quantity.subtract(closeQty);
+            }
+        } else {
+            // SELL：先平多仓，剩余开空仓
+            if (netPosition != null && netPosition.compareTo(BigDecimal.ZERO) > 0) {
+                BigDecimal longSize = netPosition;
+                closeQty = longSize.min(quantity);
+                openQty = quantity.subtract(closeQty);
+            }
+        }
+
+        // 平仓分录：position_margin → available
+        if (closeQty.compareTo(BigDecimal.ZERO) > 0) {
+            BigDecimal closeMargin = calculateMarginByLeverage(price, closeQty, leverage);
+            entries.add(createEntry(
+                userId, AccountType.USER_POSITION_MARGIN,
+                BigDecimal.ZERO, closeMargin,
+                BusinessType.TRADE_SETTLE, tradeId, orderId
+            ));
+            entries.add(createEntry(
+                userId, AccountType.USER_AVAILABLE,
+                closeMargin, BigDecimal.ZERO,
+                BusinessType.TRADE_SETTLE, tradeId, orderId
+            ));
+        }
+
+        // 开仓分录：available → position_margin
+        if (openQty.compareTo(BigDecimal.ZERO) > 0) {
+            BigDecimal openMargin = calculateMarginByLeverage(price, openQty, leverage);
+            entries.add(createEntry(
+                userId, AccountType.USER_AVAILABLE,
+                BigDecimal.ZERO, openMargin,
+                BusinessType.TRADE_SETTLE, tradeId, orderId
+            ));
+            entries.add(createEntry(
+                userId, AccountType.USER_POSITION_MARGIN,
+                openMargin, BigDecimal.ZERO,
+                BusinessType.TRADE_SETTLE, tradeId, orderId
+            ));
+        }
+
+        return entries;
+    }
+
+    /**
+     * 查询用户净持仓（Net Mode）
+     */
+    private BigDecimal queryNetPosition(Long userId, String symbol) {
+        if (userId == null || symbol == null || positionSnapshotClient == null) {
+            return null;
+        }
+        try {
+            return positionSnapshotClient.getNetPosition(userId, symbol);
+        } catch (Exception e) {
+            log.warn("[LedgerService] Failed to query net position, userId={}, symbol={}, fallback to all-open",
+                userId, symbol);
+            return null;
+        }
+    }
+
     /**
      * 设置成对分录ID
      */
