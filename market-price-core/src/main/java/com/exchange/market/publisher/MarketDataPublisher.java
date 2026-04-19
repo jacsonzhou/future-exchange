@@ -285,7 +285,50 @@ public class MarketDataPublisher {
     }
 
     /**
-     * 发布深度更新
+     * 发布深度增量更新到 Kafka（供下游按增量语义消费）
+     */
+    @Async("marketDataTaskExecutor")
+    public void publishDepthDelta(String symbol, DepthUpdate depthUpdate) {
+        try {
+            // 更新缓存
+            marketDataCache.updateDepth(symbol, depthUpdate);
+
+            // 构建增量消息
+            JSONObject message = buildDepthMessage(depthUpdate);
+            String json = message.toJSONString();
+
+            // 发布到Kafka
+            if (kafkaEnabled) {
+                String topic = TOPIC_DEPTH + symbol;
+                kafkaTemplate.send(topic, symbol, json);
+            }
+
+            // 发布到Redis Pub/Sub
+            String channel = CHANNEL_DEPTH + symbol;
+            redisTemplate.convertAndSend(channel, depthUpdate);
+
+        } catch (Exception e) {
+            log.error("[Publisher] Failed to publish depth delta for {}: {}", symbol, e.getMessage());
+        }
+    }
+
+    /**
+     * 更新 Redis 深度完整快照（供查询和新订阅者获取初始状态）
+     */
+    public void updateDepthSnapshot(String symbol, DepthUpdate snapshotUpdate) {
+        try {
+            JSONObject message = buildDepthMessage(snapshotUpdate);
+            message.put("snapshot", true);
+            String json = message.toJSONString();
+            redisTemplate.opsForValue().set(SNAPSHOT_DEPTH + symbol, json);
+            log.debug("[Publisher] Redis depth snapshot updated: key={}", SNAPSHOT_DEPTH + symbol);
+        } catch (Exception e) {
+            log.error("[Publisher] Failed to update depth snapshot for {}: {}", symbol, e.getMessage());
+        }
+    }
+
+    /**
+     * 发布深度更新（兼容旧接口，快照场景使用）
      * 
      * 输出：
      * - Kafka: market.depth.{symbol}
@@ -311,7 +354,7 @@ public class MarketDataPublisher {
                 kafkaTemplate.send(topic, symbol, json);
             }
 
-            // 更新Redis快照（🔥 FIX: 每次更新都写入，供public-push-core获取）
+            // 更新Redis快照
             redisTemplate.opsForValue().set(SNAPSHOT_DEPTH + symbol, json);
             log.info("[Publisher] Redis snapshot updated: key={}, json length={}", SNAPSHOT_DEPTH + symbol, json.length());
 

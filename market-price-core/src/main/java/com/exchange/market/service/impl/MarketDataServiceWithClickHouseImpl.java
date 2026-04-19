@@ -17,6 +17,7 @@ import org.springframework.stereotype.Service;
 
 import jakarta.annotation.PostConstruct;
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
@@ -78,14 +79,16 @@ public class MarketDataServiceWithClickHouseImpl implements MarketDataService {
             }
 
             // 转换为 entity.Kline
-            return modelKlines.stream()
+            List<Kline> klines = modelKlines.stream()
                     .map(this::convertToEntityKline)
                     .collect(Collectors.toList());
+            return fillMissingKlineBars(klines, interval, limit);
         } catch (Exception e) {
             // ClickHouse 不可用时降级到缓存，避免 API 500
             log.warn("[MarketDataServiceWithClickHouseImpl] ClickHouse query failed, fallback to cache. symbol={}, interval={}, reason={}",
                     symbol, interval, e.getMessage());
-            return getKlinesFromCache(symbol, interval, startTime, endTime, limit);
+            List<Kline> fallback = getKlinesFromCache(symbol, interval, startTime, endTime, limit);
+            return fillMissingKlineBars(fallback, interval, limit);
         }
     }
 
@@ -150,7 +153,7 @@ public class MarketDataServiceWithClickHouseImpl implements MarketDataService {
     @Override
     public void onTradeEvent(String symbol, Long price, Long quantity, Long tradeTime, boolean isBuyerMaker) {
         // 1. 更新 K 线引擎（存储到 ClickHouse）
-        klineEngine.onTrade(symbol, price, quantity, tradeTime, isBuyerMaker);
+        klineEngine.onTrade(symbol, price, quantity, tradeTime, isBuyerMaker, -1);
         
         // 2. 更新 TradeEngine
         TradeEngine tradeEngine = engineService.getTradeEngine(symbol);
@@ -253,5 +256,123 @@ public class MarketDataServiceWithClickHouseImpl implements MarketDataService {
                 .filter(k -> endTime == null || k.getOpenTime() <= endTime)
                 .limit(limit)
                 .collect(Collectors.toList());
+    }
+
+    /**
+     * 补齐缺失K线，避免前端判定断档后回退外部源。
+     * 规则：缺失周期使用上一根close平铺，volume/turnover/tradeCount置0。
+     */
+    private List<Kline> fillMissingKlineBars(List<Kline> input, String interval, int limit) {
+        if (input == null || input.size() < 2) {
+            return input == null ? List.of() : input;
+        }
+        long intervalMs = parseIntervalMillis(interval);
+        if (intervalMs <= 0) {
+            return input;
+        }
+
+        List<Kline> asc = input.stream()
+                .filter(k -> k != null && k.getOpenTime() != null)
+                .sorted(Comparator.comparingLong(Kline::getOpenTime))
+                .collect(Collectors.toCollection(ArrayList::new));
+        if (asc.size() < 2) {
+            return input;
+        }
+
+        List<Kline> filled = new ArrayList<>(asc.size() + 32);
+        Kline prev = cloneKline(asc.get(0));
+        filled.add(prev);
+
+        int maxSynthetic = Math.max(128, limit * 6);
+        int syntheticCount = 0;
+        for (int i = 1; i < asc.size(); i++) {
+            Kline cur = asc.get(i);
+            if (cur == null || cur.getOpenTime() == null) {
+                continue;
+            }
+
+            long expected = prev.getOpenTime() + intervalMs;
+            while (expected < cur.getOpenTime() && syntheticCount < maxSynthetic) {
+                Kline gap = syntheticFrom(prev, expected, intervalMs);
+                filled.add(gap);
+                prev = gap;
+                expected += intervalMs;
+                syntheticCount++;
+            }
+
+            Kline curCopy = cloneKline(cur);
+            filled.add(curCopy);
+            prev = curCopy;
+        }
+
+        filled.sort((a, b) -> Long.compare(b.getOpenTime(), a.getOpenTime()));
+        if (filled.size() > limit) {
+            return new ArrayList<>(filled.subList(0, limit));
+        }
+        return filled;
+    }
+
+    private long parseIntervalMillis(String interval) {
+        if (interval == null || interval.isBlank()) {
+            return -1L;
+        }
+        String raw = interval.trim();
+        if (raw.length() < 2) {
+            return -1L;
+        }
+        char unit = raw.charAt(raw.length() - 1);
+        int value;
+        try {
+            value = Integer.parseInt(raw.substring(0, raw.length() - 1));
+        } catch (NumberFormatException e) {
+            return -1L;
+        }
+        return switch (unit) {
+            case 's' -> value * 1000L;
+            case 'm' -> value * 60_000L;
+            case 'h' -> value * 3_600_000L;
+            case 'd' -> value * 86_400_000L;
+            case 'w' -> value * 7L * 86_400_000L;
+            case 'M' -> value * 30L * 86_400_000L;
+            default -> -1L;
+        };
+    }
+
+    private Kline syntheticFrom(Kline prev, long openTime, long intervalMs) {
+        Kline gap = new Kline();
+        gap.setSymbol(prev.getSymbol());
+        gap.setInterval(prev.getInterval());
+        gap.setOpenTime(openTime);
+        gap.setCloseTime(openTime + intervalMs - 1);
+
+        long close = prev.getClosePrice() == null ? 0L : prev.getClosePrice();
+        gap.setOpenPrice(close);
+        gap.setHighPrice(close);
+        gap.setLowPrice(close);
+        gap.setClosePrice(close);
+        gap.setVolume(0L);
+        gap.setQuoteVolume(0L);
+        gap.setTradeCount(0);
+        gap.setTakerBuyVolume(0L);
+        gap.setTakerBuyQuoteVolume(0L);
+        return gap;
+    }
+
+    private Kline cloneKline(Kline src) {
+        Kline copy = new Kline();
+        copy.setSymbol(src.getSymbol());
+        copy.setInterval(src.getInterval());
+        copy.setOpenTime(src.getOpenTime());
+        copy.setCloseTime(src.getCloseTime());
+        copy.setOpenPrice(src.getOpenPrice());
+        copy.setHighPrice(src.getHighPrice());
+        copy.setLowPrice(src.getLowPrice());
+        copy.setClosePrice(src.getClosePrice());
+        copy.setVolume(src.getVolume());
+        copy.setQuoteVolume(src.getQuoteVolume());
+        copy.setTradeCount(src.getTradeCount());
+        copy.setTakerBuyVolume(src.getTakerBuyVolume());
+        copy.setTakerBuyQuoteVolume(src.getTakerBuyQuoteVolume());
+        return copy;
     }
 }

@@ -58,6 +58,9 @@ public class TradeEngine {
     private volatile long low24h;
     private volatile long open24h;
     private volatile long weightedAvgPrice;
+    
+    // 消费去重（防止Kafka消息重投导致重复累加）
+    private volatile long lastProcessedSequence = -1;
 
     public TradeEngine(String symbol, MarketDataPublisher publisher) {
         this.symbol = symbol;
@@ -78,6 +81,15 @@ public class TradeEngine {
      * @param trade 成交信息
      */
     public void onTrade(Trade trade) {
+        long sequence = trade.getSequence();
+        if (sequence > 0 && sequence <= lastProcessedSequence) {
+            log.debug("[TradeEngine] Duplicate trade ignored, symbol={}, sequence={}", symbol, sequence);
+            return;
+        }
+        if (sequence > 0) {
+            lastProcessedSequence = sequence;
+        }
+        
         long now = System.currentTimeMillis();
         
         // 更新最新成交

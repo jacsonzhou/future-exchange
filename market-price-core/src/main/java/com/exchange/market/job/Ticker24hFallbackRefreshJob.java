@@ -35,19 +35,25 @@ public class Ticker24hFallbackRefreshJob {
 
     @Scheduled(fixedDelayString = "${market-data.external.ticker.fallback-refresh-ms:1000}")
     public void refreshTickerCache() {
-        if (!externalProperties.isEnabled()) {
+        List<String> symbols = resolveSymbols();
+        if (symbols.isEmpty()) {
             return;
         }
 
         long freshMs = Math.max(1000L, externalProperties.getTicker().getExternalFreshMs());
-        for (String symbol : resolveSymbols()) {
+        for (String symbol : symbols) {
             try {
-                TradeEngine.TradeStats24h external = externalTickerStateService.getFresh(symbol, freshMs);
-                if (external != null) {
-                    marketDataCache.updateTicker(symbol, external);
+                // 优先使用外部 ticker（如果外部行情启用且数据新鲜）
+                TradeEngine.TradeStats24h stats = null;
+                if (externalProperties.isEnabled()) {
+                    stats = externalTickerStateService.getFresh(symbol, freshMs);
+                }
+                if (stats != null) {
+                    marketDataCache.updateTicker(symbol, stats);
                     continue;
                 }
 
+                // fallback: 从本地 1m K 线聚合（即使外部行情禁用也生效）
                 TradeEngine.TradeStats24h fallback = aggregateFromKline(symbol);
                 if (fallback != null) {
                     marketDataCache.updateTicker(symbol, fallback);

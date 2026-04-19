@@ -83,11 +83,18 @@ public class KlineEngineWithStorage {
     }
 
     /**
-     * 处理成交事件
+     * 处理成交事件（兼容旧接口）
      */
     public void onTrade(String symbol, long price, long quantity, long timestamp, boolean isBuyerMaker) {
+        onTrade(symbol, price, quantity, timestamp, isBuyerMaker, -1);
+    }
+
+    /**
+     * 处理成交事件（带sequence去重，防止Kafka消息重投导致重复累加）
+     */
+    public void onTrade(String symbol, long price, long quantity, long timestamp, boolean isBuyerMaker, long sequence) {
         SymbolKlineEngine engine = getOrCreateEngine(symbol);
-        engine.onTrade(price, quantity, timestamp, isBuyerMaker);
+        engine.onTrade(price, quantity, timestamp, isBuyerMaker, sequence);
     }
 
     /**
@@ -194,6 +201,9 @@ public class KlineEngineWithStorage {
         // 各周期的 K 线生成器
         private final Map<String, KlineGenerator> generators;
         
+        // 消费去重（防止Kafka消息重投导致重复累加）
+        private volatile long lastProcessedSequence = -1;
+
         SymbolKlineEngine(String symbol, KlineService klineService, MarketDataPublisher publisher) {
             this.symbol = symbol;
             this.klineService = klineService;
@@ -206,7 +216,14 @@ public class KlineEngineWithStorage {
             }
         }
 
-        void onTrade(long price, long quantity, long timestamp, boolean isBuyerMaker) {
+        void onTrade(long price, long quantity, long timestamp, boolean isBuyerMaker, long sequence) {
+            if (sequence > 0 && sequence <= lastProcessedSequence) {
+                log.debug("[SymbolKlineEngine] Duplicate trade ignored, symbol={}, sequence={}", symbol, sequence);
+                return;
+            }
+            if (sequence > 0) {
+                lastProcessedSequence = sequence;
+            }
             for (KlineGenerator generator : generators.values()) {
                 generator.onTrade(price, quantity, timestamp, isBuyerMaker);
             }

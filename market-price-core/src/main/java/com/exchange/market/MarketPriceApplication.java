@@ -1,8 +1,9 @@
 package com.exchange.market;
 
-import org.mybatis.spring.annotation.MapperScan;
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
+import org.springframework.boot.autoconfigure.jdbc.DataSourceAutoConfiguration;
+import org.springframework.cloud.openfeign.EnableFeignClients;
 import org.springframework.context.ConfigurableApplicationContext;
 import org.springframework.core.env.Environment;
 import org.springframework.scheduling.annotation.EnableScheduling;
@@ -21,9 +22,12 @@ import org.springframework.scheduling.annotation.EnableScheduling;
  * @author Exchange Team
  * @version 2.0
  */
-@SpringBootApplication(scanBasePackages = {"com.exchange.market", "com.exchange.common"})
+@SpringBootApplication(
+        scanBasePackages = {"com.exchange.market", "com.exchange.common"},
+        exclude = {DataSourceAutoConfiguration.class}
+)
 @EnableScheduling
-@MapperScan("com.exchange.market.mapper")
+@EnableFeignClients(basePackages = "com.exchange.market.client")
 public class MarketPriceApplication {
 
     public static void main(String[] args) {

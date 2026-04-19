@@ -36,6 +36,9 @@ public class KafkaConfig {
     @Value("${spring.application.name:market-price-service}")
     private String groupId;
 
+    @Value("${market-data.external.consumer-auto-offset-reset:latest}")
+    private String externalConsumerAutoOffsetReset;
+
     /**
      * 成交事件消费者工厂（修复：支持 byte[] 反序列化）
      * 
@@ -126,7 +129,7 @@ public class KafkaConfig {
         props.put(ConsumerConfig.FETCH_MAX_WAIT_MS_CONFIG, 0);
         props.put(ConsumerConfig.MAX_POLL_RECORDS_CONFIG, 500);
         props.put(ConsumerConfig.ENABLE_AUTO_COMMIT_CONFIG, false);
-        props.put(ConsumerConfig.AUTO_OFFSET_RESET_CONFIG, "latest");
+        props.put(ConsumerConfig.AUTO_OFFSET_RESET_CONFIG, externalConsumerAutoOffsetReset);
         return new DefaultKafkaConsumerFactory<>(props);
     }
 
@@ -154,7 +157,7 @@ public class KafkaConfig {
         // 低延迟配置
         props.put(ProducerConfig.LINGER_MS_CONFIG, 0);
         props.put(ProducerConfig.BATCH_SIZE_CONFIG, 16384);
-        props.put(ProducerConfig.ACKS_CONFIG, "1");
+        props.put(ProducerConfig.ACKS_CONFIG, "all");
         
         return new DefaultKafkaProducerFactory<>(props);
     }

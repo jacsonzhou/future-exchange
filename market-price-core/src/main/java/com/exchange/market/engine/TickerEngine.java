@@ -52,6 +52,9 @@ public class TickerEngine {
     private volatile long closeTime;      // 统计结束时间
     private volatile long firstTradeId;   // 第一笔成交ID
     private volatile long lastTradeId;    // 最后一笔成交ID
+    
+    // 消费去重（防止Kafka消息重投导致重复累加）
+    private volatile long lastProcessedSequence = -1;
 
     public TickerEngine(String symbol, MarketDataPublisher publisher) {
         this.symbol = symbol;
@@ -67,9 +70,24 @@ public class TickerEngine {
     }
 
     /**
-     * 处理成交事件
+     * 处理成交事件（兼容旧接口）
      */
     public void onTrade(long price, long quantity, long timestamp, long tradeId) {
+        onTrade(price, quantity, timestamp, tradeId, -1);
+    }
+
+    /**
+     * 处理成交事件（带sequence去重，防止Kafka消息重投导致重复累加）
+     */
+    public void onTrade(long price, long quantity, long timestamp, long tradeId, long sequence) {
+        if (sequence > 0 && sequence <= lastProcessedSequence) {
+            log.debug("[TickerEngine] Duplicate trade ignored, symbol={}, sequence={}", symbol, sequence);
+            return;
+        }
+        if (sequence > 0) {
+            lastProcessedSequence = sequence;
+        }
+        
         // 更新最新成交
         this.lastPrice = price;
         this.lastQty = quantity;
@@ -84,13 +102,16 @@ public class TickerEngine {
         // 添加到滑动窗口
         tradeBuffer.add(new TradeInfo(price, quantity, timestamp, tradeId));
         
-        // 更新统计
+        // 不再每次成交都重算和推送，改为定时任务调用 getTradeStats24h() 时按需重算
+    }
+
+    /**
+     * 获取24小时统计（滑动窗口，按需重算）
+     */
+    public TradeEngine.TradeStats24h getTradeStats24h() {
         recalculateStats();
-        
-        // 推送ticker更新（转换为TradeStats24h格式）
         Ticker24h ticker = buildTicker();
-        TradeEngine.TradeStats24h stats = convertToTradeStats24h(ticker);
-        publisher.publishTicker(symbol, stats);
+        return convertToTradeStats24h(ticker);
     }
 
     /**

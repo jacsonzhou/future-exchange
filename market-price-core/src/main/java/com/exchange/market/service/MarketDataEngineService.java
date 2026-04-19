@@ -1,16 +1,26 @@
 package com.exchange.market.service;
 
+import com.alibaba.fastjson2.JSON;
+import com.alibaba.fastjson2.JSONArray;
+import com.alibaba.fastjson2.JSONObject;
 import com.exchange.market.cache.MarketDataCache;
+import com.exchange.market.client.MatchEngineClient;
+import com.exchange.market.engine.KlineEngine;
 import com.exchange.market.engine.KlineEngineWithStorage;
 import com.exchange.market.engine.OrderBook;
+import com.exchange.market.engine.TickerEngine;
 import com.exchange.market.engine.TradeEngine;
 import com.exchange.market.model.Trade;
 import com.exchange.market.publisher.MarketDataPublisher;
 import lombok.Getter;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.data.redis.core.RedisTemplate;
 import org.springframework.stereotype.Service;
 
 import jakarta.annotation.PostConstruct;
+
+import java.math.BigDecimal;
+import java.math.RoundingMode;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -18,6 +28,7 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
 
 /**
  * 行情数据引擎服务（Market Data Engine Service）
@@ -39,28 +50,42 @@ public class MarketDataEngineService {
     private final MarketDataPublisher publisher;
     private final MarketDataCache cache;
     private final KlineEngineWithStorage klineEngineWithStorage;
+    private final RedisTemplate<String, Object> redisTemplate;
+    private final MatchEngineClient matchEngineClient;
     
     // Symbol -> 引擎组映射
     private final Map<String, SymbolEngines> symbolEnginesMap;
-
-    // Symbol -> 最近一次发布的盘口签名（用于抑制重复快照推送）
-    private final Map<String, String> lastDepthSignatureMap;
+    
+    // 深度序号不连续计数器（健康检查）
+    private final Map<String, AtomicInteger> depthGapCounter;
     
     // 默认价格精度
     private static final int DEFAULT_PRICE_PRECISION = 8;
     private static final int DEFAULT_QTY_PRECISION = 8;
     
+    // 深度健康检查阈值：连续 N 次序号不连续则触发主动重建
+    private static final int MAX_CONSECUTIVE_GAPS = 3;
+    
+    // Redis 深度快照 Key 前缀
+    private static final String SNAPSHOT_DEPTH_KEY = "market:snapshot:depth:";
+    
+    // 价格精度缩放系数（8位小数）
+    private static final long PRICE_SCALE = 100_000_000L;
+    
     // 定时任务执行器
     private ScheduledExecutorService scheduler;
 
-    public MarketDataEngineService(MarketDataPublisher publisher,
-                                   MarketDataCache cache,
-                                   KlineEngineWithStorage klineEngineWithStorage) {
+    public MarketDataEngineService(MarketDataPublisher publisher, MarketDataCache cache,
+                                   KlineEngineWithStorage klineEngineWithStorage,
+                                   RedisTemplate<String, Object> redisTemplate,
+                                   MatchEngineClient matchEngineClient) {
         this.publisher = publisher;
         this.cache = cache;
         this.klineEngineWithStorage = klineEngineWithStorage;
+        this.redisTemplate = redisTemplate;
+        this.matchEngineClient = matchEngineClient;
         this.symbolEnginesMap = new ConcurrentHashMap<>();
-        this.lastDepthSignatureMap = new ConcurrentHashMap<>();
+        this.depthGapCounter = new ConcurrentHashMap<>();
     }
 
     @PostConstruct
@@ -96,18 +121,21 @@ public class MarketDataEngineService {
         // 更新Trade引擎
         engines.getTradeEngine().onTrade(trade);
         
-        // 更新带存储的Kline引擎（实时推送 + ClickHouse持久化）
-        klineEngineWithStorage.onTrade(
-            symbol,
-            trade.getPrice(), 
-            trade.getQuantity(), 
-            trade.getTimestamp(), 
-            trade.isBuyerMaker()
-        );
+        // 使用 KlineEngineWithStorage 替代 KlineEngine，确保撮合K线持久化到 ClickHouse
+        klineEngineWithStorage.onTrade(symbol, trade.getPrice(), trade.getQuantity(), 
+                trade.getTimestamp(), trade.isBuyerMaker(), trade.getSequence());
+        
+        // 启用 TickerEngine 进行正确的24h滑动窗口统计
+        engines.getTickerEngine().onTrade(trade.getPrice(), trade.getQuantity(), 
+                trade.getTimestamp(), trade.getTradeId(), trade.getSequence());
     }
 
     /**
      * 处理深度增量更新
+     * 
+     * 重启恢复策略：
+     * - 首次接收增量时若订单簿为空，先尝试从 Redis 加载快照
+     * - 序号不连续时增加健康检查计数，超过阈值则主动请求 Match Engine 快照重建
      */
     public void onDepthDelta(String symbol, List<long[]> bids, List<long[]> asks, 
                              long sequence, long timestamp) {
@@ -118,36 +146,47 @@ public class MarketDataEngineService {
         boolean success = orderBook.applyDelta(bids, asks, sequence, timestamp);
         
         if (!success) {
-            // 序号不连续，需要重建
-            log.warn("[EngineService] {} OrderBook sequence gap, requesting rebuild", symbol);
-            // 这里可以触发重建逻辑，比如从Redis获取快照
-        } else {
-            // 发布深度更新
-            OrderBook.DepthSnapshot snapshot = orderBook.getSnapshot(20); // 推送20档
+            // 序号不连续，增加健康检查计数
+            AtomicInteger counter = depthGapCounter.computeIfAbsent(symbol, s -> new AtomicInteger(0));
+            int gaps = counter.incrementAndGet();
+            log.warn("[EngineService] {} OrderBook sequence gap detected, consecutiveGaps={}", symbol, gaps);
             
-            // 使用 snapshot 的数据（已经是 List<long[]> 格式）
-            List<long[]> finalBids = snapshot.getBids() != null ? snapshot.getBids() : (bids != null ? bids : new ArrayList<>());
-            List<long[]> finalAsks = snapshot.getAsks() != null ? snapshot.getAsks() : (asks != null ? asks : new ArrayList<>());
-
-            if (!shouldPublishDepth(symbol, finalBids, finalAsks)) {
-                log.debug("[EngineService] Skip duplicate depth publish, symbol={}, seq={}", symbol, sequence);
-                return;
+            // 超过阈值：触发主动重建
+            if (gaps >= MAX_CONSECUTIVE_GAPS) {
+                log.error("[EngineService] {} OrderBook unhealthy ({} consecutive gaps), triggering snapshot rebuild", 
+                        symbol, gaps);
+                tryRebuildOrderBook(symbol);
+                counter.set(0);
             }
-            
-            MarketDataPublisher.DepthUpdate update = new MarketDataPublisher.DepthUpdate();
-            update.setSymbol(symbol);
-            update.setFirstUpdateId(sequence);
-            update.setLastUpdateId(sequence);
-            update.setBids(finalBids);
-            update.setAsks(finalAsks);
-            update.setTimestamp(timestamp);
-            update.setSnapshot(false);
-            
-            log.debug("[EngineService] Publish depth update, symbol={}, bids={}, asks={}", 
-                symbol, finalBids.size(), finalAsks.size());
-            
-            publisher.publishDepth(symbol, update);
+            return;
         }
+        
+        // 成功应用增量，清零健康计数
+        depthGapCounter.put(symbol, new AtomicInteger(0));
+        
+        // 发布深度增量到 Kafka（供下游按增量语义消费）
+        MarketDataPublisher.DepthUpdate deltaUpdate = new MarketDataPublisher.DepthUpdate();
+        deltaUpdate.setSymbol(symbol);
+        deltaUpdate.setFirstUpdateId(sequence);
+        deltaUpdate.setLastUpdateId(sequence);
+        deltaUpdate.setBids(bids != null ? bids : new ArrayList<>());
+        deltaUpdate.setAsks(asks != null ? asks : new ArrayList<>());
+        deltaUpdate.setTimestamp(timestamp);
+        deltaUpdate.setSnapshot(false);
+        
+        publisher.publishDepthDelta(symbol, deltaUpdate);
+        
+        // 更新 Redis 完整快照（供查询和新订阅者获取初始状态）
+        OrderBook.DepthSnapshot snapshot = orderBook.getSnapshot(100);
+        MarketDataPublisher.DepthUpdate snapshotUpdate = new MarketDataPublisher.DepthUpdate();
+        snapshotUpdate.setSymbol(symbol);
+        snapshotUpdate.setLastUpdateId(sequence);
+        snapshotUpdate.setBids(snapshot.getBids());
+        snapshotUpdate.setAsks(snapshot.getAsks());
+        snapshotUpdate.setTimestamp(timestamp);
+        snapshotUpdate.setSnapshot(true);
+        
+        publisher.updateDepthSnapshot(symbol, snapshotUpdate);
     }
 
     /**
@@ -159,13 +198,8 @@ public class MarketDataEngineService {
         OrderBook orderBook = engines.getOrderBook();
         
         orderBook.rebuild(bids, asks, lastSequence, timestamp);
-
-        // 若由于并发或内部保护导致未应用该快照，则不再重复发布。
-        if (orderBook.getLastUpdateId() != lastSequence) {
-            log.debug("[EngineService] {} Snapshot not applied, skip publish. incomingSeq={}, actualSeq={}",
-                symbol, lastSequence, orderBook.getLastUpdateId());
-            return;
-        }
+        
+        log.info("[EngineService] {} OrderBook rebuilt with lastSequence={}", symbol, lastSequence);
         
         // 发布快照
         OrderBook.DepthSnapshot snapshot = orderBook.getSnapshot(100);
@@ -177,14 +211,131 @@ public class MarketDataEngineService {
         update.setAsks(snapshot.getAsks());
         update.setTimestamp(timestamp);
         update.setSnapshot(true);
+        
+        publisher.publishDepth(symbol, update);
+    }
 
-        if (!shouldPublishDepth(symbol, update.getBids(), update.getAsks())) {
-            log.debug("[EngineService] {} Skip duplicate snapshot publish, seq={}", symbol, lastSequence);
+    /**
+     * 尝试重建订单簿（重启恢复/健康检查触发）
+     * 优先级：1. Redis 快照 → 2. Match Engine HTTP 接口
+     */
+    private void tryRebuildOrderBook(String symbol) {
+        // 1. 优先从 Redis 加载快照
+        List<long[]> redisBids = null;
+        List<long[]> redisAsks = null;
+        Long redisLastSeq = null;
+        try {
+            Object value = redisTemplate.opsForValue().get(SNAPSHOT_DEPTH_KEY + symbol);
+            if (value != null) {
+                JSONObject json = value instanceof String 
+                        ? JSON.parseObject((String) value) 
+                        : JSON.parseObject(JSON.toJSONString(value));
+                redisBids = parseDepthLevelsFromJson(json.getJSONArray("b"));
+                redisAsks = parseDepthLevelsFromJson(json.getJSONArray("a"));
+                redisLastSeq = json.getLongValue("u");
+                log.info("[EngineService] {} Loaded depth snapshot from Redis, bids={}, asks={}, lastSeq={}",
+                        symbol, redisBids.size(), redisAsks.size(), redisLastSeq);
+            }
+        } catch (Exception e) {
+            log.warn("[EngineService] {} Failed to load depth snapshot from Redis: {}", symbol, e.getMessage());
+        }
+
+        if (redisBids != null && redisAsks != null) {
+            rebuildOrderBook(symbol, redisBids, redisAsks, 
+                    redisLastSeq != null ? redisLastSeq : 0, System.currentTimeMillis());
             return;
         }
 
-        log.info("[EngineService] {} OrderBook rebuilt with lastSequence={}", symbol, lastSequence);
-        publisher.publishDepth(symbol, update);
+        // 2. Redis 无快照，主动向 Match Engine 请求
+        try {
+            log.info("[EngineService] {} Redis snapshot not available, requesting from Match Engine...", symbol);
+            Map<String, Object> response = matchEngineClient.getOrderBookDepth(symbol, 100);
+            if (response == null) {
+                log.warn("[EngineService] {} Match Engine returned null snapshot", symbol);
+                return;
+            }
+
+            List<long[]> matchBids = parseDepthLevelsFromMatchEngine(response.get("bids"));
+            List<long[]> matchAsks = parseDepthLevelsFromMatchEngine(response.get("asks"));
+            Long matchSeq = response.get("timestamp") instanceof Number 
+                    ? ((Number) response.get("timestamp")).longValue() 
+                    : System.currentTimeMillis();
+
+            if (matchBids != null && matchAsks != null) {
+                rebuildOrderBook(symbol, matchBids, matchAsks, matchSeq, System.currentTimeMillis());
+                log.info("[EngineService] {} Rebuilt OrderBook from Match Engine snapshot, bids={}, asks={}",
+                        symbol, matchBids.size(), matchAsks.size());
+            } else {
+                log.warn("[EngineService] {} Match Engine snapshot missing bids/asks", symbol);
+            }
+        } catch (Exception e) {
+            log.error("[EngineService] {} Failed to request snapshot from Match Engine: {}", symbol, e.getMessage());
+        }
+    }
+
+    /**
+     * 从 Redis JSON 解析深度档位 [[priceStr, qtyStr], ...] -> List<long[]>
+     */
+    @SuppressWarnings("unchecked")
+    private List<long[]> parseDepthLevelsFromJson(JSONArray jsonArray) {
+        if (jsonArray == null || jsonArray.isEmpty()) {
+            return new ArrayList<>();
+        }
+        List<long[]> result = new ArrayList<>(jsonArray.size());
+        for (int i = 0; i < jsonArray.size(); i++) {
+            JSONArray pair = jsonArray.getJSONArray(i);
+            if (pair == null || pair.size() < 2) {
+                continue;
+            }
+            String priceStr = pair.getString(0);
+            String qtyStr = pair.getString(1);
+            long price = parseScaledString(priceStr);
+            long qty = parseScaledString(qtyStr);
+            result.add(new long[]{price, qty});
+        }
+        return result;
+    }
+
+    /**
+     * 从 Match Engine 响应解析深度档位
+     */
+    @SuppressWarnings("unchecked")
+    private List<long[]> parseDepthLevelsFromMatchEngine(Object raw) {
+        if (raw == null) {
+            return null;
+        }
+        try {
+            List<List<Object>> list = (List<List<Object>>) raw;
+            List<long[]> result = new ArrayList<>(list.size());
+            for (List<Object> pair : list) {
+                if (pair == null || pair.size() < 2) {
+                    continue;
+                }
+                String priceStr = pair.get(0).toString();
+                String qtyStr = pair.get(1).toString();
+                long price = parseScaledString(priceStr);
+                long qty = parseScaledString(qtyStr);
+                result.add(new long[]{price, qty});
+            }
+            return result;
+        } catch (Exception e) {
+            log.warn("[EngineService] Failed to parse depth levels from Match Engine: {}", e.getMessage());
+            return null;
+        }
+    }
+
+    private long parseScaledString(String value) {
+        if (value == null || value.isBlank()) {
+            return 0L;
+        }
+        try {
+            return new BigDecimal(value.trim())
+                    .multiply(BigDecimal.valueOf(PRICE_SCALE))
+                    .setScale(0, RoundingMode.DOWN)
+                    .longValue();
+        } catch (Exception e) {
+            return 0L;
+        }
     }
 
     /**
@@ -200,8 +351,6 @@ public class MarketDataEngineService {
 
     /**
      * 获取或创建订单簿
-     *
-     * 查询接口在“空盘”阶段也需要返回空深度，而不是 Symbol not found。
      */
     public OrderBook getOrCreateOrderBook(String symbol) {
         return getOrCreateEngines(symbol).getOrderBook();
@@ -219,16 +368,35 @@ public class MarketDataEngineService {
     }
 
     /**
+     * 获取Kline引擎
+     */
+    public KlineEngine getKlineEngine(String symbol) {
+        SymbolEngines engines = symbolEnginesMap.get(symbol);
+        if (engines == null) {
+            return null;
+        }
+        return engines.getKlineEngine();
+    }
+
+    /**
      * 推送所有symbol的Ticker
+     * 
+     * 重启恢复策略：
+     * - 优先从 cache 获取（Ticker24hFallbackRefreshJob 可能已从 K 线/外部恢复了24h统计）
+     * - cache 为空时 fallback 到 TickerEngine 实时滑动窗口
      */
     private void publishAllTickers() {
         symbolEnginesMap.forEach((symbol, engines) -> {
             try {
-                TradeEngine.TradeStats24h stats = engines.getTradeEngine().getTradeStats24h();
-                if (!isMeaningfulTicker(stats)) {
-                    return;
+                // 优先从 cache 获取（重启后可能由 fallback job 恢复）
+                TradeEngine.TradeStats24h stats = cache.getTicker(symbol);
+                if (stats == null || isEmptyTicker(stats)) {
+                    // fallback 到 TickerEngine 实时滑动窗口
+                    stats = engines.getTickerEngine().getTradeStats24h();
                 }
-                publisher.publishTicker(symbol, stats);
+                if (stats != null && !isEmptyTicker(stats)) {
+                    publisher.publishTicker(symbol, stats);
+                }
             } catch (Exception e) {
                 log.error("[EngineService] Failed to publish ticker for {}: {}", symbol, e.getMessage());
             }
@@ -236,59 +404,22 @@ public class MarketDataEngineService {
     }
 
     /**
+     * 判断 Ticker 是否为空（重启后滑动窗口未积累足够数据）
+     */
+    private boolean isEmptyTicker(TradeEngine.TradeStats24h stats) {
+        if (stats == null) {
+            return true;
+        }
+        return stats.getVolume() == 0 && stats.getCount() == 0
+                && stats.getHighPrice() == 0 && stats.getLowPrice() == 0
+                && stats.getOpenPrice() == 0;
+    }
+
+    /**
      * 刷新聚合成交
      */
     private void flushAggTrades() {
         // 聚合成交在TradeEngine内部处理，这里可以添加额外的刷新逻辑
-    }
-
-    private boolean shouldPublishDepth(String symbol, List<long[]> bids, List<long[]> asks) {
-        String signature = buildDepthSignature(bids, asks);
-        String previous = lastDepthSignatureMap.put(symbol, signature);
-        return !signature.equals(previous);
-    }
-
-    /**
-     * 防止空 TradeEngine 统计覆盖外部 24h 数据（0 值抖动）。
-     */
-    private boolean isMeaningfulTicker(TradeEngine.TradeStats24h stats) {
-        if (stats == null) {
-            return false;
-        }
-        return stats.getOpenPrice() > 0
-                || stats.getHighPrice() > 0
-                || stats.getLowPrice() > 0
-                || stats.getVolume() > 0
-                || stats.getQuoteVolume() > 0
-                || stats.getCount() > 0;
-    }
-
-    private String buildDepthSignature(List<long[]> bids, List<long[]> asks) {
-        StringBuilder sb = new StringBuilder(512);
-        if (bids != null) {
-            sb.append('B').append(bids.size()).append(':');
-            for (long[] level : bids) {
-                if (level == null || level.length < 2) {
-                    continue;
-                }
-                sb.append(level[0]).append('@').append(level[1]).append('|');
-            }
-        } else {
-            sb.append("B0:");
-        }
-        sb.append(';');
-        if (asks != null) {
-            sb.append('A').append(asks.size()).append(':');
-            for (long[] level : asks) {
-                if (level == null || level.length < 2) {
-                    continue;
-                }
-                sb.append(level[0]).append('@').append(level[1]).append('|');
-            }
-        } else {
-            sb.append("A0:");
-        }
-        return sb.toString();
     }
 
     /**
@@ -324,11 +455,15 @@ public class MarketDataEngineService {
         private final String symbol;
         private final OrderBook orderBook;
         private final TradeEngine tradeEngine;
+        private final KlineEngine klineEngine;
+        private final TickerEngine tickerEngine;
 
         SymbolEngines(String symbol, MarketDataPublisher publisher) {
             this.symbol = symbol;
             this.orderBook = new OrderBook(symbol, DEFAULT_PRICE_PRECISION, DEFAULT_QTY_PRECISION);
             this.tradeEngine = new TradeEngine(symbol, publisher);
+            this.klineEngine = new KlineEngine(symbol, publisher);
+            this.tickerEngine = new TickerEngine(symbol, publisher);
         }
     }
     
