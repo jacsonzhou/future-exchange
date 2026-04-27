@@ -82,9 +82,20 @@ public interface AccountSnapshotService {
     
     /**
      * 从Redis获取快照
-     * 
+     *
      * @param userId 用户ID
      * @return AccountSnapshot or null
      */
     AccountSnapshot getFromRedis(Long userId);
+
+    /**
+     * 🔥 从持仓镜像重建未实现盈亏（unrealizedPnl）
+     *
+     * 用途：
+     * 1. Replay 完成后重建 unrealizedPnl（trade-entry 不包含估值数据）
+     * 2. 修复 snapshot 与 position snapshot 之间的 upnl 不一致
+     *
+     * @param userId 用户ID
+     */
+    void rebuildUnrealizedPnl(Long userId);
 }

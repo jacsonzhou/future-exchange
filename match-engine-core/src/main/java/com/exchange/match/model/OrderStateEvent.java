@@ -38,7 +38,12 @@ public class OrderStateEvent {
      * 本次成交数量增量
      */
     private BigDecimal filledQuantityDelta;
-    
+
+    /**
+     * 本次成交均价（8位小数）
+     */
+    private BigDecimal avgPrice;
+
     /**
      * 订单状态 PARTIAL_FILLED / FILLED / CANCELED
      */

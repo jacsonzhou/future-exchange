@@ -86,9 +86,8 @@ public class DepthPublisher {
             List<List<String>> bids = depthData.get("bids");
             List<List<String>> asks = depthData.get("asks");
             
-            log.info("[DEPTH-LINK] >>> Publishing to Kafka, symbol={}, bids={}, asks={}, sampleBid={}", 
-                symbol, bids != null ? bids.size() : 0, asks != null ? asks.size() : 0,
-                (bids != null && !bids.isEmpty()) ? bids.get(0) : "none");
+            log.info("[DepthPublisher] Depth data retrieved, symbol={}, bids={}, asks={}", 
+                symbol, bids != null ? bids.size() : 0, asks != null ? asks.size() : 0);
             
             // 构建 Kafka 消息
             Map<String, Object> message = new HashMap<>();
@@ -96,8 +95,7 @@ public class DepthPublisher {
             message.put("E", System.currentTimeMillis()); // 事件时间
             message.put("s", symbol);                   // 交易对
             message.put("U", lastSeq);                  // 第一个更新ID
-            message.put("u", lastSeq);                  // 最后一个更新ID
-            message.put("isSnapshot", true);            // 当前发布为完整快照
+            message.put("u", lastSeq + 1);              // 最后一个更新ID
             message.put("b", bids != null ? bids : new ArrayList<>());    // 买盘
             message.put("a", asks != null ? asks : new ArrayList<>());    // 卖盘
             
@@ -107,14 +105,13 @@ public class DepthPublisher {
             
             log.info("[DepthPublisher] Message serialized, symbol={}, size={} bytes", symbol, value.length);
             
-            // 发送 raw topic（供 market-price-core 消费）
-            // 🔥 FIX: 使用 raw topic，避免与 market-price-core 输出冲突
-            String rawTopic = "market.depth.raw." + symbol;
+            // 发送
+            String topic = depthTopicTemplate.replace("{symbol}", symbol);
             String key = symbol;
             
-            log.info("[DepthPublisher] Sending to Kafka, topic={}, key={}", rawTopic, key);
+            log.info("[DepthPublisher] Sending to Kafka, topic={}, key={}", topic, key);
             
-            CompletableFuture<SendResult<String, byte[]>> future = kafkaTemplate.send(rawTopic, key, value);
+            CompletableFuture<SendResult<String, byte[]>> future = kafkaTemplate.send(topic, key, value);
             
             future.whenComplete((result, ex) -> {
                 if (ex == null) {

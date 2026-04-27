@@ -217,13 +217,24 @@ print(json.dumps(obj, separators=(",", ":")))
 PY
 )"
 
-printf '%s' "${snapshot_json}" | docker exec -i "${REDIS_CONTAINER}" redis-cli -x SET "cfd:reference:book:${SYMBOL}" >/dev/null
+# 实盘深度会持续覆盖该 key，触发窗口内持续刷新手工快照，避免瞬时写入被立即冲掉。
+(
+  for _ in $(seq 1 120); do
+    printf '%s' "${snapshot_json}" | docker exec -i "${REDIS_CONTAINER}" redis-cli -x SET "cfd:reference:book:${SYMBOL}" >/dev/null
+    sleep 0.1
+  done
+) &
+trigger_refresh_pid=$!
 
 if ! wait_for_status "${order_id_1}" "FILLED" 60 0.2 >/dev/null; then
+  kill "${trigger_refresh_pid}" >/dev/null 2>&1 || true
+  wait "${trigger_refresh_pid}" >/dev/null 2>&1 || true
   actual_status="$(query_working_status "${order_id_1}")"
   echo "[FAIL] expected FILLED after trigger, got status=${actual_status:-<empty>} for orderId=${order_id_1}"
   exit 1
 fi
+kill "${trigger_refresh_pid}" >/dev/null 2>&1 || true
+wait "${trigger_refresh_pid}" >/dev/null 2>&1 || true
 
 echo "[PASS] working order triggered to FILLED, orderId=${order_id_1}"
 

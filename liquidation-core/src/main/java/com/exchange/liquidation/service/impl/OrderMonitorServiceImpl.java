@@ -155,11 +155,15 @@ public class OrderMonitorServiceImpl implements OrderMonitorService {
                 execution.setErrorMsg("Order " + status.toLowerCase());
                 executionMapper.updateById(execution);
 
-                // 订单失败，重试
+                // 订单失败，触发重试
                 log.warn("⚠️ [OrderMonitorService] Order failed, liquidationId={}, status={}, " +
-                        "will retry", liquidationId, status);
-                // TODO: 触发重试
-                // liquidationService.retryLiquidation(liquidationId);
+                        "triggering retry", liquidationId, status);
+                try {
+                    liquidationService.retryLiquidation(liquidationId);
+                } catch (Exception retryEx) {
+                    log.error("❌ [OrderMonitorService] Retry failed, liquidationId={}, error={}",
+                            liquidationId, retryEx.getMessage());
+                }
 
                 stopMonitoring(liquidationId, orderId);
                 break;
@@ -257,8 +261,12 @@ public class OrderMonitorServiceImpl implements OrderMonitorService {
                             // 触发重试
                             log.info("🔄 [OrderMonitorService] Triggering retry for timeout order, " +
                                     "liquidationId={}", liquidationId);
-                            // TODO: 触发重试
-                            // liquidationService.retryLiquidation(liquidationId);
+                            try {
+                                liquidationService.retryLiquidation(liquidationId);
+                            } catch (Exception retryEx) {
+                                log.error("❌ [OrderMonitorService] Retry failed for timeout order, " +
+                                        "liquidationId={}, error={}", liquidationId, retryEx.getMessage());
+                            }
                         }
 
                         // 清理Redis

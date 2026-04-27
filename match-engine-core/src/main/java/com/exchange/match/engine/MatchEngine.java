@@ -4,10 +4,12 @@ import com.exchange.match.model.Order;
 import com.exchange.match.model.Trade;
 import com.exchange.match.orderbook.OrderBook;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.stereotype.Component;
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
@@ -19,8 +21,10 @@ import java.util.concurrent.ConcurrentHashMap;
  * 1. 单线程处理（每个symbol一个引擎）
  * 2. 内存OrderBook
  * 3. 高性能撮合
+ * 4. 多币种/多交易对支持（Map<String, OrderBook>）
  */
 @Slf4j
+@Component
 public class MatchEngine {
 
     private static final BigDecimal MONEY_SCALE = BigDecimal.valueOf(100_000_000L);
@@ -119,5 +123,26 @@ public class MatchEngine {
      */
     public OrderBook getOrderBook(String symbol) {
         return orderBooks.get(symbol);
+    }
+
+    /**
+     * 获取所有交易对符号
+     */
+    public Collection<String> getAllSymbols() {
+        return orderBooks.keySet();
+    }
+
+    /**
+     * 获取所有OrderBook（用于恢复/快照）
+     */
+    public Collection<OrderBook> getAllOrderBooks() {
+        return orderBooks.values();
+    }
+
+    /**
+     * 注册/替换 OrderBook（用于恢复时加载已有快照）
+     */
+    public void registerOrderBook(String symbol, OrderBook orderBook) {
+        orderBooks.put(symbol, orderBook);
     }
 }

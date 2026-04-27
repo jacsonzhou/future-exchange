@@ -24,9 +24,17 @@ public class PublicPushProperties {
         private int maxConnectionsPerIp = 50;
         private int connectionRateLimit = 10;
         private long heartbeatIntervalMs = 30000;
-        private long heartbeatTimeoutMs = 5000;
+        private long heartbeatTimeoutMs = 30000;
         private int sendBufferSize = 32768;
         private int receiveBufferSize = 32768;
+        /**
+         * ConcurrentWebSocketSessionDecorator send time limit.
+         */
+        private int sendTimeLimitMs = 30000;
+        /**
+         * ConcurrentWebSocketSessionDecorator buffer size limit.
+         */
+        private int sendBufferSizeLimitBytes = 10485760;
     }
     
     @Data

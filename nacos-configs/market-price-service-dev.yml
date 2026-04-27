@@ -10,28 +10,6 @@ spring:
   application:
     name: market-price-service
 
-  # 数据源配置
-  datasource:
-    url: jdbc:mysql://localhost:3306/exchange_market?useSSL=false&serverTimezone=UTC&allowPublicKeyRetrieval=true&characterEncoding=utf8mb4
-    username: root
-    password: ${MYSQL_PASSWORD:root}
-    driver-class-name: com.mysql.cj.jdbc.Driver
-    type: com.alibaba.druid.pool.DruidDataSource
-    druid:
-      initial-size: 10
-      min-idle: 10
-      max-active: 50
-      max-wait: 60000
-      validation-query: SELECT 1
-      test-while-idle: true
-
-  # MyBatis Plus配置
-  mybatis-plus:
-    configuration:
-      log-impl: org.apache.ibatis.logging.stdout.StdOutImpl
-    mapper-locations: classpath:mapper/*.xml
-    type-aliases-package: com.exchange.market.entity
-
   # Kafka配置
   kafka:
     producer:
@@ -51,17 +29,49 @@ market-data:
   kafka:
     enabled: true
   output:
-    standard-only: true
+    standard-only: false
+  kline:
+    authority-enabled: false
+    authority-source: binance
+    backfill-with-watermark: false
+    retention:
+      enabled: true
+      days: 365
+      initial-delay-ms: 120000
+      interval-ms: 86400000
+    resume:
+      enabled: false
+      initial-delay-ms: 60000
+      interval-ms: 60000
+      interval: 1m
+      chunk-candles: 1440
+      max-catchup-days: 365
+      max-segments-per-task: 512
+      max-retries-per-segment: 3
+      max-parallel-tasks: 1
+      missing-repair-enabled: true
+      missing-lookback-candles: 4320
+      missing-max-segments: 64
+    gap-repair:
+      enabled: false
+      initial-delay-ms: 120000
+      interval-ms: 300000
+      interval: 1m
+      lookback-candles: 4320
+      max-segments: 64
+      skip-when-resume-running: true
   redis:
     pubsub-enabled: true
     snapshot-enabled: true
   external:
     enabled: true
     source: binance
+    drop-out-of-order: true
+    trade-drop-out-of-order: false
     rest-base-url: https://fapi.binance.com
     symbols: BTCUSDT,ETHUSDT,BNBUSDT,SOLUSDT,XRPUSDT
     backfill:
-      enabled: true
+      enabled: false
       startup-delay-ms: 5000
       interval: 1m
       initial-days: 365

@@ -1,0 +1,28 @@
+{
+  "generatedAt": 1772857849867,
+  "durationSec": 11.0,
+  "passed": 1,
+  "failed": 1,
+  "steps": [
+    {
+      "name": "runtime_schema_fix",
+      "ok": true,
+      "message": "Liquidation runtime schema aligned",
+      "details": {
+        "mysqlContainer": "web3-mysql",
+        "completedAtBefore": true,
+        "validatedAtBefore": true,
+        "completedAtAfter": true,
+        "validatedAtAfter": true
+      }
+    },
+    {
+      "name": "service_check",
+      "ok": false,
+      "message": "Service check failed",
+      "details": {
+        "error": "Required services are not listening: [('match-engine-core', 8083)]"
+      }
+    }
+  ]
+}

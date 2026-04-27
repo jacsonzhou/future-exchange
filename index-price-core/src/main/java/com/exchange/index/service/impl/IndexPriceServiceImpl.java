@@ -57,6 +57,9 @@ public class IndexPriceServiceImpl implements IndexPriceService {
     @Value("${index-price.calculation.source:binance_kafka}")
     private String calculationSource;
 
+    @Value("${index-price.persistence.enabled:true}")
+    private boolean persistenceEnabled;
+
     private static final String REDIS_KEY_PREFIX = "index:price:";
     private static final long REDIS_CACHE_TTL_SECONDS = 60;
     private final Map<String, String> lastPublishedIndexPriceId = new ConcurrentHashMap<>();
@@ -164,7 +167,7 @@ public class IndexPriceServiceImpl implements IndexPriceService {
         priceEntity.setSource("WEIGHTED_AVERAGE");
         priceEntity.setWeight(totalWeight);
         priceEntity.setTimestamp(timestamp);
-        indexPriceMapper.insert(priceEntity);
+        persistIndexPrice(symbol, priceEntity);
 
         IndexPriceDTO dto = new IndexPriceDTO();
         dto.setSymbol(symbol);
@@ -213,7 +216,7 @@ public class IndexPriceServiceImpl implements IndexPriceService {
         priceEntity.setSource("BINANCE_KAFKA");
         priceEntity.setWeight(100);
         priceEntity.setTimestamp(timestamp);
-        indexPriceMapper.insert(priceEntity);
+        persistIndexPrice(symbol, priceEntity);
 
         IndexPriceDTO.ComponentDTO componentDTO = new IndexPriceDTO.ComponentDTO();
         componentDTO.setExchange("binance");
@@ -314,6 +317,9 @@ public class IndexPriceServiceImpl implements IndexPriceService {
     }
 
     private void saveComponent(String symbol, String exchange, Long price, int weight, long timestamp) {
+        if (!persistenceEnabled) {
+            return;
+        }
         IndexPriceComponent component = new IndexPriceComponent();
         component.setSymbol(symbol);
         component.setExchange(exchange);
@@ -321,7 +327,22 @@ public class IndexPriceServiceImpl implements IndexPriceService {
         component.setWeight(weight);
         component.setValid(1);
         component.setTimestamp(timestamp);
-        componentMapper.insert(component);
+        try {
+            componentMapper.insert(component);
+        } catch (Exception e) {
+            log.warn("Skip component persistence, symbol={}, exchange={}", symbol, exchange, e);
+        }
+    }
+
+    private void persistIndexPrice(String symbol, IndexPrice priceEntity) {
+        if (!persistenceEnabled) {
+            return;
+        }
+        try {
+            indexPriceMapper.insert(priceEntity);
+        } catch (Exception e) {
+            log.warn("Skip index-price persistence, symbol={}", symbol, e);
+        }
     }
 
     private void cacheLatest(String symbol, IndexPriceDTO dto) {

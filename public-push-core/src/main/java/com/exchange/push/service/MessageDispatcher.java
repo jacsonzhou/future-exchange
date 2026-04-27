@@ -5,19 +5,15 @@ import com.alibaba.fastjson2.JSONObject;
 import com.exchange.push.config.PublicPushProperties;
 import com.exchange.push.model.ChannelType;
 import com.exchange.push.model.ConnectionMetadata;
-import com.exchange.push.service.ConnectionManager;
 import io.micrometer.core.instrument.Counter;
 import io.micrometer.core.instrument.DistributionSummary;
 import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.core.instrument.Timer;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.context.annotation.Lazy;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.data.redis.core.RedisTemplate;
 import org.springframework.stereotype.Service;
-import org.springframework.web.socket.TextMessage;
-import org.springframework.web.socket.WebSocketSession;
+import reactor.core.publisher.Sinks;
 
 import jakarta.annotation.PostConstruct;
 import java.util.*;
@@ -43,21 +39,16 @@ public class MessageDispatcher {
     private MeterRegistry meterRegistry;
     
     @Autowired
-    @Lazy
     private ConnectionManager connectionManager;
     
     @Autowired
     private RateLimiter rateLimiter;
-
+    
     @Autowired
-    @Lazy
     private SubscriptionManager subscriptionManager;
-
+    
     @Autowired
     private RedisTemplate<String, Object> redisTemplate;
-
-    @Value("${public-push.ext-channel-enabled:true}")
-    private boolean extChannelEnabled;
 
     // 批量发送队列 sessionId -> 消息队列
     private final Map<String, Queue<String>> batchQueues = new ConcurrentHashMap<>();
@@ -96,45 +87,49 @@ public class MessageDispatcher {
         
         // 启动定时刷新任务
         long flushInterval = properties.getPush().getBatchIntervalMs();
-        flushExecutor.scheduleAtFixedRate(this::safeScheduledFlush, flushInterval, flushInterval, TimeUnit.MILLISECONDS);
+        flushExecutor.scheduleAtFixedRate(this::scheduledFlush, flushInterval, flushInterval, TimeUnit.MILLISECONDS);
         
         log.info("[Dispatcher] Initialized with flush interval: {}ms", flushInterval);
-    }
-
-    /**
-     * 包装定时任务，避免任何运行时异常导致 scheduleAtFixedRate 任务永久停止。
-     */
-    private void safeScheduledFlush() {
-        try {
-            scheduledFlush();
-        } catch (Throwable t) {
-            log.error("[Dispatcher] scheduledFlush failed, keep scheduler alive: {}", t.getMessage(), t);
-        }
     }
 
     /**
      * 发送消息到指定session
      */
     public void sendMessage(String sessionId, Object data) {
-        WebSocketSession session = connectionManager.getSession(sessionId);
-        if (session == null || !session.isOpen()) {
-            log.warn("[WS-LINK] Session not found or closed: {}", sessionId);
+        ConnectionManager.SessionContext ctx = connectionManager.getSessionContext(sessionId);
+        if (ctx == null) {
             return;
         }
         
         // 限流检查
         if (!rateLimiter.allowSessionMessage(sessionId)) {
             messagesDropped.increment();
-            log.warn("[WS-LINK] Message dropped due to rate limit, session: {}", sessionId);
             return;
         }
         
         String json = JSON.toJSONString(data);
-        log.debug("[WS-LINK] >>> WebSocket sending, sessionId={}, size={}bytes", sessionId, json.length());
+        boolean highPriority = isHighPriority(data);
         
-        // 高优先级消息立即发送
-        if (isHighPriority(data)) {
-            flushImmediately(sessionId, json);
+        sendMessageInternal(sessionId, json, highPriority);
+    }
+
+    /**
+     * 内部发送方法（已序列化，避免对 N 个订阅者重复序列化）
+     */
+    private void sendMessageInternal(String sessionId, String json, boolean highPriority) {
+        ConnectionManager.SessionContext ctx = connectionManager.getSessionContext(sessionId);
+        if (ctx == null) {
+            return;
+        }
+        
+        // 限流检查
+        if (!rateLimiter.allowSessionMessage(sessionId)) {
+            messagesDropped.increment();
+            return;
+        }
+        
+        if (highPriority) {
+            emitMessage(ctx, json);
         } else {
             // 普通消息加入批量队列
             batchQueues.computeIfAbsent(sessionId, k -> new ConcurrentLinkedQueue<>()).offer(json);
@@ -152,57 +147,30 @@ public class MessageDispatcher {
      */
     public void broadcast(String channel, JSONObject data) {
         long startTime = System.currentTimeMillis();
-
-        if (!extChannelEnabled && isExternalChannel(channel)) {
-            return;
-        }
         
-        // 对于深度消息，校验序列号连续性
         ChannelType channelType = ChannelType.fromChannel(channel);
-        if (channelType == ChannelType.DEPTH || channelType == ChannelType.EXT_DEPTH) {
-            log.debug("[WS-LINK] Processing depth message, channel={}, U={}, u={}", 
-                channel, data.getLongValue("U"), data.getLongValue("u"));
-            
-            // 校验序列号连续性
-            if (!validateDepthSequence(channel, data)) {
-                // 序列号不连续，触发快照重建
-                log.warn("[WS-LINK] Sequence gap detected for channel: {}, triggering snapshot rebuild", channel);
-                triggerSnapshotRebuild(channel);
-                return;
-            }
-            
-            // 深度数据使用队列聚合
+        if (channelType == ChannelType.DEPTH) {
+            // 深度消息：按 session 独立校验序列号，然后入队聚合
+            validateAndUpdateDepthSequence(channel, data);
             channelQueues.computeIfAbsent(channel, k -> new ConcurrentLinkedQueue<>()).offer(data);
-            log.debug("[WS-LINK] Depth message queued for aggregation, channel={}", channel);
             return;
         }
         
-        // 包装消息
+        // 包装消息并预先序列化（避免对 N 个订阅者重复序列化）
         JSONObject wrapper = new JSONObject();
         wrapper.put("stream", channel);
         wrapper.put("data", data);
-        
-        // 预先序列化
         String json = wrapper.toJSONString();
         messageSize.record(json.getBytes().length);
         
         // 获取订阅者并发送
         Set<String> subscribers = getSubscribersForChannel(channel);
         
-        if (subscribers.isEmpty()) {
-            log.debug("[Dispatcher] No subscribers for channel: {}", channel);
-            return;
-        }
-        
-        log.debug("[Dispatcher] Broadcasting to {} subscribers for channel: {}", subscribers.size(), channel);
-        
         for (String sessionId : subscribers) {
             if (rateLimiter.allowChannelMessage(channel)) {
-                sendMessage(sessionId, wrapper);
-                log.trace("[Dispatcher] Sent message to session: {}, channel: {}", sessionId, channel);
+                sendMessageInternal(sessionId, json, false);
             } else {
                 messagesDropped.increment();
-                log.warn("[Dispatcher] Message dropped due to rate limit, session: {}, channel: {}", sessionId, channel);
             }
         }
         
@@ -213,25 +181,18 @@ public class MessageDispatcher {
     }
 
     /**
-     * 校验深度消息序列号连续性
-     * 
-     * 规则：
-     * - 首次消息：U <= lastUpdateId + 1 && u >= lastUpdateId + 1
-     * - 后续消息：u == lastUpdateId + 1
+     * 按 session 独立校验深度序列号连续性，发现断档仅对受影响 session 补发快照
      */
-    private boolean validateDepthSequence(String channel, JSONObject data) {
+    private void validateAndUpdateDepthSequence(String channel, JSONObject data) {
         if (!data.containsKey("U") || !data.containsKey("u")) {
-            return false;
+            return;
         }
         
         long firstUpdateId = data.getLongValue("U");
         long lastUpdateId = data.getLongValue("u");
         
-        // 获取所有订阅者
         Set<String> subscribers = getSubscribersForChannel(channel);
         
-        // 检查每个订阅者的序列号连续性
-        boolean allValid = true;
         for (String sessionId : subscribers) {
             ConnectionMetadata metadata = connectionManager.getMetadata(sessionId);
             if (metadata == null) {
@@ -240,47 +201,27 @@ public class MessageDispatcher {
             
             long lastSeq = metadata.getLastSequence(channel);
             
-            // 首次消息或快照后的第一条消息
             if (lastSeq == 0) {
-                // 对首次增量不强制要求从 1 开始，直接接受并对齐到当前 u。
-                if (lastUpdateId <= 0 || firstUpdateId <= 0) {
-                    allValid = false;
-                    log.warn("[Dispatcher] Invalid first depth message for {}: U={}, u={}, expected positive update ids",
+                // 首次消息或快照后的第一条消息
+                if (firstUpdateId > 1 || lastUpdateId < 1) {
+                    log.warn("[Dispatcher] Invalid first depth message for {}: U={}, u={}", 
                             sessionId, firstUpdateId, lastUpdateId);
-                } else {
-                    // 更新序列号
-                    metadata.updateSequence(channel, lastUpdateId);
+                    sendSnapshot(sessionId, channel);
+                    continue;
                 }
             } else {
-                // 后续消息：
-                // - 允许重叠区间（U <= lastSeq+1 <= u）
-                // - 只在出现真正缺口（U > lastSeq+1）时判定 gap
-                long expected = lastSeq + 1;
-                if (firstUpdateId > expected) {
-                    allValid = false;
-                    log.warn("[Dispatcher] Sequence gap for {}: lastSeq={}, U={}, u={}",
-                            sessionId, lastSeq, firstUpdateId, lastUpdateId);
-                } else if (lastUpdateId >= expected) {
-                    metadata.updateSequence(channel, lastUpdateId);
-                } else {
-                    // 过期/重复消息，忽略但不视为错误
-                    log.debug("[Dispatcher] Ignore stale depth update for {}: lastSeq={}, U={}, u={}",
-                            sessionId, lastSeq, firstUpdateId, lastUpdateId);
+                // 后续消息：必须连续
+                if (firstUpdateId != lastSeq + 1 && lastUpdateId != lastSeq + 1) {
+                    if (firstUpdateId > lastSeq + 1 || lastUpdateId < lastSeq + 1) {
+                        log.warn("[Dispatcher] Sequence gap for {}: lastSeq={}, U={}, u={}", 
+                                sessionId, lastSeq, firstUpdateId, lastUpdateId);
+                        sendSnapshot(sessionId, channel);
+                        continue;
+                    }
                 }
             }
-        }
-        
-        return allValid;
-    }
-
-    /**
-     * 触发快照重建
-     */
-    private void triggerSnapshotRebuild(String channel) {
-        Set<String> subscribers = getSubscribersForChannel(channel);
-        for (String sessionId : subscribers) {
-            // 发送新的快照
-            sendSnapshot(sessionId, channel);
+            
+            metadata.updateSequence(channel, lastUpdateId);
         }
     }
 
@@ -288,10 +229,6 @@ public class MessageDispatcher {
      * 发送快照
      */
     public void sendSnapshot(String sessionId, String channel) {
-        if (!extChannelEnabled && isExternalChannel(channel)) {
-            return;
-        }
-
         ChannelType channelType = ChannelType.fromChannel(channel);
         
         try {
@@ -299,19 +236,15 @@ public class MessageDispatcher {
             
             switch (channelType) {
                 case DEPTH:
-                case EXT_DEPTH:
                     snapshot = fetchDepthSnapshot(channel);
                     break;
                 case TICKER:
-                case EXT_TICKER:
                     snapshot = fetchTickerSnapshot(channel);
                     break;
                 case TRADE:
-                case EXT_TRADE:
                     snapshot = fetchTradeSnapshot(channel);
                     break;
                 case KLINE:
-                case EXT_KLINE:
                     snapshot = fetchKlineSnapshot(channel);
                     break;
                 default:
@@ -324,22 +257,13 @@ public class MessageDispatcher {
                 wrapper.put("stream", channel);
                 wrapper.put("data", snapshot);
                 wrapper.put("snapshot", true);
-
-                // 快照首包直接发送，避免被批量封装后客户端无法及时解析。
-                flushImmediately(sessionId, wrapper.toJSONString());
+                
+                sendMessage(sessionId, wrapper);
                 
                 // 更新序列号
                 ConnectionMetadata metadata = connectionManager.getMetadata(sessionId);
-                if (metadata != null) {
-                    long seq = 0L;
-                    if (snapshot.containsKey("lastUpdateId")) {
-                        seq = snapshot.getLongValue("lastUpdateId");
-                    } else if (snapshot.containsKey("u")) {
-                        seq = snapshot.getLongValue("u");
-                    }
-                    if (seq > 0) {
-                        metadata.updateSequence(channel, seq);
-                    }
+                if (metadata != null && snapshot.containsKey("lastUpdateId")) {
+                    metadata.updateSequence(channel, snapshot.getLongValue("lastUpdateId"));
                 }
             }
             
@@ -349,28 +273,26 @@ public class MessageDispatcher {
     }
 
     /**
-     * 立即发送消息
+     * 通过 Sink 发送单条消息（WebFlux 非阻塞模型）
      */
-    private void flushImmediately(String sessionId, String json) {
-        WebSocketSession session = connectionManager.getSession(sessionId);
-        if (session == null || !session.isOpen()) {
-            log.warn("[WS-LINK] Session closed, cannot send, sessionId={}", sessionId);
+    private void emitMessage(ConnectionManager.SessionContext ctx, String json) {
+        Sinks.Many<String> sink = ctx.getSink();
+        if (sink == null) {
             return;
         }
         
-        try {
-            session.sendMessage(new TextMessage(json));
-            log.debug("[WS-LINK] >>> WebSocket sent (immediate), sessionId={}, size={}bytes", sessionId, json.length());
-            
-            // 更新统计
-            ConnectionMetadata metadata = connectionManager.getMetadata(sessionId);
+        Sinks.EmitResult result = sink.tryEmitNext(json);
+        if (result.isSuccess()) {
+            ConnectionMetadata metadata = ctx.getMetadata();
             if (metadata != null) {
                 metadata.incrementMessagesSent(json.getBytes().length);
             }
             messagesSent.increment();
-            
-        } catch (Exception e) {
-            log.error("[Dispatcher] Failed to send message to {}: {}", sessionId, e.getMessage());
+        } else if (result == Sinks.EmitResult.FAIL_OVERFLOW) {
+            log.warn("[Dispatcher] Sink overflow for {}, dropping message", ctx.getSessionId());
+            messagesDropped.increment();
+        } else if (result.isFailure()) {
+            log.warn("[Dispatcher] Failed to emit message for {}: {}", ctx.getSessionId(), result);
         }
     }
 
@@ -383,8 +305,8 @@ public class MessageDispatcher {
             return;
         }
         
-        WebSocketSession session = connectionManager.getSession(sessionId);
-        if (session == null || !session.isOpen()) {
+        ConnectionManager.SessionContext ctx = connectionManager.getSessionContext(sessionId);
+        if (ctx == null) {
             queue.clear();
             return;
         }
@@ -399,20 +321,9 @@ public class MessageDispatcher {
         if (messages.isEmpty()) {
             return;
         }
-
-        // 常见场景下一次只刷出一条，直接下发原始消息可兼容仅支持 stream/data 的客户端。
+        
         if (messages.size() == 1) {
-            String single = messages.get(0);
-            try {
-                session.sendMessage(new TextMessage(single));
-                ConnectionMetadata metadata = connectionManager.getMetadata(sessionId);
-                if (metadata != null) {
-                    metadata.incrementMessagesSent(single.getBytes().length);
-                }
-                messagesSent.increment();
-            } catch (Exception e) {
-                log.error("[Dispatcher] Failed to send single message to {}: {}", sessionId, e.getMessage(), e);
-            }
+            emitMessage(ctx, messages.get(0));
             return;
         }
         
@@ -421,32 +332,34 @@ public class MessageDispatcher {
         batchWrapper.put("batch", true);
         batchWrapper.put("messages", messages);
         
-        try {
-            String json = batchWrapper.toJSONString();
-            session.sendMessage(new TextMessage(json));
-            
-            // 更新统计
-            ConnectionMetadata metadata = connectionManager.getMetadata(sessionId);
-            if (metadata != null) {
-                metadata.incrementMessagesSent(json.getBytes().length);
-            }
-            messagesSent.increment(messages.size());
-            
-        } catch (Exception e) {
-            // 包含 IllegalStateException/RuntimeException，避免调度线程被未捕获异常终止
-            log.error("[Dispatcher] Failed to send batch to {}: {}", sessionId, e.getMessage(), e);
-        }
+        String json = batchWrapper.toJSONString();
+        emitMessage(ctx, json);
     }
 
     /**
      * 定时刷新所有队列
      */
     private void scheduledFlush() {
-        // 刷新session队列
-        batchQueues.keySet().forEach(this::flushBatch);
+        // 刷新session队列，同时清理无效session的队列
+        batchQueues.entrySet().removeIf(entry -> {
+            String sessionId = entry.getKey();
+            if (!connectionManager.exists(sessionId)) {
+                return true; // 移除无效队列
+            }
+            flushBatch(sessionId);
+            return false;
+        });
         
-        // 刷新频道队列（深度数据聚合）- 直接发送，不再调用broadcast避免重复验证
-        channelQueues.forEach((channel, queue) -> {
+        // 刷新频道队列（深度数据聚合）
+        channelQueues.entrySet().removeIf(entry -> {
+            String channel = entry.getKey();
+            Queue<JSONObject> queue = entry.getValue();
+            
+            // 清理无订阅者的频道队列
+            if (subscriptionManager.getSubscriberCount(channel) == 0) {
+                return true;
+            }
+            
             if (!queue.isEmpty()) {
                 // 只取最新的深度数据
                 JSONObject latest = null;
@@ -455,46 +368,26 @@ public class MessageDispatcher {
                 }
                 
                 if (latest != null) {
-                    // 直接发送，绕过broadcast的序列号验证
-                    broadcastDirect(channel, latest);
+                    // 直接发送，不走 broadcast 的 depth 分支（避免死循环）
+                    JSONObject wrapper = new JSONObject();
+                    wrapper.put("stream", channel);
+                    wrapper.put("data", latest);
+                    String json = wrapper.toJSONString();
+                    messageSize.record(json.getBytes().length);
+                    
+                    Set<String> subscribers = getSubscribersForChannel(channel);
+                    for (String sessionId : subscribers) {
+                        if (rateLimiter.allowChannelMessage(channel)) {
+                            sendMessageInternal(sessionId, json, false);
+                        } else {
+                            messagesDropped.increment();
+                        }
+                    }
+                    messagesSent.increment(subscribers.size());
                 }
             }
+            return false;
         });
-    }
-    
-    /**
-     * 直接广播（不验证序列号，用于聚合后的深度数据）
-     */
-    private void broadcastDirect(String channel, JSONObject data) {
-        if (!extChannelEnabled && isExternalChannel(channel)) {
-            return;
-        }
-
-        JSONObject wrapper = new JSONObject();
-        wrapper.put("stream", channel);
-        wrapper.put("data", data);
-        
-        String json = wrapper.toJSONString();
-        
-        // 获取订阅者并发送
-        Set<String> subscribers = getSubscribersForChannel(channel);
-        if (subscribers.isEmpty()) {
-            return;
-        }
-        
-        log.debug("[WS-LINK] >>> Broadcasting aggregated depth, channel={}, subscribers={}", channel, subscribers.size());
-        
-        for (String sessionId : subscribers) {
-            WebSocketSession session = connectionManager.getSession(sessionId);
-            if (session != null && session.isOpen()) {
-                try {
-                    session.sendMessage(new TextMessage(json));
-                    messagesSent.increment();
-                } catch (Exception e) {
-                    log.error("[WS-LINK] Failed to send, sessionId={}, error={}", sessionId, e.getMessage(), e);
-                }
-            }
-        }
     }
 
     /**
@@ -519,131 +412,243 @@ public class MessageDispatcher {
     // ========== 快照获取方法 ==========
 
     private JSONObject fetchDepthSnapshot(String channel) {
-        ExternalChannel ext = parseExternalChannel(channel);
-        String key;
-        if (ext != null && "depth".equals(ext.type())) {
-            key = "market:snapshot:depth:ext:" + ext.source() + ":" + ext.symbol();
-        } else {
-            String symbol = extractSymbol(channel);
-            key = "market:snapshot:depth:" + symbol;
+        String symbol = extractSymbol(channel);
+        String key = "market:snapshot:depth:" + symbol;
+        Object data = redisTemplate.opsForValue().get(key);
+
+        if (data == null) {
+            log.warn("[Dispatcher] Depth snapshot not found for channel: {}", channel);
+            return null;
         }
-        return fetchSnapshotFromRedis(key);
+
+        // 确保data是String类型
+        String jsonStr = (data instanceof String) ? (String) data : data.toString();
+        JSONObject snapshot = null;
+        try {
+            snapshot = JSON.parseObject(jsonStr);
+        } catch (Exception e) {
+            log.error("[Dispatcher] Failed to parse depth snapshot for channel: {}, jsonLength: {}, error: {}",
+                    channel, jsonStr != null ? jsonStr.length() : 0, e.getMessage());
+            return null;
+        }
+
+        // 新鲜度检查（深度数据应在3秒内）
+        if (!isSnapshotFresh(snapshot, 3000)) {
+            log.warn("[Dispatcher] Stale depth snapshot for channel: {}, age: {}ms",
+                    channel, getSnapshotAge(snapshot));
+            // 仍然返回，避免客户端完全没数据，但记录告警
+        }
+
+        return snapshot;
     }
 
     private JSONObject fetchTickerSnapshot(String channel) {
-        ExternalChannel ext = parseExternalChannel(channel);
-        String key;
-        if (ext != null && "ticker".equals(ext.type())) {
-            key = "market:snapshot:ticker:ext:" + ext.source() + ":" + ext.symbol();
-        } else {
-            String symbol = extractSymbol(channel);
-            key = "market:snapshot:ticker:" + symbol;
+        String symbol = extractSymbol(channel);
+        String key = "market:snapshot:ticker:" + symbol;
+        Object data = redisTemplate.opsForValue().get(key);
+
+        if (data == null) {
+            log.warn("[Dispatcher] Ticker snapshot not found for channel: {}", channel);
+            return null;
         }
-        return fetchSnapshotFromRedis(key);
+
+        JSONObject snapshot = JSON.parseObject(data.toString());
+
+        // 新鲜度检查（Ticker数据应在10秒内）
+        if (!isSnapshotFresh(snapshot, 10000)) {
+            log.warn("[Dispatcher] Stale ticker snapshot for channel: {}, age: {}ms",
+                    channel, getSnapshotAge(snapshot));
+        }
+
+        return snapshot;
     }
 
     private JSONObject fetchTradeSnapshot(String channel) {
-        ExternalChannel ext = parseExternalChannel(channel);
-        String key;
-        if (ext != null && "trade".equals(ext.type())) {
-            key = "market:snapshot:trade:ext:" + ext.source() + ":" + ext.symbol();
+        String symbol = extractSymbol(channel);
+
+        // 优先从标准快照读取最新一条
+        String singleKey = "market:snapshot:trade:" + symbol;
+        Object latestData = redisTemplate.opsForValue().get(singleKey);
+
+        // 从List读取最近100条（binance-data-source存储的）
+        String listKey = "binance:trade:" + symbol;
+        List<Object> tradeList = redisTemplate.opsForList().range(listKey, 0, 99);
+
+        JSONObject snapshot = new JSONObject();
+        snapshot.put("e", "tradeSnapshot");
+        snapshot.put("s", symbol);
+        snapshot.put("E", System.currentTimeMillis());
+
+        if (tradeList != null && !tradeList.isEmpty()) {
+            // 返回最近100条成交记录
+            snapshot.put("trades", tradeList);
+            snapshot.put("count", tradeList.size());
+            log.debug("[Dispatcher] Fetched {} trades for snapshot: {}", tradeList.size(), channel);
+        } else if (latestData != null) {
+            // 降级：只有最新一条
+            JSONObject latestTrade = JSON.parseObject(latestData.toString());
+            snapshot.put("trades", Collections.singletonList(latestTrade));
+            snapshot.put("count", 1);
+            log.debug("[Dispatcher] Fetched 1 trade (fallback) for snapshot: {}", channel);
         } else {
-            String symbol = extractSymbol(channel);
-            key = "market:snapshot:trade:" + symbol;
+            log.warn("[Dispatcher] Trade snapshot not found for channel: {}", channel);
+            return null;
         }
-        return fetchSnapshotFromRedis(key);
+
+        return snapshot;
     }
 
     private JSONObject fetchKlineSnapshot(String channel) {
-        ExternalChannel ext = parseExternalChannel(channel);
-        if (ext != null && "kline".equals(ext.type()) && ext.interval() != null) {
-            String key = "market:snapshot:kline:ext:" + ext.source() + ":" + ext.symbol() + ":" + ext.interval();
-            return fetchSnapshotFromRedis(key);
-        }
-
-        // 兼容两种格式：
-        // 1) kline.{symbol}.{interval}（当前前端使用）
-        // 2) kline.{interval}.{symbol}（历史格式）
+        // kline.{symbol}.{interval} 或 kline.{interval}.{symbol}
         String[] parts = channel.split("\\.");
+        String symbol = null;
+        String interval = null;
+
         if (parts.length >= 3) {
-            String first = parts[1];
-            String second = parts[2];
-            String symbol;
-            String interval;
-
-            if (isKlineIntervalToken(first) && !isKlineIntervalToken(second)) {
-                interval = first;
-                symbol = second;
+            // 尝试两种格式
+            if (parts[1].matches("[A-Z]+")) {
+                // kline.BTCUSDT.1m
+                symbol = parts[1];
+                interval = parts[2];
             } else {
-                symbol = first;
-                interval = second;
+                // kline.1m.BTCUSDT
+                interval = parts[1];
+                symbol = parts[2];
             }
-
-            String key = "market:snapshot:kline:" + symbol + ":" + interval;
-            return fetchSnapshotFromRedis(key);
         }
-        return null;
+
+        if (symbol == null || interval == null) {
+            log.warn("[Dispatcher] Invalid kline channel format: {}", channel);
+            return null;
+        }
+
+        // 1. 获取当前正在形成的K线（最新）
+        String currentKey = "market:snapshot:kline:" + symbol + ":" + interval;
+        Object currentData = redisTemplate.opsForValue().get(currentKey);
+
+        // 2. 获取历史K线（最近50根）
+        String historyKey = "market:snapshot:kline:history:" + symbol + ":" + interval;
+        List<Object> historyListReversed = redisTemplate.opsForList().range(historyKey, 0, 49);
+
+        // 反转列表（Redis中是最新的在前，客户端期望从旧到新）
+        List<Object> historyList = new ArrayList<>();
+        if (historyListReversed != null && !historyListReversed.isEmpty()) {
+            for (int i = historyListReversed.size() - 1; i >= 0; i--) {
+                historyList.add(historyListReversed.get(i));
+            }
+        }
+
+        JSONObject snapshot = new JSONObject();
+        snapshot.put("e", "klineSnapshot");
+        snapshot.put("s", symbol);
+        snapshot.put("i", interval);
+        snapshot.put("E", System.currentTimeMillis());
+
+        if (currentData != null) {
+            JSONObject currentKline = JSON.parseObject(currentData.toString());
+            snapshot.put("current", currentKline);
+
+            // 新鲜度检查（K线数据应在对应周期的2倍时间内）
+            long maxAge = getKlineIntervalMs(interval) * 2;
+            if (!isSnapshotFresh(currentKline, maxAge)) {
+                log.warn("[Dispatcher] Stale kline snapshot for channel: {}, age: {}ms, maxAge: {}ms",
+                        channel, getSnapshotAge(currentKline), maxAge);
+            }
+        }
+
+        if (!historyList.isEmpty()) {
+            snapshot.put("history", historyList);
+            snapshot.put("historyCount", historyList.size());
+            log.debug("[Dispatcher] Fetched {} historical klines (reversed to chronological order) for snapshot: {}",
+                    historyList.size(), channel);
+        } else {
+            // 没有历史数据，只返回当前K线
+            if (currentData == null) {
+                log.warn("[Dispatcher] No kline data found for channel: {}", channel);
+                return null;
+            }
+            snapshot.put("history", Collections.emptyList());
+            snapshot.put("historyCount", 0);
+            log.debug("[Dispatcher] No historical klines, only current kline for: {}", channel);
+        }
+
+        return snapshot;
     }
 
-    private JSONObject fetchSnapshotFromRedis(String key) {
-        Object data = redisTemplate.opsForValue().get(key);
-        if (data == null) {
-            return null;
+    /**
+     * 检查快照是否新鲜
+     *
+     * @param snapshot 快照数据
+     * @param maxAgeMs 最大允许年龄（毫秒）
+     * @return true 如果新鲜
+     */
+    private boolean isSnapshotFresh(JSONObject snapshot, long maxAgeMs) {
+        if (snapshot == null) {
+            return false;
         }
 
-        String raw = data.toString();
-        if (raw == null || raw.isBlank()) {
-            return null;
+        long eventTime = snapshot.getLongValue("E");
+        if (eventTime <= 0) {
+            // 尝试其他时间字段
+            eventTime = snapshot.getLongValue("T");
         }
 
-        // 正常 JSON 对象
+        if (eventTime <= 0) {
+            return true; // 没有时间戳，假设新鲜
+        }
+
+        long age = System.currentTimeMillis() - eventTime;
+        return age <= maxAgeMs;
+    }
+
+    /**
+     * 获取快照年龄（毫秒）
+     */
+    private long getSnapshotAge(JSONObject snapshot) {
+        if (snapshot == null) {
+            return Long.MAX_VALUE;
+        }
+
+        long eventTime = snapshot.getLongValue("E");
+        if (eventTime <= 0) {
+            eventTime = snapshot.getLongValue("T");
+        }
+
+        if (eventTime <= 0) {
+            return 0;
+        }
+
+        return System.currentTimeMillis() - eventTime;
+    }
+
+    /**
+     * 获取K线周期对应的毫秒数
+     */
+    private long getKlineIntervalMs(String interval) {
+        if (interval == null || interval.isEmpty()) {
+            return 60000; // 默认1分钟
+        }
+
+        // 解析间隔（如 "1m", "5m", "1h", "1d"）
         try {
-            JSONObject obj = JSON.parseObject(raw);
-            if (obj != null) {
-                return obj;
-            }
-        } catch (Exception ignored) {
-            // 继续尝试双层字符串格式
-        }
+            char unit = interval.charAt(interval.length() - 1);
+            int value = Integer.parseInt(interval.substring(0, interval.length() - 1));
 
-        // 兼容 Redis 中存储为 "\"{...}\"" 的双层字符串
-        try {
-            Object parsed = JSON.parse(raw);
-            if (parsed instanceof JSONObject) {
-                return (JSONObject) parsed;
-            }
-            if (parsed instanceof String nested && !nested.isBlank()) {
-                return JSON.parseObject(nested);
-            }
+            return switch (unit) {
+                case 's' -> value * 1000L;
+                case 'm' -> value * 60000L;
+                case 'h' -> value * 3600000L;
+                case 'd' -> value * 86400000L;
+                case 'w' -> value * 604800000L;
+                default -> 60000L; // 默认1分钟
+            };
         } catch (Exception e) {
-            log.warn("[Dispatcher] Failed to parse snapshot from redis, key={}, err={}", key, e.getMessage());
+            log.warn("[Dispatcher] Failed to parse interval: {}", interval);
+            return 60000L; // 默认1分钟
         }
-
-        return null;
-    }
-
-    private boolean isKlineIntervalToken(String token) {
-        if (token == null || token.length() < 2) {
-            return false;
-        }
-        char unit = token.charAt(token.length() - 1);
-        if ("smhdwM".indexOf(unit) < 0) {
-            return false;
-        }
-        for (int i = 0; i < token.length() - 1; i++) {
-            if (!Character.isDigit(token.charAt(i))) {
-                return false;
-            }
-        }
-        return true;
     }
 
     private String extractSymbol(String channel) {
-        ExternalChannel ext = parseExternalChannel(channel);
-        if (ext != null) {
-            return ext.symbol();
-        }
-
         // depth.BTCUSDT@100ms -> BTCUSDT
         // ticker.BTCUSDT -> BTCUSDT
         int dotIndex = channel.indexOf('.');
@@ -654,48 +659,6 @@ public class MessageDispatcher {
         }
         return channel;
     }
-
-    private ExternalChannel parseExternalChannel(String channel) {
-        if (channel == null || channel.isBlank()) {
-            return null;
-        }
-        String[] parts = channel.split("\\.");
-        if (parts.length < 4 || !"ext".equals(parts[1])) {
-            return null;
-        }
-
-        String type = parts[0];
-        String source = parts[2];
-        if (source == null || source.isBlank()) {
-            return null;
-        }
-
-        if ("kline".equals(type) && parts.length >= 5) {
-            return new ExternalChannel(type, source, stripSpeedSuffix(parts[3]), parts[4]);
-        }
-
-        if ("depth".equals(type) || "trade".equals(type) || "ticker".equals(type)) {
-            return new ExternalChannel(type, source, stripSpeedSuffix(parts[3]), null);
-        }
-        return null;
-    }
-
-    private String stripSpeedSuffix(String symbolToken) {
-        if (symbolToken == null || symbolToken.isBlank()) {
-            return symbolToken;
-        }
-        return symbolToken.replaceAll("@\\d+ms$", "");
-    }
-
-    private boolean isExternalChannel(String channel) {
-        ChannelType channelType = ChannelType.fromChannel(channel);
-        return channelType == ChannelType.EXT_DEPTH
-                || channelType == ChannelType.EXT_TRADE
-                || channelType == ChannelType.EXT_KLINE
-                || channelType == ChannelType.EXT_TICKER;
-    }
-
-    private record ExternalChannel(String type, String source, String symbol, String interval) {}
 
     /**
      * 关闭服务

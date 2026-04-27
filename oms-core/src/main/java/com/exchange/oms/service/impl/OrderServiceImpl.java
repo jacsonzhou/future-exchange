@@ -18,6 +18,8 @@ import com.exchange.oms.entity.Order;
 import com.exchange.oms.entity.OmsOrder;
 import com.exchange.oms.mapper.OrderMapper;
 import com.exchange.oms.mapper.OmsOrderMapper;
+import com.exchange.oms.dto.CheckOrderRiskRequest;
+import com.exchange.oms.dto.CheckOrderRiskResponse;
 import com.exchange.oms.dto.CfdOrderCommand;
 import com.exchange.oms.service.MarginPreHoldService;
 import com.exchange.oms.service.OrderService;
@@ -131,29 +133,26 @@ public class OrderServiceImpl implements OrderService {
             }
             log.info("User balance: userId={}, totalBalance={}", request.getUserId(), Money.format(totalBalance));
             
-            // 6. 构建订单命令（用于风控检查和发送撮合）
+            // 6. 构建订单命令（用于发送撮合）和风控检查请求
             OrderCommand command = buildOrderCommand(order);
+            CheckOrderRiskRequest riskRequest = buildRiskRequest(request, orderId);
             
-            // 7. 调用硬风控检查（传递保证金和余额信息）
-            // 🔥 临时修复：Hard Risk Core 未运行，添加 try-catch 避免订单被拒绝
-            boolean riskPassed = true;
-            try {
-                Boolean result = hardRiskClient.checkRisk(command, requiredMargin, totalBalance);
-                riskPassed = result != null && result;
-            } catch (Exception e) {
-                log.warn("[TEMP] Risk check service unavailable, skipping check: orderId={}, error={}", 
-                    orderId, e.getMessage());
-                // 风控服务不可用时直接通过（仅用于测试环境）
-                riskPassed = true;
-            }
+            // 7. 调用硬风控检查（同步阻塞，Fail-Close）
+            CheckOrderRiskResponse riskResponse = hardRiskClient.checkRisk(
+                    riskRequest, requiredMargin, totalBalance);
             
-            if (!riskPassed) {
-                log.warn("Risk check failed: orderId={}", orderId);
-                order.setStatus(OrderStatus.RISK_REJECTED);
+            if (riskResponse == null || !"PASS".equals(riskResponse.getResult())) {
+                String reason = (riskResponse != null) ? riskResponse.getRejectReason() : "NO_RESPONSE";
+                String message = (riskResponse != null) ? riskResponse.getRejectMessage() : "Risk check no response";
+                log.warn("Risk check rejected: orderId={}, reason={}, message={}", orderId, reason, message);
+                order.setStatus(OrderStatus.REJECTED);
                 order.setUpdateTime(TimeUtils.now());
                 orderMapper.updateById(order);
-                return CreateOrderResponse.fail("Risk check failed");
+                return CreateOrderResponse.fail("Risk check rejected: " + message);
             }
+            
+            log.info("Risk check passed: orderId={}, availableMargin={}", 
+                orderId, riskResponse.getAvailableMargin());
             
             // 7. 🔥 执行保证金预扣（关键：防止并发超卖）
             MarginPreHoldService.PreHoldResult preHoldResult = marginPreHoldService.preHold(
@@ -165,7 +164,7 @@ public class OrderServiceImpl implements OrderService {
             
             if (!preHoldResult.isSuccess()) {
                 log.error("Pre-hold failed: orderId={}, reason={}", orderId, preHoldResult.getMessage());
-                order.setStatus(OrderStatus.RISK_REJECTED);
+                order.setStatus(OrderStatus.REJECTED);
                 order.setUpdateTime(TimeUtils.now());
                 orderMapper.updateById(order);
                 return CreateOrderResponse.fail("Margin pre-hold failed: " + preHoldResult.getMessage());
@@ -174,7 +173,7 @@ public class OrderServiceImpl implements OrderService {
             log.info("Margin pre-hold success: orderId={}, margin={}", orderId, Money.format(requiredMargin));
 
             // 8. 更新订单状态为风控通过
-            order.setStatus(OrderStatus.RISK_PASSED);
+            order.setStatus(OrderStatus.PENDING_RISK);
             order.setUpdateTime(TimeUtils.now());
             orderMapper.updateById(order);
             log.info("Risk check passed: orderId={}", orderId);
@@ -183,7 +182,7 @@ public class OrderServiceImpl implements OrderService {
             submitOrderToMatchEngine(command, order);
 
             // 10. 更新订单状态为已发送撮合
-            order.setStatus(OrderStatus.SENT_TO_MATCH);
+            order.setStatus(OrderStatus.FROZEN);
             order.setUpdateTime(TimeUtils.now());
             orderMapper.updateById(order);
             log.info("Order sent to match engine: orderId={}, mode={}", orderId, submitModeConfig.getSubmitMode());
@@ -205,6 +204,25 @@ public class OrderServiceImpl implements OrderService {
         }
     }
     
+    /**
+     * 构建风控检查请求
+     *
+     * 注意：字段类型必须与 hard-risk-core 的 CheckOrderRiskRequest 严格对齐，
+     * 否则 Feign 调用时参数绑定会失败。
+     */
+    private CheckOrderRiskRequest buildRiskRequest(CreateOrderRequest request, long orderId) {
+        CheckOrderRiskRequest riskRequest = new CheckOrderRiskRequest();
+        riskRequest.setOrderId(String.valueOf(orderId));
+        riskRequest.setUserId(request.getUserId());
+        riskRequest.setSymbol(request.getSymbol());
+        riskRequest.setSide(request.getSide() != null ? request.getSide().name() : null);
+        riskRequest.setPrice(request.getPrice() != null ? String.valueOf(request.getPrice()) : null);
+        riskRequest.setQuantity(request.getQuantity() != null ? String.valueOf(request.getQuantity()) : null);
+        riskRequest.setLeverage(request.getLeverage());
+        riskRequest.setReduceOnly(request.getReduceOnly());
+        return riskRequest;
+    }
+
     /**
      * 计算订单所需保证金
      * 
@@ -423,6 +441,10 @@ public class OrderServiceImpl implements OrderService {
             order.setRiskCheckStatus(1);
             order.setFreezeStatus(0);
             order.setVersion(0);
+            order.setLiquidationId(request.getLiquidationId());
+            order.setPositionId(request.getPositionId());
+            order.setOrderSource(request.getOrderSource());
+            order.setReduceOnly(request.getReduceOnly() != null ? request.getReduceOnly() : false);
             order.setCreatedAt(now);
             order.setUpdatedAt(now);
             
@@ -732,3 +754,6 @@ public class OrderServiceImpl implements OrderService {
         return prefix + "_" + orderId;
     }
 }
+
+
+

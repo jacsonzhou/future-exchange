@@ -32,7 +32,6 @@ public class PartialLiquidationHandler {
     private final PnLCalculatorService pnLCalculatorService;
     private final InsuranceFundService insuranceFundService;
     private final OmsClient omsClient;
-    private final PositionClient positionClient;
     
     @Value("${liquidation.order.min-split-qty:1000000}")
     private Long minSplitQty; // 最小拆分数量（8位小数，0.01 BTC）
@@ -259,7 +258,7 @@ public class PartialLiquidationHandler {
         
         try {
             // 1. 查询最新标记价格（用于价格保护）
-            Long latestMarkPrice = getLatestMarkPrice(execution.getSymbol());
+            Long latestMarkPrice = getLatestMarkPrice(execution);
             
             // 2. 判断订单类型（价格保护）
             String orderType = determineOrderType(execution.getExecutedPrice(), latestMarkPrice);
@@ -343,17 +342,19 @@ public class PartialLiquidationHandler {
     }
     
     /**
-     * 获取最新标记价格
+     * 获取最新标记价格（兜底策略）
+     *
+     * 优先使用 execution 中已有的 markPrice，避免额外 RPC。
+     * 若 markPrice 缺失，返回 null 由调用方 fallback 到 MARKET。
      */
-    private Long getLatestMarkPrice(String symbol) {
-        try {
-            // TODO: 调用Mark-Price-Core获取最新标记价格
-            // 这里暂时返回null，由调用方处理
-            return null;
-        } catch (Exception e) {
-            log.warn("⚠️ Failed to get latest mark price, symbol={}", symbol, e);
-            return null;
+    private Long getLatestMarkPrice(LiquidationExecution execution) {
+        Long markPrice = execution.getMarkPrice();
+        if (markPrice != null && markPrice > 0) {
+            return markPrice;
         }
+        log.warn("⚠️ [PartialLiquidationHandler] markPrice not available, fallback to MARKET, liquidationId={}",
+                execution.getLiquidationId());
+        return null;
     }
     
     /**
@@ -387,3 +388,6 @@ public class PartialLiquidationHandler {
         return parentLiquidationId + "_R" + System.currentTimeMillis();
     }
 }
+
+
+

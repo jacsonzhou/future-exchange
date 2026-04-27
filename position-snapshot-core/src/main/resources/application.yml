@@ -28,6 +28,15 @@ spring:
         import-check:
           enabled: false
 
+# MyBatis Plus 配置
+mybatis-plus:
+  configuration:
+    map-underscore-to-camel-case: true
+    log-impl: org.apache.ibatis.logging.slf4j.Slf4jImpl
+  global-config:
+    db-config:
+      id-type: auto
+
 # Position 配置
 position:
   kafka:
@@ -51,3 +60,6 @@ logging:
     file: "%d{yyyy-MM-dd HH:mm:ss.SSS} [%thread] %-5level %logger{50} - %msg%n"
   file:
     name: logs/position-snapshot-core.log
+
+
+

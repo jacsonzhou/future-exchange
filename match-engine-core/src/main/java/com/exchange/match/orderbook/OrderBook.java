@@ -9,6 +9,7 @@ import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.util.*;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.concurrent.locks.ReentrantReadWriteLock;
 
 /**
  * 订单簿（OrderBook）
@@ -72,12 +73,18 @@ public class OrderBook {
      * 撮合序列号
      */
     private final AtomicLong matchSequence;
-    
+
+    /**
+     * 读写锁：保护 OrderBook 的并发访问
+     * Disruptor 单线程写 + HTTP 多线程读
+     */
+    private final ReentrantReadWriteLock rwLock = new ReentrantReadWriteLock();
+
     /**
      * 价格精度（放大倍数）
      */
     private static final long PRICE_SCALE = 100_000_000L;
-    
+
     public OrderBook(String symbol) {
         this.symbol = symbol;
         this.bidBook = new Long2ObjectOpenHashMap<>();
@@ -90,79 +97,89 @@ public class OrderBook {
      * 添加订单（并尝试撮合）
      */
     public List<Trade> addOrder(Order order) {
-        log.info("[OrderBook] Add order, orderId={}, symbol={}, side={}, price={}, qty={}",
-            order.getOrderId(), symbol, order.getSide(), order.getPrice(), order.getQuantity());
-        
-        // 设置缩放价格
-        if (order.getPrice() != null) {
-            order.setPriceScaled(scalePrice(order.getPrice()));
+        rwLock.writeLock().lock();
+        try {
+            log.info("[OrderBook] Add order, orderId={}, symbol={}, side={}, price={}, qty={}",
+                order.getOrderId(), symbol, order.getSide(), order.getPrice(), order.getQuantity());
+
+            // 设置缩放价格
+            if (order.getPrice() != null) {
+                order.setPriceScaled(scalePrice(order.getPrice()));
+            }
+
+            // 初始化剩余数量
+            order.setRemainingQuantity(order.getQuantity());
+            order.setFilledQuantity(BigDecimal.ZERO);
+
+            List<Trade> trades = new ArrayList<>();
+
+            // 尝试撮合
+            if (order.isBuy()) {
+                trades = matchBuyOrder(order);
+            } else {
+                trades = matchSellOrder(order);
+            }
+
+            // 如果是限价单且有剩余，加入订单簿
+            if (order.isLimit() && !order.isFullyFilled()) {
+                addToOrderBook(order);
+            }
+
+            return trades;
+        } finally {
+            rwLock.writeLock().unlock();
         }
-        
-        // 初始化剩余数量
-        order.setRemainingQuantity(order.getQuantity());
-        order.setFilledQuantity(BigDecimal.ZERO);
-        
-        List<Trade> trades = new ArrayList<>();
-        
-        // 尝试撮合
-        if (order.isBuy()) {
-            trades = matchBuyOrder(order);
-        } else {
-            trades = matchSellOrder(order);
-        }
-        
-        // 如果是限价单且有剩余，加入订单簿
-        if (order.isLimit() && !order.isFullyFilled()) {
-            addToOrderBook(order);
-        }
-        
-        return trades;
     }
     
     /**
      * 撤单
-     * 
+     *
      * 🔥 撤单后需要更新bestBidPrice/bestAskPrice
      */
     public boolean cancelOrder(Long orderId) {
-        log.info("[OrderBook] Cancel order, orderId={}", orderId);
-        
-        Order order = orderMap.remove(orderId);
-        if (order == null) {
-            log.warn("[OrderBook] Order not found for cancel, orderId={}", orderId);
-            return false;
-        }
-        
-        long priceScaled = order.getPriceScaled();
-        
-        // 从订单簿移除
-        if (order.isBuy()) {
-            PriceLevel level = bidBook.get(priceScaled);
-            if (level != null) {
-                level.removeOrder(orderId);
-                if (level.isEmpty()) {
-                    bidBook.remove(priceScaled);
-                    // 🔥 如果移除的是最优价，需要更新bestBidPrice
-                    if (priceScaled == bestBidPrice) {
-                        updateBestBidPrice();
+        rwLock.writeLock().lock();
+        try {
+            log.info("[OrderBook] Cancel order, orderId={}", orderId);
+
+            Order order = orderMap.remove(orderId);
+            if (order == null) {
+                log.warn("[OrderBook] Order not found for cancel, orderId={}", orderId);
+                return false;
+            }
+
+            long priceScaled = order.getPriceScaled();
+
+            // 从订单簿移除
+            if (order.isBuy()) {
+                PriceLevel level = bidBook.get(priceScaled);
+                if (level != null) {
+                    level.removeOrder(orderId);
+                    if (level.isEmpty()) {
+                        bidBook.remove(priceScaled);
+                        // 🔥 如果移除的是最优价，需要更新bestBidPrice
+                        if (priceScaled == bestBidPrice) {
+                            updateBestBidPrice();
+                        }
+                    }
+                }
+            } else {
+                PriceLevel level = askBook.get(priceScaled);
+                if (level != null) {
+                    level.removeOrder(orderId);
+                    if (level.isEmpty()) {
+                        askBook.remove(priceScaled);
+                        // 🔥 如果移除的是最优价，需要更新bestAskPrice
+                        if (priceScaled == bestAskPrice) {
+                            updateBestAskPrice();
+                        }
                     }
                 }
             }
-        } else {
-            PriceLevel level = askBook.get(priceScaled);
-            if (level != null) {
-                level.removeOrder(orderId);
-                if (level.isEmpty()) {
-                    askBook.remove(priceScaled);
-                    // 🔥 如果移除的是最优价，需要更新bestAskPrice
-                    if (priceScaled == bestAskPrice) {
-                        updateBestAskPrice();
-                    }
-                }
-            }
+
+            return true;
+        } finally {
+            rwLock.writeLock().unlock();
         }
-        
-        return true;
     }
     
     /**
@@ -362,20 +379,30 @@ public class OrderBook {
     
     /**
      * 获取最优买价
-     * 
+     *
      * 🔥 O(1)访问（不是TreeMap.firstKey()的O(logN)）
      */
     public Long getBestBidPrice() {
-        return bestBidPrice == 0L ? null : bestBidPrice;
+        rwLock.readLock().lock();
+        try {
+            return bestBidPrice == 0L ? null : bestBidPrice;
+        } finally {
+            rwLock.readLock().unlock();
+        }
     }
-    
+
     /**
      * 获取最优卖价
-     * 
+     *
      * 🔥 O(1)访问（不是TreeMap.firstKey()的O(logN)）
      */
     public Long getBestAskPrice() {
-        return bestAskPrice == Long.MAX_VALUE ? null : bestAskPrice;
+        rwLock.readLock().lock();
+        try {
+            return bestAskPrice == Long.MAX_VALUE ? null : bestAskPrice;
+        } finally {
+            rwLock.readLock().unlock();
+        }
     }
 
     public String getSymbol() {
@@ -420,14 +447,24 @@ public class OrderBook {
      * 获取订单簿深度
      */
     public int getDepth() {
-        return bidBook.size() + askBook.size();
+        rwLock.readLock().lock();
+        try {
+            return bidBook.size() + askBook.size();
+        } finally {
+            rwLock.readLock().unlock();
+        }
     }
-    
+
     /**
      * 获取订单数量
      */
     public int getOrderCount() {
-        return orderMap.size();
+        rwLock.readLock().lock();
+        try {
+            return orderMap.size();
+        } finally {
+            rwLock.readLock().unlock();
+        }
     }
 
     /**
@@ -438,87 +475,100 @@ public class OrderBook {
      * - 订单不在 orderMap 中：通常说明已完全成交或已撤单
      */
     public Order getOrder(Long orderId) {
-        return orderMap.get(orderId);
+        rwLock.readLock().lock();
+        try {
+            return orderMap.get(orderId);
+        } finally {
+            rwLock.readLock().unlock();
+        }
     }
     
     /**
      * 🔥 获取订单簿深度数据（供前端展示）
-     * 
+     *
      * @param depth 深度层级（如 20 表示买卖各20档）
      * @return 深度数据 {bids: [[price, qty], ...], asks: [[price, qty], ...]}
      */
     public Map<String, List<List<String>>> getDepthData(int depth) {
-        Map<String, List<List<String>>> result = new HashMap<>();
-        
-        // 获取买盘（从高到低排序）
-        List<List<String>> bids = new ArrayList<>();
-        List<Long> bidPrices = new ArrayList<>(bidBook.keySet());
-        bidPrices.sort(Comparator.reverseOrder());
-        
-        for (Long price : bidPrices) {
-            if (bids.size() >= depth) break;
-            PriceLevel level = bidBook.get(price);
-            if (level != null && !level.isEmpty()) {
-                BigDecimal priceValue = new BigDecimal(price).divide(new BigDecimal(PRICE_SCALE), 8, RoundingMode.HALF_UP);
-                // 🔥 FIX: totalQuantity 现在是缩放后的值，需要除以 PRICE_SCALE
-                BigDecimal qtyValue = new BigDecimal(level.getTotalQuantity())
-                    .divide(new BigDecimal(PRICE_SCALE), 8, RoundingMode.HALF_UP);
-                bids.add(Arrays.asList(
-                    priceValue.toPlainString(),
-                    qtyValue.toPlainString()
-                ));
+        rwLock.readLock().lock();
+        try {
+            Map<String, List<List<String>>> result = new HashMap<>();
+
+            // 获取买盘（从高到低排序）
+            List<List<String>> bids = new ArrayList<>();
+            List<Long> bidPrices = new ArrayList<>(bidBook.keySet());
+            bidPrices.sort(Comparator.reverseOrder());
+
+            for (Long price : bidPrices) {
+                if (bids.size() >= depth) break;
+                PriceLevel level = bidBook.get(price);
+                if (level != null && !level.isEmpty()) {
+                    BigDecimal priceValue = new BigDecimal(price).divide(new BigDecimal(PRICE_SCALE), 8, RoundingMode.HALF_UP);
+                    BigDecimal qtyValue = new BigDecimal(level.getTotalQuantity())
+                        .divide(new BigDecimal(PRICE_SCALE), 8, RoundingMode.HALF_UP);
+                    bids.add(Arrays.asList(
+                        priceValue.toPlainString(),
+                        qtyValue.toPlainString()
+                    ));
+                }
             }
-        }
-        
-        // 获取卖盘（从低到高排序）
-        List<List<String>> asks = new ArrayList<>();
-        List<Long> askPrices = new ArrayList<>(askBook.keySet());
-        askPrices.sort(Comparator.naturalOrder());
-        
-        for (Long price : askPrices) {
-            if (asks.size() >= depth) break;
-            PriceLevel level = askBook.get(price);
-            if (level != null && !level.isEmpty()) {
-                BigDecimal priceValue = new BigDecimal(price).divide(new BigDecimal(PRICE_SCALE), 8, RoundingMode.HALF_UP);
-                // 🔥 FIX: totalQuantity 是缩放后的值，需要除以 PRICE_SCALE
-                BigDecimal qtyValue = new BigDecimal(level.getTotalQuantity())
-                    .divide(new BigDecimal(PRICE_SCALE), 8, RoundingMode.HALF_UP);
-                asks.add(Arrays.asList(
-                    priceValue.toPlainString(),
-                    qtyValue.toPlainString()
-                ));
+
+            // 获取卖盘（从低到高排序）
+            List<List<String>> asks = new ArrayList<>();
+            List<Long> askPrices = new ArrayList<>(askBook.keySet());
+            askPrices.sort(Comparator.naturalOrder());
+
+            for (Long price : askPrices) {
+                if (asks.size() >= depth) break;
+                PriceLevel level = askBook.get(price);
+                if (level != null && !level.isEmpty()) {
+                    BigDecimal priceValue = new BigDecimal(price).divide(new BigDecimal(PRICE_SCALE), 8, RoundingMode.HALF_UP);
+                    BigDecimal qtyValue = new BigDecimal(level.getTotalQuantity())
+                        .divide(new BigDecimal(PRICE_SCALE), 8, RoundingMode.HALF_UP);
+                    asks.add(Arrays.asList(
+                        priceValue.toPlainString(),
+                        qtyValue.toPlainString()
+                    ));
+                }
             }
+
+            result.put("bids", bids);
+            result.put("asks", asks);
+            return result;
+        } finally {
+            rwLock.readLock().unlock();
         }
-        
-        result.put("bids", bids);
-        result.put("asks", asks);
-        return result;
     }
     
     /**
      * 获取用户的挂单列表
-     * 
+     *
      * @param userId 用户ID
      * @return 用户的挂单列表
      */
     public List<Map<String, Object>> getUserOrders(Long userId) {
-        List<Map<String, Object>> userOrders = new ArrayList<>();
-        
-        for (Order order : orderMap.values()) {
-            if (order.getUserId().equals(userId)) {
-                Map<String, Object> orderInfo = new HashMap<>();
-                orderInfo.put("orderId", order.getOrderId());
-                orderInfo.put("symbol", symbol);
-                orderInfo.put("side", order.isBuy() ? "BUY" : "SELL");
-                orderInfo.put("price", order.getPrice().toPlainString());
-                orderInfo.put("quantity", order.getQuantity().toPlainString());
-                orderInfo.put("filledQuantity", order.getFilledQuantity().toPlainString());
-                orderInfo.put("remainingQuantity", order.getRemainingQuantity().toPlainString());
-                userOrders.add(orderInfo);
+        rwLock.readLock().lock();
+        try {
+            List<Map<String, Object>> userOrders = new ArrayList<>();
+
+            for (Order order : orderMap.values()) {
+                if (order.getUserId().equals(userId)) {
+                    Map<String, Object> orderInfo = new HashMap<>();
+                    orderInfo.put("orderId", order.getOrderId());
+                    orderInfo.put("symbol", symbol);
+                    orderInfo.put("side", order.isBuy() ? "BUY" : "SELL");
+                    orderInfo.put("price", order.getPrice().toPlainString());
+                    orderInfo.put("quantity", order.getQuantity().toPlainString());
+                    orderInfo.put("filledQuantity", order.getFilledQuantity().toPlainString());
+                    orderInfo.put("remainingQuantity", order.getRemainingQuantity().toPlainString());
+                    userOrders.add(orderInfo);
+                }
             }
+
+            return userOrders;
+        } finally {
+            rwLock.readLock().unlock();
         }
-        
-        return userOrders;
     }
     
     /**

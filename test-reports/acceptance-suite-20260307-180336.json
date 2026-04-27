@@ -1,0 +1,114 @@
+{
+  "generatedAt": 1772877816036,
+  "durationSec": 125.44,
+  "passed": 6,
+  "failed": 4,
+  "steps": [
+    {
+      "name": "runtime_schema_fix",
+      "ok": true,
+      "message": "Liquidation runtime schema aligned",
+      "details": {
+        "mysqlContainer": "web3-mysql",
+        "completedAtBefore": true,
+        "validatedAtBefore": true,
+        "completedAtAfter": true,
+        "validatedAtAfter": true
+      }
+    },
+    {
+      "name": "service_check",
+      "ok": true,
+      "message": "Required services are listening",
+      "details": {
+        "apiGateway": "http://127.0.0.1:8082",
+        "omsBase": "http://127.0.0.1:8081",
+        "matchBase": "http://127.0.0.1:8083",
+        "positionInternalBase": "http://127.0.0.1:8086",
+        "liquidationBase": "http://127.0.0.1:8102"
+      }
+    },
+    {
+      "name": "login",
+      "ok": true,
+      "message": "Login success",
+      "details": {
+        "userId": 111,
+        "tokenLen": 192
+      }
+    },
+    {
+      "name": "maker_login",
+      "ok": true,
+      "message": "Maker account login success",
+      "details": {
+        "makerUsername": "r6_maker_1772877627",
+        "makerUserId": 112,
+        "tokenLen": 192
+      }
+    },
+    {
+      "name": "context_snapshot",
+      "ok": true,
+      "message": "Depth empty, fallback bid/ask from ticker24h",
+      "details": {
+        "bestBid": "67923.70830000",
+        "bestAsk": "68059.69170000",
+        "depthHasLevels": false,
+        "fallbackSource": "ticker24h",
+        "activePosition": null,
+        "positionCount": 0
+      }
+    },
+    {
+      "name": "cancel_flow",
+      "ok": true,
+      "message": "Passive order canceled successfully",
+      "details": {
+        "orderId": "288612154750275584",
+        "side": "SELL",
+        "price": "74865.66087000",
+        "cancelResponse": {
+          "orderId": "288612154750275584",
+          "status": "CANCELED",
+          "success": true,
+          "errorCode": null,
+          "errorMessage": null
+        },
+        "finalStatus": "CANCELED"
+      }
+    },
+    {
+      "name": "fill_flow",
+      "ok": false,
+      "message": "Fill flow failed",
+      "details": {
+        "error": "Aggressive open order not FILLED, status=FROZEN, query={'orderId': '288612184542416896', 'clientOrderId': 'acc-open-1772877706864', 'symbol': 'BTCUSDT', 'side': 'BUY', 'type': 'LIMIT', 'price': '81671.63004', 'quantity': '0.001', 'filledQuantity': '0', 'status': 'FROZEN', 'reasonCode': 'FROZEN', 'reasonMsg': 'Fund frozen', 'executionMode': 'CFD_DEALER', 'liquiditySource': None, 'referenceTopic': None, 'referenceOffset': None, 'referenceEventTime': None, 'referenceBestBid': None, 'referenceBestAsk': None, 'referenceVwapPrice': None, 'slippageBps': None, 'createTime': 1772877706950}"
+      }
+    },
+    {
+      "name": "manual_close_flow",
+      "ok": false,
+      "message": "Manual close flow failed",
+      "details": {
+        "error": "No active position after fill"
+      }
+    },
+    {
+      "name": "liquidation_price_formula",
+      "ok": false,
+      "message": "Liquidation price formula check failed",
+      "details": {
+        "error": "No active position for liquidation price check"
+      }
+    },
+    {
+      "name": "liquidation_trigger_execution",
+      "ok": false,
+      "message": "Liquidation trigger stage failed",
+      "details": {
+        "error": "No active position for liquidation trigger"
+      }
+    }
+  ]
+}

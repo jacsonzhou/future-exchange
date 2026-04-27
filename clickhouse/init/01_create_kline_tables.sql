@@ -149,6 +149,67 @@ SETTINGS index_granularity = 8192;
 -- ENGINE = Distributed('{cluster}', 'exchange_kline', 'kline_data', rand());
 
 -- ============================================
+-- K 线权威数据（去重/冲突/恢复）
+-- ============================================
+CREATE TABLE IF NOT EXISTS exchange_kline.kline_authority
+(
+    source String,
+    symbol String,
+    interval String,
+    open_time DateTime64(3, 'UTC'),
+    close_time DateTime64(3, 'UTC'),
+    open_price Decimal64(8),
+    high_price Decimal64(8),
+    low_price Decimal64(8),
+    close_price Decimal64(8),
+    volume Decimal64(8),
+    quote_volume Decimal64(8),
+    trade_count UInt32,
+    taker_buy_volume Decimal64(8),
+    taker_buy_quote_volume Decimal64(8),
+    candle_closed UInt8,
+    payload_hash String,
+    first_seen_at DateTime64(3, 'UTC'),
+    last_seen_at DateTime64(3, 'UTC'),
+    updated_at_ms UInt64
+)
+ENGINE = ReplacingMergeTree(updated_at_ms)
+PARTITION BY toYYYYMM(open_time)
+ORDER BY (source, symbol, interval, open_time)
+PRIMARY KEY (source, symbol, interval, open_time)
+SETTINGS index_granularity = 8192;
+
+CREATE TABLE IF NOT EXISTS exchange_kline.kline_backfill_watermark
+(
+    source String,
+    symbol String,
+    interval String,
+    last_closed_open_time_ms UInt64,
+    last_event_time_ms UInt64,
+    updated_at_ms UInt64
+)
+ENGINE = ReplacingMergeTree(updated_at_ms)
+ORDER BY (source, symbol, interval)
+PRIMARY KEY (source, symbol, interval)
+SETTINGS index_granularity = 8192;
+
+CREATE TABLE IF NOT EXISTS exchange_kline.kline_authority_conflict
+(
+    source String,
+    symbol String,
+    interval String,
+    open_time_ms UInt64,
+    existing_hash String,
+    incoming_hash String,
+    detected_at_ms UInt64
+)
+ENGINE = MergeTree
+PARTITION BY toYYYYMM(toDateTime(detected_at_ms / 1000))
+ORDER BY (source, symbol, interval, open_time_ms, detected_at_ms)
+PRIMARY KEY (source, symbol, interval, open_time_ms, detected_at_ms)
+SETTINGS index_granularity = 8192;
+
+-- ============================================
 -- 创建视图：便于查询
 -- ============================================
 CREATE OR REPLACE VIEW exchange_kline.v_kline_latest AS

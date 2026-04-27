@@ -1,6 +1,15 @@
 server:
   port: 8095
 
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info
+  endpoint:
+    health:
+      show-details: never
+
 spring:
   application:
     name: market-price-core
@@ -47,10 +56,52 @@ kafka:
     match-event: trade-event
 
 market-data:
+  kline:
+    authority-enabled: ${MARKET_KLINE_AUTHORITY_ENABLED:false}
+    # 外部行情模式下由 market.ext.*.kline.* 作为权威来源，禁用 trade-event 驱动的 K 线生成。
+    external-authoritative-enabled: ${MARKET_KLINE_EXTERNAL_AUTHORITATIVE_ENABLED:true}
+    backfill-with-watermark: ${MARKET_KLINE_BACKFILL_WITH_WATERMARK:false}
+    authority-source: ${MARKET_KLINE_AUTHORITY_SOURCE:binance}
+    retention:
+      enabled: ${MARKET_KLINE_RETENTION_ENABLED:true}
+      days: ${MARKET_KLINE_RETENTION_DAYS:365}
+      initial-delay-ms: ${MARKET_KLINE_RETENTION_INITIAL_DELAY_MS:120000}
+      interval-ms: ${MARKET_KLINE_RETENTION_INTERVAL_MS:86400000}
+    resume:
+      enabled: ${MARKET_KLINE_RESUME_ENABLED:true}
+      initial-delay-ms: ${MARKET_KLINE_RESUME_INITIAL_DELAY_MS:60000}
+      interval-ms: ${MARKET_KLINE_RESUME_INTERVAL_MS:60000}
+      interval: ${MARKET_KLINE_RESUME_INTERVAL:1m}
+      chunk-candles: ${MARKET_KLINE_RESUME_CHUNK_CANDLES:1440}
+      max-catchup-days: ${MARKET_KLINE_RESUME_MAX_CATCHUP_DAYS:365}
+      max-segments-per-task: ${MARKET_KLINE_RESUME_MAX_SEGMENTS_PER_TASK:512}
+      max-retries-per-segment: ${MARKET_KLINE_RESUME_MAX_RETRIES_PER_SEGMENT:3}
+      max-parallel-tasks: ${MARKET_KLINE_RESUME_MAX_PARALLEL_TASKS:1}
+      missing-repair-enabled: ${MARKET_KLINE_RESUME_MISSING_REPAIR_ENABLED:true}
+      missing-lookback-candles: ${MARKET_KLINE_RESUME_MISSING_LOOKBACK_CANDLES:4320}
+      missing-max-segments: ${MARKET_KLINE_RESUME_MISSING_MAX_SEGMENTS:64}
+    gap-repair:
+      enabled: ${MARKET_KLINE_GAP_REPAIR_ENABLED:true}
+      initial-delay-ms: ${MARKET_KLINE_GAP_REPAIR_INITIAL_DELAY_MS:120000}
+      interval-ms: ${MARKET_KLINE_GAP_REPAIR_INTERVAL_MS:300000}
+      interval: ${MARKET_KLINE_GAP_REPAIR_INTERVAL:1m}
+      lookback-candles: ${MARKET_KLINE_GAP_REPAIR_LOOKBACK_CANDLES:4320}
+      max-segments: ${MARKET_KLINE_GAP_REPAIR_MAX_SEGMENTS:64}
+      skip-when-resume-running: ${MARKET_KLINE_GAP_REPAIR_SKIP_WHEN_RESUME_RUNNING:true}
   external:
     enabled: ${MARKET_EXTERNAL_ENABLED:true}
     source: ${MARKET_EXTERNAL_SOURCE:binance}
     rest-base-url: ${MARKET_EXTERNAL_REST_BASE_URL:https://fapi.binance.com}
+    # depth/trade 最新优先：重启后跳过积压，避免旧事件覆盖当前快照。
+    force-seek-to-end-on-assign: ${MARKET_EXTERNAL_FORCE_SEEK_TO_END_ON_ASSIGN:true}
+    consumer-auto-offset-reset: ${MARKET_EXTERNAL_CONSUMER_AUTO_OFFSET_RESET:latest}
+    drop-out-of-order: ${MARKET_EXTERNAL_DROP_OUT_OF_ORDER:true}
+    drop-log-sample-interval: ${MARKET_EXTERNAL_DROP_LOG_SAMPLE_INTERVAL:200}
+    realtime-max-age-ms:
+      trade: ${MARKET_EXTERNAL_TRADE_MAX_AGE_MS:0}
+      depth: ${MARKET_EXTERNAL_DEPTH_MAX_AGE_MS:0}
+      ticker: ${MARKET_EXTERNAL_TICKER_MAX_AGE_MS:0}
+      kline: ${MARKET_EXTERNAL_KLINE_MAX_AGE_MS:0}
     symbols: ${MARKET_EXTERNAL_SYMBOLS:BTCUSDT,ETHUSDT,BNBUSDT,SOLUSDT,XRPUSDT}
     backfill:
       enabled: ${MARKET_EXTERNAL_BACKFILL_ENABLED:true}

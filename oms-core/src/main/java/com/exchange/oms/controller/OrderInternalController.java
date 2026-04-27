@@ -2,10 +2,8 @@ package com.exchange.oms.controller;
 
 import com.exchange.common.core.enums.OrderType;
 import com.exchange.common.core.enums.Side;
-import com.exchange.common.proto.event.OrderCommand;
 import com.exchange.common.proto.request.CreateOrderRequest;
-import com.exchange.common.proto.response.CreateOrderResponse;
-import com.exchange.oms.service.OrderService;
+import com.exchange.oms.service.OmsService;
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -13,19 +11,21 @@ import org.springframework.web.bind.annotation.*;
 
 /**
  * OMS 内部接口控制器
- * 
+ *
  * 供其他微服务调用，包括：
  * - Liquidation Service (强平服务)
  * - TP-SL Service (止盈止损服务)
  * - ADL Service (自动减仓服务)
+ *
+ * 注：统一走 OmsService（新流程），废弃旧 OrderService 流程。
  */
 @Slf4j
 @RestController
 @RequestMapping("/internal/order")
 public class OrderInternalController {
-    
+
     @Autowired
-    private OrderService orderService;
+    private OmsService omsService;
     
     /**
      * 创建强平订单
@@ -59,10 +59,11 @@ public class OrderInternalController {
                     : request.getOrderSource()
             );
             orderRequest.setPositionId(request.getPositionId());
+            orderRequest.setLiquidationId(request.getLiquidationId());
             orderRequest.setExecutionMode(request.getExecutionMode());
             
             // 调用服务创建订单 (特殊处理)
-            Long orderId = orderService.createLiquidationOrder(orderRequest);
+            Long orderId = omsService.createLiquidationOrder(orderRequest);
             
             log.info("[OrderInternalController] Liquidation order created, orderId={}", orderId);
             return orderId;
@@ -90,7 +91,7 @@ public class OrderInternalController {
         orderRequest.setReduceOnly(true);
         orderRequest.setOrderSource("ADL");
         
-        return orderService.createAdlOrder(orderRequest);
+        return omsService.createAdlOrder(orderRequest);
     }
     
     /**
@@ -99,7 +100,7 @@ public class OrderInternalController {
     @PostMapping("/cancel")
     public void cancelOrder(@RequestBody Long orderId) {
         log.info("[OrderInternalController] Cancelling order, orderId={}", orderId);
-        orderService.cancelOrder(orderId);
+        omsService.cancelOrder(orderId);
     }
     
     // ==================== DTO ====================
@@ -129,3 +130,6 @@ public class OrderInternalController {
         private String adlExecutionId;
     }
 }
+
+
+

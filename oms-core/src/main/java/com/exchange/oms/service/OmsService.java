@@ -34,19 +34,26 @@ public interface OmsService {
     SubmitOrderResponse confirmSubmitByClientOrderId(Long userId, String clientOrderId);
     
     /**
-     * 撤单
-     * 
+     * 撤单（用户请求）
+     *
      * 核心流程：
      * 1. 查询订单
      * 2. 状态校验
-     * 3. 更新状态=CANCELED
+     * 3. 更新状态=PENDING_CANCEL
      * 4. 投递CancelEvent -> Match Engine
      * 5. 解冻资金
-     * 
+     *
      * @param request 撤单请求
      * @return 撤单响应
      */
     CancelOrderResponse cancelOrder(CancelOrderRequest request);
+
+    /**
+     * 撤单（内部服务调用，如强平/ADL服务）
+     *
+     * @param orderId 订单ID
+     */
+    void cancelOrder(Long orderId);
     
     /**
      * 查询订单
@@ -66,11 +73,30 @@ public interface OmsService {
     
     /**
      * 处理成交回报（从撮合引擎回调）
-     * 
+     *
      * @param orderId 订单ID
      * @param filledQuantity 成交数量
      */
     void handleTradeReport(Long orderId, String filledQuantity);
+
+    /**
+     * 创建强平订单（内部服务调用）
+     *
+     * @param request 订单请求
+     * @return 订单ID
+     */
+    Long createLiquidationOrder(com.exchange.common.proto.request.CreateOrderRequest request);
+
+    /**
+     * 创建ADL减仓订单（内部服务调用）
+     *
+     * @param request 订单请求
+     * @return 订单ID
+     */
+    Long createAdlOrder(com.exchange.common.proto.request.CreateOrderRequest request);
 }
+
+
+
 
 

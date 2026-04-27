@@ -119,6 +119,24 @@ public class SnapshotInternalController {
     }
     
     /**
+     * 🔥 从 Ledger DB 直接 Replay（异步）
+     *
+     * 支持按 userId 增量恢复，支持 bizSeq 区间限制。
+     * 方法立即返回 replayId，实际重放在后台异步执行。
+     */
+    @PostMapping("/replay/ledger-db")
+    public String replayFromLedgerDb(@RequestBody ReplayFromLedgerDbRequest request) {
+        log.info("[SnapshotController] Replay from Ledger DB, symbol={}, userId={}, startBizSeq={}, endBizSeq={}",
+            request.getSymbol(), request.getUserId(), request.getStartBizSeq(), request.getEndBizSeq());
+        return replayService.replayFromLedgerDb(
+            request.getSymbol(),
+            request.getUserId(),
+            request.getStartBizSeq(),
+            request.getEndBizSeq()
+        );
+    }
+    
+    /**
      * 查询Replay进度
      */
     @GetMapping("/replay/progress/{replayId}")
@@ -138,5 +156,13 @@ public class SnapshotInternalController {
         private String symbol;
         private Long startTs;
         private Long endTs;
+    }
+    
+    @Data
+    public static class ReplayFromLedgerDbRequest {
+        private String symbol;
+        private Long userId;
+        private Long startBizSeq;
+        private Long endBizSeq;
     }
 }

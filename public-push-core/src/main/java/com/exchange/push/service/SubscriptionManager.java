@@ -51,7 +51,7 @@ public class SubscriptionManager {
     @Lazy
     private MessageDispatcher messageDispatcher;
 
-    @Value("${public-push.ext-channel-enabled:true}")
+    @Value("${public-push.ext-channel-enabled:false}")
     private boolean extChannelEnabled;
 
     // 频道 -> 订阅该频道的sessions (正向索引)
@@ -86,7 +86,7 @@ public class SubscriptionManager {
     /**
      * 订阅频道
      */
-    public synchronized SubscribeResult subscribe(String sessionId, String channel) {
+    public SubscribeResult subscribe(String sessionId, String channel) {
         // 检查session是否存在
         if (!connectionManager.exists(sessionId)) {
             return SubscribeResult.error(channel, "Session not found");
@@ -101,6 +101,7 @@ public class SubscriptionManager {
             return SubscribeResult.error(channel, "External channel disabled");
         }
 
+        int maxSubs = properties.getSubscription().getMaxSubscriptionsPerSession();
         Set<String> currentSubs = sessionChannels.computeIfAbsent(sessionId, k -> ConcurrentHashMap.newKeySet());
 
         // 幂等：重复订阅直接返回成功，但补发快照并确保消费者仍在
@@ -111,17 +112,18 @@ public class SubscriptionManager {
             return SubscribeResult.success(channel);
         }
 
-        // 检查订阅数限制（仅对新订阅生效）
-        int maxSubs = properties.getSubscription().getMaxSubscriptionsPerSession();
-        if (currentSubs.size() >= maxSubs) {
-            return SubscribeResult.error(channel,
-                    "Subscription limit exceeded: " + maxSubs);
+        // 尝试添加，利用 ConcurrentHashMap.newKeySet 的原子性，然后检查限制
+        if (!currentSubs.add(channel)) {
+            return SubscribeResult.success(channel);
         }
 
-        // 添加到索引（session/channel 双向索引保持一致）
-        Set<String> subscribers = channelSubscribers.computeIfAbsent(channel, k -> ConcurrentHashMap.newKeySet());
-        currentSubs.add(channel);
-        subscribers.add(sessionId);
+        if (currentSubs.size() > maxSubs) {
+            currentSubs.remove(channel);
+            return SubscribeResult.error(channel, "Subscription limit exceeded: " + maxSubs);
+        }
+
+        // 添加到正向索引
+        channelSubscribers.computeIfAbsent(channel, k -> ConcurrentHashMap.newKeySet()).add(sessionId);
 
         incrementCounters(channelType);
 
@@ -149,7 +151,7 @@ public class SubscriptionManager {
     /**
      * 取消订阅
      */
-    public synchronized void unsubscribe(String sessionId, String channel) {
+    public void unsubscribe(String sessionId, String channel) {
         Set<String> channels = sessionChannels.get(sessionId);
         if (channels == null || !channels.remove(channel)) {
             // 未订阅该频道，避免错误扣减计数
@@ -163,10 +165,10 @@ public class SubscriptionManager {
         if (subs != null) {
             subs.remove(sessionId);
 
-            // 如果没有订阅者，停止Kafka消费者
+            // 如果没有订阅者，先标记为空闲，延迟回收，避免短连接场景频繁退组/重平衡。
             if (subs.isEmpty()) {
                 channelSubscribers.remove(channel);
-                kafkaConsumerManager.stopConsumer(channel);
+                kafkaConsumerManager.markChannelInactive(channel);
             }
         }
 
@@ -180,7 +182,7 @@ public class SubscriptionManager {
     /**
      * 取消所有订阅
      */
-    public synchronized void unsubscribeAll(String sessionId) {
+    public void unsubscribeAll(String sessionId) {
         Set<String> channels = sessionChannels.remove(sessionId);
         if (channels == null || channels.isEmpty()) {
             return;
@@ -193,7 +195,7 @@ public class SubscriptionManager {
                 subs.remove(sessionId);
                 if (subs.isEmpty()) {
                     channelSubscribers.remove(channel);
-                    kafkaConsumerManager.stopConsumer(channel);
+                    kafkaConsumerManager.markChannelInactive(channel);
                 }
             }
 

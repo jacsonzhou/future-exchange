@@ -125,6 +125,10 @@ margin:
     auto-check: true
     check-interval: 500
     execution-timeout: 30000
+    dedup:
+      enabled: true
+      window-ms: 120000
+      max-cache-size: 200000
 
 # 外部服务调用配置
 service:

@@ -61,47 +61,116 @@ public class PositionSnapshot {
      * 0 = 该方向无持仓
      */
     private BigDecimal size;
-    
+
+    /**
+     * 可平仓数量
+     */
+    private BigDecimal availableSize;
+
     /**
      * 持仓均价（开仓价）
      * 多次开仓时为加权平均价
      */
     private BigDecimal entryPrice;
-    
+
+    /**
+     * 标记价格
+     */
+    private BigDecimal markPrice;
+
+    /**
+     * 指数价格
+     */
+    private BigDecimal indexPrice;
+
     // ==================== 🔥 盈亏信息 ====================
-    
+
     /**
      * 未实现盈亏（浮动盈亏）
-     * 
+     *
      * 多头：(markPrice - entryPrice) * size
      * 空头：(entryPrice - markPrice) * abs(size)
      */
     private BigDecimal unrealizedPnl;
-    
+
     /**
      * 已实现盈亏（累计）
      * 平仓时累加
      */
     private BigDecimal realizedPnl;
-    
+
+    /**
+     * 盈亏比例
+     */
+    private BigDecimal pnlRatio;
+
     // ==================== 🔥 风控指标 ====================
-    
+
     /**
      * 保证金率
-     * 
+     *
      * marginRatio = equity / maintenanceMargin
-     * 
+     *
      * 强平条件：marginRatio < 1.0
      */
     private BigDecimal marginRatio;
-    
+
     /**
      * 强平价格
-     * 
+     *
      * 多头：entryPrice - (equity - maintenanceMargin) / size
      * 空头：entryPrice + (equity - maintenanceMargin) / abs(size)
      */
     private BigDecimal liquidationPrice;
+
+    /**
+     * 破产价格
+     */
+    private BigDecimal bankruptcyPrice;
+
+    // ==================== 🔥 保证金信息 ====================
+
+    /**
+     * 仓位保证金
+     */
+    private BigDecimal positionMargin;
+
+    /**
+     * 维持保证金
+     */
+    private BigDecimal maintenanceMargin;
+
+    /**
+     * 维持保证金率
+     */
+    private BigDecimal maintenanceMarginRate;
+
+    /**
+     * 杠杆倍数
+     */
+    private Integer leverage;
+
+    /**
+     * 保证金模式: CROSS/ISOLATED
+     */
+    private String marginMode;
+
+    /**
+     * 风险等级: 1=SAFE 2=WARNING 3=DANGER 4=LIQUIDATION
+     */
+    private Integer riskLevel;
+
+    // ==================== 🔥 自动减仓排名 ====================
+
+    /**
+     * ADL得分
+     */
+    private BigDecimal adlScore;
+
+    /**
+     * ADL排名
+     */
+    private Integer adlRank;
     
     // ==================== 🔥 同步位点（幂等性）====================
     

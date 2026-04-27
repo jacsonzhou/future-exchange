@@ -1,28 +1,28 @@
 -- =====================================================
 -- Position Snapshot Core 数据库表结构
--- 数据库: exchange_snapshot
+-- 数据库: exchange_position
 -- 职责: 持仓快照维护、浮盈浮亏计算、强平价格计算
 -- =====================================================
 
-CREATE DATABASE IF NOT EXISTS exchange_snapshot 
+CREATE DATABASE IF NOT EXISTS exchange_position 
     DEFAULT CHARACTER SET utf8mb4 
     COLLATE utf8mb4_unicode_ci;
 
-USE exchange_snapshot;
+USE exchange_position;
 
 -- =====================================================
 -- 1. 持仓快照主表
 -- =====================================================
-CREATE TABLE IF NOT EXISTS t_position_snapshot (
-    id BIGINT PRIMARY KEY COMMENT '持仓ID',
+CREATE TABLE IF NOT EXISTS position_snapshot (
+    id BIGINT PRIMARY KEY AUTO_INCREMENT COMMENT '持仓ID',
     user_id BIGINT NOT NULL COMMENT '用户ID',
     symbol VARCHAR(32) NOT NULL COMMENT '交易对',
     
     -- 持仓方向
-    side TINYINT NOT NULL COMMENT '方向: 1=LONG 2=SHORT',
+    position_side TINYINT NOT NULL COMMENT '方向: 1=LONG 2=SHORT',
     
     -- 持仓数量
-    size DECIMAL(32,16) NOT NULL DEFAULT 0 COMMENT '持仓数量（正=多头，负=空头）',
+    size DECIMAL(32,16) NOT NULL DEFAULT 0 COMMENT '持仓数量（始终为正数，方向由position_side决定）',
     available_size DECIMAL(32,16) NOT NULL DEFAULT 0 COMMENT '可平仓数量',
     
     -- 价格信息
@@ -66,13 +66,13 @@ CREATE TABLE IF NOT EXISTS t_position_snapshot (
     created_at BIGINT NOT NULL COMMENT '创建时间（毫秒）',
     updated_at BIGINT NOT NULL COMMENT '更新时间（毫秒）',
     
-    UNIQUE KEY uk_user_symbol (user_id, symbol),
+    UNIQUE KEY uk_user_symbol_side (user_id, symbol, position_side),
     INDEX idx_user_id (user_id),
     INDEX idx_symbol (symbol),
     INDEX idx_last_update_seq (last_update_seq),
     INDEX idx_margin_ratio (margin_ratio),
     INDEX idx_risk_level (risk_level),
-    INDEX idx_adl_score (symbol, side, adl_score DESC),
+    INDEX idx_adl_score (symbol, position_side, adl_score DESC),
     INDEX idx_liquidation_price (symbol, liquidation_price)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='持仓快照主表';
 
@@ -236,11 +236,11 @@ CREATE TABLE IF NOT EXISTS t_position_statistics (
 -- 初始化数据
 -- =====================================================
 -- 初始化测试持仓
-INSERT INTO t_position_snapshot (
-    id, user_id, symbol, side, size, available_size, entry_price,
+INSERT INTO position_snapshot (
+    user_id, symbol, position_side, size, available_size, entry_price,
     unrealized_pnl, realized_pnl, margin_ratio, liquidation_price,
     leverage, margin_mode, last_update_seq, version, created_at, updated_at
 ) VALUES 
-(10001, 10001, 'BTCUSDT', 1, 1.5, 1.5, 50000.00, 0, 0, 2.50, 48000.00, 10, 'ISOLATED', 0, 0, UNIX_TIMESTAMP() * 1000, UNIX_TIMESTAMP() * 1000),
-(10002, 10002, 'ETHUSDT', 2, -10.0, 10.0, 3000.00, 0, 0, 2.80, 3100.00, 10, 'ISOLATED', 0, 0, UNIX_TIMESTAMP() * 1000, UNIX_TIMESTAMP() * 1000)
+(10001, 'BTCUSDT', 1, 1.5, 1.5, 50000.00, 0, 0, 2.50, 48000.00, 10, 'ISOLATED', 0, 0, UNIX_TIMESTAMP() * 1000, UNIX_TIMESTAMP() * 1000),
+(10002, 'ETHUSDT', 2, 10.0, 10.0, 3000.00, 0, 0, 2.80, 3100.00, 10, 'ISOLATED', 0, 0, UNIX_TIMESTAMP() * 1000, UNIX_TIMESTAMP() * 1000)
 ON DUPLICATE KEY UPDATE updated_at = VALUES(updated_at);

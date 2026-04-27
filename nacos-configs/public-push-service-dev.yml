@@ -57,9 +57,11 @@ public-push:
     max-connections-per-ip: 50
     connection-rate-limit: 10
     heartbeat-interval-ms: 30000
-    heartbeat-timeout-ms: 5000
+    heartbeat-timeout-ms: 30000
     send-buffer-size: 32768
     receive-buffer-size: 32768
+    send-time-limit-ms: 60000
+    send-buffer-size-limit-bytes: 20971520
   
   # 订阅配置
   subscription:
@@ -69,7 +71,7 @@ public-push:
   
   # 消息推送配置
   push:
-    batch-interval-ms: 50
+    batch-interval-ms: 20
     batch-size: 100
     batch-queue-size: 10000
     compression-enabled: false
@@ -94,7 +96,7 @@ public-push:
   kafka:
     consumer-threads: 8
     consumer-batch-size: 500
-    poll-timeout-ms: 100
+    poll-timeout-ms: 20
     dynamic-consumer:
       enabled: true
       idle-timeout-minutes: 5

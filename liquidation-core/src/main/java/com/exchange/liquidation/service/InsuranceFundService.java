@@ -52,3 +52,6 @@ public interface InsuranceFundService {
      */
     Long injectLiquidationSurplus(LiquidationExecution execution);
 }
+
+
+

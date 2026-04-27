@@ -22,6 +22,7 @@ SEED_BUY_FIRST="${SEED_BUY_FIRST:-true}"
 POSITION_POLL_TIMES="${POSITION_POLL_TIMES:-20}"
 POSITION_POLL_INTERVAL="${POSITION_POLL_INTERVAL:-1}"
 TARGET_SIDE="${TARGET_SIDE:-SELL}"   # SELL | BUY
+CFD_MODE="${CFD_MODE:-true}"         # true: 跳过 match-engine 门禁，按 CFD 链路验收
 
 RED='\033[0;31m'
 GREEN='\033[0;32m'
@@ -217,14 +218,16 @@ fi
 if [[ -z "$OMS_BASE" ]]; then
   OMS_BASE="$(resolve_service_base_from_nacos "oms-core" "$NACOS_TOKEN")"
 fi
-if [[ -z "$MATCH_BASE" ]]; then
-  MATCH_BASE="$(resolve_service_base_from_nacos "match-engine-core" "$NACOS_TOKEN")"
-fi
-if [[ -z "$MATCH_STATS_URL" ]]; then
-  MATCH_STATS_URL="${MATCH_BASE}/api/v1/match/orderbook/stats"
+if [[ "${CFD_MODE}" != "true" ]]; then
+  if [[ -z "$MATCH_BASE" ]]; then
+    MATCH_BASE="$(resolve_service_base_from_nacos "match-engine-core" "$NACOS_TOKEN")"
+  fi
+  if [[ -z "$MATCH_STATS_URL" ]]; then
+    MATCH_STATS_URL="${MATCH_BASE}/api/v1/match/orderbook/stats"
+  fi
 fi
 
-log "Resolved endpoints: API_GATEWAY=${API_GATEWAY}, OMS_BASE=${OMS_BASE}, MATCH_BASE=${MATCH_BASE}"
+log "Resolved endpoints: API_GATEWAY=${API_GATEWAY}, OMS_BASE=${OMS_BASE}, MATCH_BASE=${MATCH_BASE:-N/A}, CFD_MODE=${CFD_MODE}"
 PRICE_DEC="$(to_dec8 "$PRICE_INT")"
 QTY_DEC="$(to_dec8 "$QTY_INT")"
 
@@ -240,12 +243,19 @@ if [[ "$LOGIN_CODE" != "200" || -z "$TOKEN" || "$TOKEN" == "null" ]]; then
 fi
 log "${GREEN}Login ok, userId=${USER_ID}, tokenLen=${#TOKEN}${NC}"
 
-log "${YELLOW}[2/8] Snapshot match-engine stats before order${NC}"
-STATS_BEFORE=$(request_json "GET" "${MATCH_STATS_URL}" "" "")
-BEST_BID_BEFORE=$(safe_jq "$STATS_BEFORE" '.bestBid')
-BEST_ASK_BEFORE=$(safe_jq "$STATS_BEFORE" '.bestAsk')
-COUNT_BEFORE=$(safe_jq "$STATS_BEFORE" '.orderCount')
-log "Stats before: ${STATS_BEFORE}"
+BEST_BID_BEFORE="N/A"
+BEST_ASK_BEFORE="N/A"
+COUNT_BEFORE="N/A"
+if [[ "${CFD_MODE}" == "true" ]]; then
+  log "${YELLOW}[2/8] Skip match-engine stats in CFD mode${NC}"
+else
+  log "${YELLOW}[2/8] Snapshot match-engine stats before order${NC}"
+  STATS_BEFORE=$(request_json "GET" "${MATCH_STATS_URL}" "" "")
+  BEST_BID_BEFORE=$(safe_jq "$STATS_BEFORE" '.bestBid')
+  BEST_ASK_BEFORE=$(safe_jq "$STATS_BEFORE" '.bestAsk')
+  COUNT_BEFORE=$(safe_jq "$STATS_BEFORE" '.orderCount')
+  log "Stats before: ${STATS_BEFORE}"
+fi
 
 CLIENT_ORDER_ID="sell_50000_1btc_$(date +%s)"
 IDEMPOTENCY_KEY="idem_${CLIENT_ORDER_ID}_sell"
@@ -424,12 +434,19 @@ if ! [[ "$POSITION_COUNT" =~ ^[0-9]+$ ]] || [[ "$POSITION_COUNT" -eq 0 ]]; then
   exit 1
 fi
 
-log "${YELLOW}[7/8] Snapshot match-engine stats after fill${NC}"
-STATS_AFTER=$(request_json "GET" "${MATCH_STATS_URL}" "" "")
-BEST_BID_AFTER=$(safe_jq "$STATS_AFTER" '.bestBid')
-BEST_ASK_AFTER=$(safe_jq "$STATS_AFTER" '.bestAsk')
-COUNT_AFTER=$(safe_jq "$STATS_AFTER" '.orderCount')
-log "Stats after: ${STATS_AFTER}"
+BEST_BID_AFTER="N/A"
+BEST_ASK_AFTER="N/A"
+COUNT_AFTER="N/A"
+if [[ "${CFD_MODE}" == "true" ]]; then
+  log "${YELLOW}[7/8] Skip match-engine stats in CFD mode${NC}"
+else
+  log "${YELLOW}[7/8] Snapshot match-engine stats after fill${NC}"
+  STATS_AFTER=$(request_json "GET" "${MATCH_STATS_URL}" "" "")
+  BEST_BID_AFTER=$(safe_jq "$STATS_AFTER" '.bestBid')
+  BEST_ASK_AFTER=$(safe_jq "$STATS_AFTER" '.bestAsk')
+  COUNT_AFTER=$(safe_jq "$STATS_AFTER" '.orderCount')
+  log "Stats after: ${STATS_AFTER}"
+fi
 
 log "${YELLOW}[8/8] Validate trade output and OMS state update from logs${NC}"
 MATCH_LOG=""
@@ -457,17 +474,26 @@ if [[ -n "$OMS_LOG" ]]; then
   OMS_HIT=$(grep -E "orderId=${ORDER_ID}|${ORDER_ID}" "$OMS_LOG" | tail -n 8 || true)
 fi
 
-if [[ -z "$MATCH_HIT" ]]; then
-  log "${RED}No match-engine log hit for orderId=${ORDER_ID}${NC}"
-  exit 1
-fi
 if [[ -z "$OMS_HIT" ]]; then
   log "${RED}No OMS log hit for orderId=${ORDER_ID}${NC}"
   exit 1
 fi
 
-log "${GREEN}Match-engine log hits:${NC}"
-echo "$MATCH_HIT"
+if [[ "${CFD_MODE}" != "true" ]]; then
+  if [[ -z "$MATCH_HIT" ]]; then
+    log "${RED}No match-engine log hit for orderId=${ORDER_ID}${NC}"
+    exit 1
+  fi
+  log "${GREEN}Match-engine log hits:${NC}"
+  echo "$MATCH_HIT"
+else
+  if [[ -n "$MATCH_HIT" ]]; then
+    log "${YELLOW}CFD mode: optional match log hits found${NC}"
+    echo "$MATCH_HIT"
+  else
+    log "${YELLOW}CFD mode: skip match-engine log hit gate${NC}"
+  fi
+fi
 log "${GREEN}OMS log hits:${NC}"
 echo "$OMS_HIT"
 

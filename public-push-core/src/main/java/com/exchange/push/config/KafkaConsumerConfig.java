@@ -3,6 +3,7 @@ package com.exchange.push.config;
 import org.apache.kafka.clients.consumer.ConsumerConfig;
 import org.apache.kafka.common.serialization.StringDeserializer;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.kafka.config.ConcurrentKafkaListenerContainerFactory;
@@ -24,6 +25,9 @@ public class KafkaConsumerConfig {
 
     @Value("${spring.kafka.consumer.group-id:public-push-service}")
     private String groupId;
+
+    @Autowired
+    private PublicPushProperties publicPushProperties;
 
     @Bean
     public ConsumerFactory<String, String> consumerFactory() {
@@ -49,6 +53,9 @@ public class KafkaConsumerConfig {
         factory.setConsumerFactory(consumerFactory());
         factory.setBatchListener(false);
         factory.getContainerProperties().setAckMode(ContainerProperties.AckMode.BATCH);
+        long configuredPollTimeoutMs = publicPushProperties.getKafka().getPollTimeoutMs();
+        long pollTimeoutMs = Math.min(Math.max(10L, configuredPollTimeoutMs), 20L);
+        factory.getContainerProperties().setPollTimeout(pollTimeoutMs);
         return factory;
     }
 }

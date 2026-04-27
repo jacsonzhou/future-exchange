@@ -114,6 +114,34 @@ public class KlineService {
     }
 
     /**
+     * 清空所有K线历史与实时数据。
+     */
+    public void truncateAllKlines() {
+        klineRepository.truncateAllKlines();
+    }
+
+    /**
+     * 删除指定symbol+interval的时间区间K线。
+     */
+    public void deleteKlines(String symbol, String interval, Long startTime, Long endTime) {
+        klineRepository.deleteRange(symbol, interval, startTime, endTime);
+    }
+
+    /**
+     * 查询时间段内已有open_time（升序去重）。
+     */
+    public List<Long> listOpenTimes(String symbol, String interval, long startInclusive, long endInclusive, int limit) {
+        return klineRepository.listOpenTimes(symbol, interval, startInclusive, endInclusive, limit);
+    }
+
+    /**
+     * 删除cutoff之前K线。
+     */
+    public void deleteKlinesBefore(long cutoffOpenTimeMs) {
+        klineRepository.deleteBefore(cutoffOpenTimeMs);
+    }
+
+    /**
      * 关闭 K 线（将实时表数据写入历史表）
      */
     public void closeKline(Kline kline) {

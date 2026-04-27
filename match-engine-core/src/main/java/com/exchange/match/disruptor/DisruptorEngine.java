@@ -1,7 +1,6 @@
 package com.exchange.match.disruptor;
 
 import com.exchange.match.event.MatchEvent;
-import com.exchange.match.processor.MatchingProcessor;
 import com.lmax.disruptor.BlockingWaitStrategy;
 import com.lmax.disruptor.RingBuffer;
 import com.lmax.disruptor.dsl.Disruptor;
@@ -30,30 +29,30 @@ import java.util.concurrent.ThreadFactory;
 public class DisruptorEngine {
     
     @Autowired
-    private MatchingProcessor matchingProcessor;
-    
+    private MatchEventHandler matchEventHandler;
+
     /**
      * Disruptor实例
      */
     private Disruptor<MatchEvent> disruptor;
-    
+
     /**
      * RingBuffer
      */
     private RingBuffer<MatchEvent> ringBuffer;
-    
+
     /**
      * RingBuffer大小（必须是2的幂）
      */
     private static final int RING_BUFFER_SIZE = 1024 * 64;
-    
+
     @PostConstruct
     public void init() {
         log.info("[DisruptorEngine] Initializing...");
-        
+
         // 创建线程工厂
         ThreadFactory threadFactory = Executors.defaultThreadFactory();
-        
+
         // 创建Disruptor
         disruptor = new Disruptor<>(
             MatchEvent::new,
@@ -62,16 +61,16 @@ public class DisruptorEngine {
             ProducerType.SINGLE, // 单生产者（Kafka Consumer是单线程）
             new BlockingWaitStrategy() // 等待策略
         );
-        
-        // 设置事件处理器
-        disruptor.handleEventsWith(matchingProcessor);
-        
+
+        // 设置事件处理器：使用 MatchEventHandler（真实撮合逻辑）
+        disruptor.handleEventsWith(matchEventHandler);
+
         // 设置异常处理器
         disruptor.setDefaultExceptionHandler(new MatchExceptionHandler());
-        
+
         // 启动Disruptor
         ringBuffer = disruptor.start();
-        
+
         log.info("[DisruptorEngine] Started successfully, ringBufferSize={}", RING_BUFFER_SIZE);
     }
     
@@ -132,6 +131,9 @@ public class DisruptorEngine {
         }
     }
 }
+
+
+
 
 
 

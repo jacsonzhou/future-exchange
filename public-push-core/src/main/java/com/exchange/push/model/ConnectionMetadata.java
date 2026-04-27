@@ -112,6 +112,7 @@ public class ConnectionMetadata {
      * 检查是否僵尸连接
      */
     public boolean isZombie(long timeoutMs) {
-        return System.currentTimeMillis() - lastPongTime > timeoutMs;
+        long lastLivenessTime = Math.max(lastPongTime, lastActivityTime);
+        return System.currentTimeMillis() - lastLivenessTime > timeoutMs;
     }
 }

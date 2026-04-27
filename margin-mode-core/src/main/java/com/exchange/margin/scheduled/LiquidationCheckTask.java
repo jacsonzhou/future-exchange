@@ -13,6 +13,7 @@ import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 
 import java.util.List;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicLong;
 
 /**
@@ -35,11 +36,22 @@ public class LiquidationCheckTask {
     @Value("${margin.risk.liquidation-threshold:1000}")
     private long liquidationThreshold;
 
+    @Value("${margin.liquidation.dedup.enabled:true}")
+    private boolean liquidationDedupEnabled;
+
+    @Value("${margin.liquidation.dedup.window-ms:120000}")
+    private long liquidationDedupWindowMs;
+
+    @Value("${margin.liquidation.dedup.max-cache-size:200000}")
+    private int liquidationDedupMaxCacheSize;
+
     // Kafka Topic
     private static final String LIQUIDATION_TRIGGER_TOPIC = "liquidation-trigger-topic";
 
     // 事件序列号生成器
     private final AtomicLong sequenceGenerator = new AtomicLong(0);
+    private final AtomicLong dedupCleanupCounter = new AtomicLong(0);
+    private final ConcurrentHashMap<String, Long> liquidationDedupCache = new ConcurrentHashMap<>();
 
     public LiquidationCheckTask(PositionMarginDetailMapper positionMapper,
                                 CrossMarginSnapshotMapper snapshotMapper,
@@ -204,13 +216,25 @@ public class LiquidationCheckTask {
         int priority = calculateLiquidationPriority(position.getMarginRatio());
         event.setPriority(priority);
 
-        event.setTimestamp(System.currentTimeMillis());
-        event.setSequence(sequenceGenerator.incrementAndGet());
-        event.setRemark("强平检测任务触发");
+        long now = System.currentTimeMillis();
+        long sequence = buildSequence(position, now);
+        String dedupKey = buildDedupKey(position.getPositionId(), event.getTriggerType(), sequence);
+        if (!registerDedupKey(dedupKey)) {
+            log.info("[LiquidationCheckTask] Skip duplicate liquidation trigger, dedupKey={}, positionId={}, symbol={}",
+                    dedupKey, position.getPositionId(), position.getSymbol());
+            return;
+        }
+
+        event.setTimestamp(now);
+        event.setSequence(sequence);
+        event.setRemark("强平检测任务触发|dedupKey=" + dedupKey);
 
         // 发送到Kafka
         try {
-            kafkaTemplate.send(LIQUIDATION_TRIGGER_TOPIC, event.getUserId().toString(), event);
+            String kafkaKey = event.getUserId() == null
+                    ? String.valueOf(event.getPositionId())
+                    : event.getUserId().toString();
+            kafkaTemplate.send(LIQUIDATION_TRIGGER_TOPIC, kafkaKey, event);
 
             log.warn("[LiquidationCheckTask] Liquidation triggered! positionId={}, userId={}, " +
                             "symbol={}, marginMode={}, marginRatio={}%, markPrice={}, " +
@@ -222,6 +246,64 @@ public class LiquidationCheckTask {
         } catch (Exception e) {
             log.error("[LiquidationCheckTask] Failed to publish liquidation trigger event, " +
                     "positionId={}", position.getPositionId(), e);
+        }
+    }
+
+    private long buildSequence(PositionMarginDetail position, long now) {
+        long windowMs = Math.max(1_000L, liquidationDedupWindowMs);
+        long bucket = now / windowMs;
+        long hashBase = (position == null ? 0L : position.getPositionId() == null ? 0L : position.getPositionId());
+        hashBase = 31 * hashBase + (position == null || position.getMarginRatio() == null ? 0L : position.getMarginRatio());
+        hashBase = 31 * hashBase + (position == null || position.getMarkPrice() == null ? 0L : position.getMarkPrice());
+        hashBase = 31 * hashBase + bucket;
+        long sequence = Math.abs(hashBase);
+        if (sequence == 0L) {
+            sequence = sequenceGenerator.incrementAndGet();
+        }
+        return sequence;
+    }
+
+    private String buildDedupKey(Long positionId, String triggerType, long sequence) {
+        long safePositionId = positionId == null ? 0L : positionId;
+        String safeTriggerType = (triggerType == null || triggerType.isBlank()) ? "UNKNOWN" : triggerType.trim().toUpperCase();
+        return safePositionId + ":" + safeTriggerType + ":" + sequence;
+    }
+
+    private boolean registerDedupKey(String dedupKey) {
+        if (!liquidationDedupEnabled || dedupKey == null || dedupKey.isBlank()) {
+            return true;
+        }
+
+        long now = System.currentTimeMillis();
+        cleanupDedupCache(now);
+
+        Long existing = liquidationDedupCache.putIfAbsent(dedupKey, now);
+        if (existing == null) {
+            return true;
+        }
+
+        long windowMs = Math.max(1_000L, liquidationDedupWindowMs);
+        if (now - existing > windowMs) {
+            return liquidationDedupCache.replace(dedupKey, existing, now);
+        }
+        return false;
+    }
+
+    private void cleanupDedupCache(long now) {
+        long tick = dedupCleanupCounter.incrementAndGet();
+        if (liquidationDedupCache.isEmpty()) {
+            return;
+        }
+        if (liquidationDedupCache.size() <= liquidationDedupMaxCacheSize && tick % 256 != 0) {
+            return;
+        }
+
+        long expireBefore = now - Math.max(1_000L, liquidationDedupWindowMs);
+        for (var entry : liquidationDedupCache.entrySet()) {
+            Long seenAt = entry.getValue();
+            if (seenAt != null && seenAt < expireBefore) {
+                liquidationDedupCache.remove(entry.getKey(), seenAt);
+            }
         }
     }
 

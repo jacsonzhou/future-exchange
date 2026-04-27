@@ -1,6 +1,7 @@
 package com.exchange.match.recovery;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.exchange.match.engine.MatchEngine;
 import com.exchange.match.event.OrderCommand;
 import com.exchange.match.model.Order;
 import com.exchange.match.orderbook.OrderBook;
@@ -20,6 +21,7 @@ import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.nio.file.StandardOpenOption;
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.List;
 
 /**
@@ -40,19 +42,66 @@ public class OrderBookRecoveryManager {
     @Value("${match.recovery.wal-file:./data/wal/match.log}")
     private String walFilePath;
 
-    @Value("${match.recovery.snapshot-file:./data/wal/orderbook.snapshot.json}")
-    private String snapshotFilePath;
+    @Value("${match.recovery.snapshot-file:./data/wal/orderbook.{symbol}.snapshot.json}")
+    private String snapshotFilePathTemplate;
 
     @Value("${match.recovery.max-commands:10000000}")
     private long maxReplayCommands;
 
-    private volatile OrderBook latestOrderBook;
     private volatile long latestAppliedSequence;
+    private final java.util.Set<OrderBook> trackedOrderBooks = java.util.Collections.synchronizedSet(new java.util.HashSet<>());
 
+    /**
+     * 恢复所有交易对的订单簿（多币种支持）
+     */
+    public synchronized List<RecoveryStats> recoverAll(MatchEngine matchEngine) {
+        List<RecoveryStats> allStats = new ArrayList<>();
+        if (!recoveryEnabled) {
+            log.info("[Recovery] disabled by config");
+            return allStats;
+        }
+
+        // 扫描快照文件，确定有哪些交易对需要恢复
+        List<String> symbols = new ArrayList<>();
+        try {
+            Path walDir = Paths.get(snapshotFilePathTemplate).getParent();
+            if (walDir != null && Files.exists(walDir)) {
+                String prefix = "orderbook.";
+                String suffix = ".snapshot.json";
+                Files.list(walDir)
+                    .filter(p -> p.getFileName().toString().startsWith(prefix)
+                              && p.getFileName().toString().endsWith(suffix))
+                    .forEach(p -> {
+                        String filename = p.getFileName().toString();
+                        String sym = filename.substring(prefix.length(), filename.length() - suffix.length());
+                        symbols.add(sym);
+                    });
+            }
+        } catch (IOException e) {
+            log.error("[Recovery] scan snapshot files failed", e);
+        }
+
+        for (String symbol : symbols) {
+            OrderBook orderBook = matchEngine.getOrderBook(symbol);
+            if (orderBook == null) {
+                orderBook = new OrderBook(symbol);
+                matchEngine.registerOrderBook(symbol, orderBook);
+            }
+            RecoveryStats stats = recover(orderBook);
+            allStats.add(stats);
+        }
+
+        log.info("[Recovery] recoverAll completed, symbolsRecovered={}", allStats.size());
+        return allStats;
+    }
+
+    /**
+     * 恢复单个交易对的订单簿
+     */
     public synchronized RecoveryStats recover(OrderBook orderBook) {
+        trackedOrderBooks.add(orderBook);
         RecoveryStats stats = new RecoveryStats();
         stats.setEnabled(recoveryEnabled);
-        this.latestOrderBook = orderBook;
         this.latestAppliedSequence = 0L;
 
         if (!recoveryEnabled) {
@@ -97,6 +146,7 @@ public class OrderBookRecoveryManager {
             return;
         }
         try {
+            String snapshotFilePath = resolveSnapshotPath(orderBook.getSymbol());
             Path snapshotPath = Paths.get(snapshotFilePath);
             Files.createDirectories(snapshotPath.getParent());
 
@@ -119,7 +169,16 @@ public class OrderBookRecoveryManager {
 
     @PreDestroy
     public void onShutdown() {
-        persistSnapshot(latestOrderBook);
+        log.info("[Recovery] Shutdown persist all snapshots, count={}", trackedOrderBooks.size());
+        for (OrderBook ob : trackedOrderBooks) {
+            persistSnapshot(ob);
+        }
+    }
+
+    public void persistAllSnapshots(Collection<OrderBook> orderBooks) {
+        for (OrderBook ob : orderBooks) {
+            persistSnapshot(ob);
+        }
     }
 
     public synchronized void markAppliedSequence(long sequence) {
@@ -134,6 +193,7 @@ public class OrderBookRecoveryManager {
 
     private SnapshotFile loadSnapshot(OrderBook orderBook) {
         try {
+            String snapshotFilePath = resolveSnapshotPath(orderBook.getSymbol());
             Path snapshotPath = Paths.get(snapshotFilePath);
             if (!Files.exists(snapshotPath)) {
                 return null;
@@ -153,6 +213,10 @@ public class OrderBookRecoveryManager {
             log.error("[Recovery] load snapshot failed", e);
             return null;
         }
+    }
+
+    private String resolveSnapshotPath(String symbol) {
+        return snapshotFilePathTemplate.replace("{symbol}", symbol);
     }
 
     private long replayWal(OrderBook orderBook, long fromSequenceExclusive, RecoveryStats stats) {

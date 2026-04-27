@@ -13,7 +13,7 @@ spring:
   datasource:
     url: jdbc:mysql://localhost:3306/exchange_market?useSSL=false&serverTimezone=UTC&allowPublicKeyRetrieval=true
     username: root
-    password: ${MYSQL_PASSWORD:root}
+    password: ${MYSQL_PASSWORD:root123456}
     driver-class-name: com.mysql.cj.jdbc.Driver
     type: com.alibaba.druid.pool.DruidDataSource
     druid:
@@ -47,6 +47,8 @@ spring:
 index-price:
   kafka:
     topic: index-price-update
+  persistence:
+    enabled: false
   input:
     depth-topic-pattern: "market\\.ext\\.binance\\.depth\\..*"
     trade-topic-pattern: "market\\.ext\\.binance\\.trade\\..*"

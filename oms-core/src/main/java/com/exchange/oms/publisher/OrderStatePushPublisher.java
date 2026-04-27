@@ -360,6 +360,8 @@ public class OrderStatePushPublisher {
             case "REJECTED":
             case "EXPIRED":
                 return PrivatePushEvent.ExecutionType.EXPIRED;
+            case "PENDING_CANCEL":
+                return PrivatePushEvent.ExecutionType.CANCELED;
             default:
                 return PrivatePushEvent.ExecutionType.NEW;
         }

@@ -108,69 +108,73 @@ public class RateLimiter {
     }
 
     /**
-     * Token Bucket 限流算法实现
+     * Token Bucket 限流算法实现（无锁 CAS）
      */
     private static class TokenBucket {
+        private static final long SCALE = 1_000_000L; // 6位小数精度
+        
         private final double tokensPerSecond;
         private final double maxTokens;
         
-        private final AtomicDouble tokens;
+        private final AtomicLong tokensScaled;
         private final AtomicLong lastRefillTime;
 
         TokenBucket(double tokensPerSecond, double maxTokens) {
             this.tokensPerSecond = tokensPerSecond;
             this.maxTokens = maxTokens;
-            this.tokens = new AtomicDouble(maxTokens);
+            this.tokensScaled = new AtomicLong((long) (maxTokens * SCALE));
             this.lastRefillTime = new AtomicLong(System.nanoTime());
         }
 
-        synchronized boolean tryAcquire() {
+        boolean tryAcquire() {
             refill();
             
-            double currentTokens = tokens.get();
-            if (currentTokens >= 1.0) {
-                tokens.addAndGet(-1.0);
-                return true;
+            while (true) {
+                long current = tokensScaled.get();
+                if (current < SCALE) {
+                    return false;
+                }
+                if (tokensScaled.compareAndSet(current, current - SCALE)) {
+                    return true;
+                }
             }
-            return false;
         }
 
         private void refill() {
             long now = System.nanoTime();
             long lastRefill = lastRefillTime.get();
-            double elapsedSeconds = (now - lastRefill) / 1_000_000_000.0;
+            long elapsedNanos = now - lastRefill;
             
-            if (elapsedSeconds > 0) {
-                double tokensToAdd = elapsedSeconds * tokensPerSecond;
-                double newTokens = Math.min(maxTokens, tokens.get() + tokensToAdd);
-                tokens.set(newTokens);
-                lastRefillTime.set(now);
+            if (elapsedNanos <= 0) {
+                return;
             }
-        }
-    }
-
-    /**
-     * 原子Double（简化实现）
-     */
-    private static class AtomicDouble {
-        private volatile double value;
-
-        AtomicDouble(double initialValue) {
-            this.value = initialValue;
-        }
-
-        double get() {
-            return value;
-        }
-
-        void set(double newValue) {
-            this.value = newValue;
-        }
-
-        double addAndGet(double delta) {
-            synchronized (this) {
-                value += delta;
-                return value;
+            
+            double elapsedSeconds = elapsedNanos / 1_000_000_000.0;
+            long tokensToAdd = (long) (elapsedSeconds * tokensPerSecond * SCALE);
+            
+            if (tokensToAdd <= 0) {
+                return;
+            }
+            
+            long maxTokensScaled = (long) (maxTokens * SCALE);
+            
+            while (true) {
+                long current = tokensScaled.get();
+                long newTokens = Math.min(maxTokensScaled, current + tokensToAdd);
+                
+                if (tokensScaled.compareAndSet(current, newTokens)) {
+                    lastRefillTime.compareAndSet(lastRefill, now);
+                    return;
+                }
+                
+                // CAS 失败，重新读取时间并计算
+                lastRefill = lastRefillTime.get();
+                elapsedNanos = now - lastRefill;
+                if (elapsedNanos <= 0) {
+                    return;
+                }
+                elapsedSeconds = elapsedNanos / 1_000_000_000.0;
+                tokensToAdd = (long) (elapsedSeconds * tokensPerSecond * SCALE);
             }
         }
     }

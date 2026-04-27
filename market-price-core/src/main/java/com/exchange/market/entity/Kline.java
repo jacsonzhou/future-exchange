@@ -1,8 +1,5 @@
 package com.exchange.market.entity;
 
-import com.baomidou.mybatisplus.annotation.IdType;
-import com.baomidou.mybatisplus.annotation.TableId;
-import com.baomidou.mybatisplus.annotation.TableName;
 import lombok.Data;
 
 import java.time.LocalDateTime;
@@ -11,11 +8,7 @@ import java.time.LocalDateTime;
  * K线数据实体
  */
 @Data
-@TableName("t_kline")
 public class Kline {
-
-    @TableId(type = IdType.AUTO)
-    private Long id;
 
     /**
      * 交易对

@@ -22,6 +22,39 @@ spring:
         import-check:
           enabled: false
 
+# Resilience4j 熔断/限流配置
+resilience4j:
+  circuitbreaker:
+    configs:
+      default:
+        registerHealthIndicator: true
+        slidingWindowSize: 10
+        minimumNumberOfCalls: 5
+        permittedNumberOfCallsInHalfOpenState: 3
+        automaticTransitionFromOpenToHalfOpenEnabled: true
+        waitDurationInOpenState: 30s
+        failureRateThreshold: 50
+        eventConsumerBufferSize: 10
+    instances:
+      riskCheck:
+        baseConfig: default
+        slidingWindowSize: 20
+        minimumNumberOfCalls: 10
+        waitDurationInOpenState: 15s
+        failureRateThreshold: 60
+  ratelimiter:
+    configs:
+      default:
+        registerHealthIndicator: true
+        limitForPeriod: 5000
+        limitRefreshPeriod: 1s
+        timeoutDuration: 100ms
+    instances:
+      riskCheck:
+        baseConfig: default
+        limitForPeriod: 10000
+        limitRefreshPeriod: 1s
+
 # Logging配置
 logging:
   level:

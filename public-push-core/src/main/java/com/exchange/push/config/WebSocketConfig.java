@@ -2,30 +2,39 @@ package com.exchange.push.config;
 
 import com.exchange.push.handler.PublicWebSocketHandler;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
-import org.springframework.web.socket.config.annotation.EnableWebSocket;
-import org.springframework.web.socket.config.annotation.WebSocketConfigurer;
-import org.springframework.web.socket.config.annotation.WebSocketHandlerRegistry;
-import org.springframework.web.socket.server.support.HttpSessionHandshakeInterceptor;
+import org.springframework.web.reactive.HandlerMapping;
+import org.springframework.web.reactive.handler.SimpleUrlHandlerMapping;
+import org.springframework.web.reactive.socket.server.support.WebSocketHandlerAdapter;
+
+import java.util.HashMap;
+import java.util.Map;
 
 /**
- * WebSocket配置类
- * 
- * 配置WebSocket端点和拦截器
+ * WebFlux WebSocket 配置类
+ *
+ * 使用 Reactor Netty 作为底层服务器，支撑 10万+ 长连接。
  */
 @Configuration
-@EnableWebSocket
-public class WebSocketConfig implements WebSocketConfigurer {
+public class WebSocketConfig {
 
     @Autowired
     private PublicWebSocketHandler webSocketHandler;
 
-    @Override
-    public void registerWebSocketHandlers(WebSocketHandlerRegistry registry) {
-        registry.addHandler(webSocketHandler, "/ws/market")
-                // 添加拦截器
-                .addInterceptors(new HttpSessionHandshakeInterceptor())
-                // 允许跨域
-                .setAllowedOrigins("*");
+    @Bean
+    public HandlerMapping webSocketHandlerMapping() {
+        Map<String, Object> map = new HashMap<>();
+        map.put("/ws/market", webSocketHandler);
+
+        SimpleUrlHandlerMapping handlerMapping = new SimpleUrlHandlerMapping();
+        handlerMapping.setUrlMap(map);
+        handlerMapping.setOrder(-1);
+        return handlerMapping;
+    }
+
+    @Bean
+    public WebSocketHandlerAdapter handlerAdapter() {
+        return new WebSocketHandlerAdapter();
     }
 }

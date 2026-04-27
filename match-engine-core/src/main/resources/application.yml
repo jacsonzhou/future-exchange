@@ -39,10 +39,14 @@ management:
     port: ${MANAGEMENT_PORT:8083}
 
 match:
+  wal:
+    async-enabled: true
+    batch-size: 1000
+    flush-interval-ms: 10
   recovery:
     enabled: ${MATCH_RECOVERY_ENABLED:true}
     wal-file: ${MATCH_WAL_FILE:./data/wal/match.log}
-    snapshot-file: ${MATCH_SNAPSHOT_FILE:./data/wal/orderbook.snapshot.json}
+    snapshot-file: ${MATCH_SNAPSHOT_FILE:./data/wal/orderbook.{symbol}.snapshot.json}
     max-commands: ${MATCH_RECOVERY_MAX_COMMANDS:10000000}
 
 # Logging配置

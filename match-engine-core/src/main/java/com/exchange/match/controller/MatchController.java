@@ -1,6 +1,7 @@
 package com.exchange.match.controller;
 
 import com.exchange.match.disruptor.DisruptorEngine;
+import com.exchange.match.engine.MatchEngine;
 import com.exchange.match.event.OrderCommand;
 import com.exchange.match.orderbook.OrderBook;
 import lombok.extern.slf4j.Slf4j;
@@ -21,9 +22,9 @@ public class MatchController {
     
     @Autowired
     private DisruptorEngine disruptorEngine;
-    
+
     @Autowired
-    private OrderBook orderBook;
+    private MatchEngine matchEngine;
     
     /**
      * 提交订单命令（测试接口）
@@ -72,23 +73,41 @@ public class MatchController {
      * 获取最优买卖价
      */
     @GetMapping("/orderbook/best-price")
-    public Map<String, Object> getBestPrice() {
+    public Map<String, Object> getBestPrice(@RequestParam String symbol) {
+        OrderBook orderBook = matchEngine.getOrderBook(symbol);
         Map<String, Object> result = new HashMap<>();
-        result.put("bestBid", orderBook.getBestBidPrice());
-        result.put("bestAsk", orderBook.getBestAskPrice());
+        if (orderBook != null) {
+            result.put("symbol", symbol);
+            result.put("bestBid", orderBook.getBestBidPrice());
+            result.put("bestAsk", orderBook.getBestAskPrice());
+        } else {
+            result.put("symbol", symbol);
+            result.put("bestBid", null);
+            result.put("bestAsk", null);
+        }
         return result;
     }
-    
+
     /**
      * 获取订单簿统计信息
      */
     @GetMapping("/orderbook/stats")
-    public Map<String, Object> getOrderBookStats() {
+    public Map<String, Object> getOrderBookStats(@RequestParam String symbol) {
+        OrderBook orderBook = matchEngine.getOrderBook(symbol);
         Map<String, Object> result = new HashMap<>();
-        result.put("depth", orderBook.getDepth());
-        result.put("orderCount", orderBook.getOrderCount());
-        result.put("bestBid", orderBook.getBestBidPrice());
-        result.put("bestAsk", orderBook.getBestAskPrice());
+        if (orderBook != null) {
+            result.put("symbol", symbol);
+            result.put("depth", orderBook.getDepth());
+            result.put("orderCount", orderBook.getOrderCount());
+            result.put("bestBid", orderBook.getBestBidPrice());
+            result.put("bestAsk", orderBook.getBestAskPrice());
+        } else {
+            result.put("symbol", symbol);
+            result.put("depth", 0);
+            result.put("orderCount", 0);
+            result.put("bestBid", null);
+            result.put("bestAsk", null);
+        }
         result.put("ringBufferRemaining", disruptorEngine.getRemainingCapacity());
         result.put("ringBufferSize", disruptorEngine.getBufferSize());
         return result;
@@ -96,7 +115,7 @@ public class MatchController {
     
     /**
      * 🔥 获取订单簿深度（真实盘口数据）
-     * 
+     *
      * @param symbol 交易对
      * @param depth 深度（默认20）
      * @return 买卖盘深度数据
@@ -105,24 +124,28 @@ public class MatchController {
     public Map<String, Object> getOrderBookDepth(
             @PathVariable String symbol,
             @RequestParam(defaultValue = "20") int depth) {
-        
+
         log.info("[MatchController] Query orderbook depth, symbol={}, depth={}", symbol, depth);
-        
-        // 使用单例 OrderBook（当前只支持一个交易对）
-        Map<String, List<List<String>>> depthData = orderBook.getDepthData(depth);
-        
+
+        OrderBook orderBook = matchEngine.getOrderBook(symbol);
         Map<String, Object> result = new HashMap<>();
         result.put("symbol", symbol);
-        result.put("bids", depthData.get("bids"));
-        result.put("asks", depthData.get("asks"));
+        if (orderBook != null) {
+            Map<String, List<List<String>>> depthData = orderBook.getDepthData(depth);
+            result.put("bids", depthData.get("bids"));
+            result.put("asks", depthData.get("asks"));
+        } else {
+            result.put("bids", List.of());
+            result.put("asks", List.of());
+        }
         result.put("timestamp", System.currentTimeMillis());
-        
+
         return result;
     }
-    
+
     /**
      * 🔥 获取用户当前挂单（用于在K线显示）
-     * 
+     *
      * @param symbol 交易对
      * @param userId 用户ID
      * @return 用户挂单列表
@@ -131,16 +154,18 @@ public class MatchController {
     public Map<String, Object> getUserOrders(
             @PathVariable String symbol,
             @RequestParam Long userId) {
-        
+
         log.info("[MatchController] Query user orders, symbol={}, userId={}", symbol, userId);
-        
-        List<Map<String, Object>> userOrders = orderBook.getUserOrders(userId);
-        
+
+        OrderBook orderBook = matchEngine.getOrderBook(symbol);
+        List<Map<String, Object>> userOrders = (orderBook != null)
+            ? orderBook.getUserOrders(userId) : List.of();
+
         Map<String, Object> result = new HashMap<>();
         result.put("symbol", symbol);
         result.put("userId", userId);
         result.put("orders", userOrders);
-        
+
         return result;
     }
 }

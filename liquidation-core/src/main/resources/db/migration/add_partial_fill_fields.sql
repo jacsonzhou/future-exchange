@@ -28,3 +28,6 @@ WHERE TABLE_SCHEMA = 'exchange_liquidation'
                       'partial_bankrupt_loss', 'parent_liquidation_id')
 ORDER BY ORDINAL_POSITION;
 
+
+
+

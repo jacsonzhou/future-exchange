@@ -63,8 +63,13 @@ public enum RiskRejectReason {
     /**
      * 订单数量超限
      */
-    ORDER_QTY_EXCEEDED(11, "订单数量超限");
-    
+    ORDER_QTY_EXCEEDED(11, "订单数量超限"),
+
+    /**
+     * 系统错误（内部异常、数据库故障、参数绑定失败等）
+     */
+    SYSTEM_ERROR(12, "系统错误");
+
     private final int code;
     private final String message;
     

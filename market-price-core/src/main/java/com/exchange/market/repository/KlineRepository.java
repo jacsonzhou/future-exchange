@@ -279,12 +279,18 @@ public class KlineRepository {
             return List.of();
         }
 
-        long safeEndTime = endTime != null ? endTime : System.currentTimeMillis();
+        Long latest1mOpenTime = endTime == null ? getLatestOpenTime(symbol, "1m") : null;
+        long safeEndTime = endTime != null
+                ? endTime
+                : (latest1mOpenTime != null ? latest1mOpenTime : System.currentTimeMillis());
         Long safeStartTime = startTime;
         if (safeStartTime == null && limit != null && limit > 0) {
             long lookbackIntervals = Math.max(limit + 5L, (long) Math.ceil(limit * 1.5d));
             long lookback = spec.approxIntervalMs * lookbackIntervals;
             safeStartTime = Math.max(0L, safeEndTime - lookback);
+        }
+        if (safeStartTime != null && safeStartTime > safeEndTime) {
+            return List.of();
         }
 
         StringBuilder sql = new StringBuilder(
@@ -424,6 +430,126 @@ public class KlineRepository {
             log.error("[KlineRepository] Failed to query earliest open time, symbol={}, interval={}",
                     symbol, interval, e);
             throw new RuntimeException("Failed to query earliest open time", e);
+        }
+    }
+
+    /**
+     * 清空历史与实时 K 线表。
+     */
+    public void truncateAllKlines() {
+        try (Connection conn = clickHouseDataSource.getConnection();
+             Statement stmt = conn.createStatement()) {
+            stmt.execute("TRUNCATE TABLE kline_data");
+            stmt.execute("TRUNCATE TABLE kline_realtime");
+            log.warn("[KlineRepository] Truncated table kline_data and kline_realtime");
+        } catch (SQLException e) {
+            log.error("[KlineRepository] Failed to truncate kline tables", e);
+            throw new RuntimeException("Failed to truncate kline tables", e);
+        }
+    }
+
+    /**
+     * 删除指定区间K线（历史 + 实时），用于手动回补前清理。
+     */
+    public void deleteRange(String symbol, String interval, Long startTime, Long endTime) {
+        if (symbol == null || symbol.isBlank() || interval == null || interval.isBlank()) {
+            throw new IllegalArgumentException("symbol/interval must not be blank");
+        }
+
+        try (Connection conn = clickHouseDataSource.getConnection()) {
+            deleteRangeInTable(conn, "kline_data", symbol, interval, startTime, endTime);
+            deleteRangeInTable(conn, "kline_realtime", symbol, interval, startTime, endTime);
+            log.warn("[KlineRepository] Delete range requested, symbol={}, interval={}, start={}, end={}",
+                    symbol, interval, startTime, endTime);
+        } catch (SQLException e) {
+            log.error("[KlineRepository] Failed to delete kline range, symbol={}, interval={}, start={}, end={}",
+                    symbol, interval, startTime, endTime, e);
+            throw new RuntimeException("Failed to delete kline range", e);
+        }
+    }
+
+    /**
+     * 查询时间段内已有 open_time（去重升序），用于缺口回补扫描。
+     */
+    public List<Long> listOpenTimes(String symbol, String interval, long startInclusive, long endInclusive, int limit) {
+        int safeLimit = Math.max(1, limit);
+        String sql = "SELECT DISTINCT open_time FROM kline_data " +
+                "WHERE symbol = ? AND interval = ? " +
+                "AND open_time >= toDateTime64(?, 3) " +
+                "AND open_time <= toDateTime64(?, 3) " +
+                "ORDER BY open_time ASC LIMIT ?";
+        List<Long> result = new ArrayList<>();
+        try (Connection conn = clickHouseDataSource.getConnection();
+             PreparedStatement ps = conn.prepareStatement(sql)) {
+            ps.setString(1, symbol);
+            ps.setString(2, interval);
+            ps.setDouble(3, startInclusive / 1000.0);
+            ps.setDouble(4, endInclusive / 1000.0);
+            ps.setInt(5, safeLimit);
+            ResultSet rs = ps.executeQuery();
+            while (rs.next()) {
+                Long openTime = getUtcMillis(rs, "open_time");
+                if (openTime != null) {
+                    result.add(openTime);
+                }
+            }
+            return result;
+        } catch (SQLException e) {
+            log.error("[KlineRepository] Failed to list open times, symbol={}, interval={}, start={}, end={}, limit={}",
+                    symbol, interval, startInclusive, endInclusive, safeLimit, e);
+            throw new RuntimeException("Failed to list open times", e);
+        }
+    }
+
+    /**
+     * 删除cutoff之前的数据（全表），用于近一年保留策略。
+     */
+    public void deleteBefore(long cutoffOpenTimeMs) {
+        try (Connection conn = clickHouseDataSource.getConnection();
+             PreparedStatement psHistory = conn.prepareStatement(
+                     "ALTER TABLE kline_data DELETE WHERE open_time < toDateTime64(?, 3)");
+             PreparedStatement psRealtime = conn.prepareStatement(
+                     "ALTER TABLE kline_realtime DELETE WHERE open_time < toDateTime64(?, 3)")) {
+            double cutoffSeconds = cutoffOpenTimeMs / 1000.0;
+            psHistory.setDouble(1, cutoffSeconds);
+            psRealtime.setDouble(1, cutoffSeconds);
+            psHistory.execute();
+            psRealtime.execute();
+            log.info("[KlineRepository] Retention cleanup requested, cutoffOpenTimeMs={}", cutoffOpenTimeMs);
+        } catch (SQLException e) {
+            log.error("[KlineRepository] Failed to delete old kline rows, cutoffOpenTimeMs={}", cutoffOpenTimeMs, e);
+            throw new RuntimeException("Failed to delete old kline rows", e);
+        }
+    }
+
+    private void deleteRangeInTable(Connection conn,
+                                    String tableName,
+                                    String symbol,
+                                    String interval,
+                                    Long startTime,
+                                    Long endTime) throws SQLException {
+        StringBuilder sql = new StringBuilder("ALTER TABLE ")
+                .append(tableName)
+                .append(" DELETE WHERE symbol = ? AND interval = ? ");
+
+        List<Object> params = new ArrayList<>();
+        params.add(symbol);
+        params.add(interval);
+
+        if (startTime != null) {
+            sql.append("AND open_time >= toDateTime64(?, 3) ");
+            params.add(startTime / 1000.0);
+        }
+        if (endTime != null) {
+            sql.append("AND open_time <= toDateTime64(?, 3) ");
+            params.add(endTime / 1000.0);
+        }
+
+        try (PreparedStatement ps = conn.prepareStatement(sql.toString())) {
+            for (int i = 0; i < params.size(); i++) {
+                ps.setObject(i + 1, params.get(i));
+            }
+            ps.execute();
         }
     }
 

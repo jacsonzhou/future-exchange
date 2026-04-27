@@ -32,7 +32,7 @@ public class OmsInternalController {
     public Map<String, Object> receiveOrderState(@RequestBody OrderStateEventDTO event) {
         log.info("[OMS-Internal] Receive order state from MatchEngine, orderId={}, status={}, filledDelta={}",
             event.getOrderId(), event.getStatus(), event.getFilledQuantityDelta());
-        
+
         try {
             // 更新订单状态
             OmsOrder order = orderMapper.selectById(event.getOrderId());
@@ -40,26 +40,44 @@ public class OmsInternalController {
                 log.warn("[OMS-Internal] Order not found, orderId={}", event.getOrderId());
                 return buildResult(false, "Order not found");
             }
-            
+
+            Integer oldStatus = order.getStatus();
+            Integer newStatus = mapStatus(event.getStatus());
+
+            // 🔥 终态保护
+            if (oldStatus != null && oldStatus == 4) { // FILLED
+                log.warn("[OMS-Internal] Order already FILLED, skip state change, orderId={}, incomingStatus={}",
+                    event.getOrderId(), event.getStatus());
+                return buildResult(true, "Order already in final state");
+            }
+            if (oldStatus != null && (oldStatus == 5 || oldStatus == 6)) {
+                return buildResult(true, "Order already in final state");
+            }
+
             // 更新已成交数量
-            if (event.getFilledQuantityDelta() != null && 
+            if (event.getFilledQuantityDelta() != null &&
                 event.getFilledQuantityDelta().compareTo(java.math.BigDecimal.ZERO) > 0) {
                 order.setFilledQuantity(
                     order.getFilledQuantity().add(event.getFilledQuantityDelta())
                 );
             }
-            
+
+            // 🔥 强制终态保护：已成交满必须设为 FILLED
+            if (order.getQuantity().compareTo(java.math.BigDecimal.ZERO) > 0
+                && order.getFilledQuantity().compareTo(order.getQuantity()) >= 0) {
+                newStatus = 4;
+            }
+
             // 更新状态
-            Integer newStatus = mapStatus(event.getStatus());
             if (newStatus != null) {
                 order.setStatus(newStatus);
             }
-            
+
             order.setUpdatedAt(System.currentTimeMillis());
-            
+
             // 使用updateById（会自动处理version）
             int updated = orderMapper.updateById(order);
-            
+
             if (updated > 0) {
                 log.info("[OMS-Internal] Order state updated successfully, orderId={}, newStatus={}",
                     event.getOrderId(), order.getStatus());
@@ -69,7 +87,7 @@ public class OmsInternalController {
                     event.getOrderId());
                 return buildResult(false, "Update failed, version conflict");
             }
-            
+
         } catch (Exception e) {
             log.error("[OMS-Internal] Failed to update order state, orderId={}",
                 event.getOrderId(), e);
@@ -111,12 +129,22 @@ public class OmsInternalController {
      */
     private Integer mapStatus(String status) {
         switch (status) {
+            case "NEW":
+                return 0;
+            case "PENDING_RISK":
+                return 1;
+            case "FROZEN":
+                return 2;
             case "PARTIALLY_FILLED":
                 return 3;
             case "FILLED":
                 return 4;
             case "CANCELED":
                 return 5;
+            case "REJECTED":
+                return 6;
+            case "PENDING_CANCEL":
+                return 7;
             default:
                 return null;
         }

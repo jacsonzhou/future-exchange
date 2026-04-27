@@ -93,6 +93,7 @@ liquidation:
   
   # 幂等配置
   idempotency:
+    dedup-enabled: true
     window-minutes: 5
     redis-key-prefix: "liquidation:idempotency:"
   

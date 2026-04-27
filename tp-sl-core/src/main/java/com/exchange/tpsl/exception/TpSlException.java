@@ -22,4 +22,10 @@ public class TpSlException extends RuntimeException {
         this.errorCode = errorCode;
         this.errorMessage = errorMessage;
     }
+    
+    public TpSlException(String errorMessage) {
+        super(errorMessage);
+        this.errorCode = "TPSL_ERROR";
+        this.errorMessage = errorMessage;
+    }
 }

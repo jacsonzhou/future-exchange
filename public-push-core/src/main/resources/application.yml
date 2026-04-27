@@ -3,6 +3,8 @@ spring:
     name: public-push-service
   profiles:
     active: ${SPRING_PROFILES_ACTIVE:dev}
+  main:
+    web-application-type: reactive
   config:
     import: optional:nacos:${spring.application.name}-${spring.profiles.active}.yml
 

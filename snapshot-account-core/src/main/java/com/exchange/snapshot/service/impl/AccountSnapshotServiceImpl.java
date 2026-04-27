@@ -118,17 +118,13 @@ public class AccountSnapshotServiceImpl implements AccountSnapshotService {
             
             // 批量更新MySQL和Redis
             for (AccountSnapshot snapshot : snapshotMap.values()) {
-                // 计算equity
-                snapshot.calculateEquity();
-                snapshot.setUpdatedAt(System.currentTimeMillis());
+                // 更新MySQL（乐观锁 + 自动重试，防御 position-change 并发冲突）
+                boolean updated = updateSnapshotWithRetry(snapshot);
                 
-                // 更新MySQL（乐观锁）
-                int updated = accountSnapshotMapper.updateWithOptimisticLock(snapshot);
-                
-                if (updated == 0) {
-                    log.error("[SnapshotService] ❌ Update snapshot failed (version conflict), userId={}, version={}",
-                        snapshot.getUserId(), snapshot.getVersion());
-                    throw new RuntimeException("Update snapshot failed, version conflict");
+                if (!updated) {
+                    log.error("[SnapshotService] ❌ Update snapshot failed after retries, userId={}",
+                        snapshot.getUserId());
+                    throw new RuntimeException("Update snapshot failed, version conflict after retries");
                 }
                 
                 // 更新Redis
@@ -719,6 +715,97 @@ public class AccountSnapshotServiceImpl implements AccountSnapshotService {
         return available.add(frozen).add(positionMargin).add(upnl);
     }
 
+    /**
+     * 🔥 乐观锁更新 snapshot（带自动重试）
+     *
+     * 修复：原实现版本冲突直接抛异常，在 position-change 高频并发时导致
+     * trade-entry 消费失败并 Kafka 重试。本方法在冲突后重新读取最新 version
+     * 并重试更新（trade-entry 与 position-change 修改字段不重叠，重试安全）。
+     *
+     * @param snapshot 待更新的 snapshot（已应用分录）
+     * @return true=成功, false=重试后仍失败
+     */
+    private boolean updateSnapshotWithRetry(AccountSnapshot snapshot) {
+        for (int attempt = 1; attempt <= 3; attempt++) {
+            snapshot.calculateEquity();
+            snapshot.setUpdatedAt(System.currentTimeMillis());
+            
+            int updated = accountSnapshotMapper.updateWithOptimisticLock(snapshot);
+            if (updated > 0) {
+                return true;
+            }
+            
+            log.warn("[SnapshotService] Snapshot version conflict, userId={}, version={}, attempt={}/3",
+                snapshot.getUserId(), snapshot.getVersion(), attempt);
+            
+            // 重新读取最新 version（position-change 不会修改 available/frozen/position_margin）
+            AccountSnapshot fresh = accountSnapshotMapper.selectById(snapshot.getUserId());
+            if (fresh != null) {
+                snapshot.setVersion(fresh.getVersion());
+            } else {
+                return false;
+            }
+        }
+        
+        log.error("[SnapshotService] Update snapshot failed after 3 retries, userId={}", snapshot.getUserId());
+        return false;
+    }
+    
+    /**
+     * 🔥 从持仓镜像重建未实现盈亏（Replay 后调用）
+     *
+     * 修复：Replay 只消费 trade-entry，不包含 unrealizedPnl 估值数据。
+     * 本方法从 position_snapshot 镜像读取总 upnl 并回写 account_snapshot。
+     */
+    @Override
+    public void rebuildUnrealizedPnl(Long userId) {
+        if (positionSnapshotMirrorMapper == null) {
+            log.warn("[SnapshotService] PositionSnapshotMirrorMapper not available, skip rebuild unrealizedPnl");
+            return;
+        }
+        
+        BigDecimal totalUpnl = positionSnapshotMirrorMapper.sumOpenUnrealizedPnl(userId);
+        if (totalUpnl == null) {
+            totalUpnl = BigDecimal.ZERO;
+        }
+        
+        for (int attempt = 1; attempt <= MAX_UNREALIZED_UPDATE_RETRIES; attempt++) {
+            AccountSnapshot snapshot = getOrCreateSnapshot(userId);
+            BigDecimal oldUpnl = snapshot.getUnrealizedPnl() == null ? BigDecimal.ZERO : snapshot.getUnrealizedPnl();
+            
+            // 无变化时仅刷新 Redis
+            if (oldUpnl.compareTo(totalUpnl) == 0) {
+                updateRedisSnapshot(snapshot);
+                log.debug("[SnapshotService] UnrealizedPnl unchanged, userId={}, upnl={}", userId, totalUpnl);
+                return;
+            }
+            
+            snapshot.setUnrealizedPnl(totalUpnl);
+            snapshot.calculateEquity();
+            snapshot.setUpdatedAt(System.currentTimeMillis());
+            
+            int updated = accountSnapshotMapper.updateUnrealizedPnlWithOptimisticLock(
+                snapshot.getUserId(),
+                snapshot.getUnrealizedPnl(),
+                snapshot.getEquity(),
+                snapshot.getUpdatedAt(),
+                snapshot.getVersion()
+            );
+            
+            if (updated > 0) {
+                snapshot.setVersion((snapshot.getVersion() == null ? 0 : snapshot.getVersion()) + 1);
+                updateRedisSnapshot(snapshot);
+                log.info("[SnapshotService] Rebuilt unrealizedPnl, userId={}, upnl={}", userId, totalUpnl);
+                return;
+            }
+            
+            log.warn("[SnapshotService] Rebuild unrealizedPnl conflict, userId={}, attempt={}/{}",
+                userId, attempt, MAX_UNREALIZED_UPDATE_RETRIES);
+        }
+        
+        throw new RuntimeException("Rebuild unrealizedPnl failed after retries, userId=" + userId);
+    }
+    
     private static class AdlAccountDelta {
         private BigDecimal availableDelta = BigDecimal.ZERO;
         private BigDecimal positionMarginDelta = BigDecimal.ZERO;

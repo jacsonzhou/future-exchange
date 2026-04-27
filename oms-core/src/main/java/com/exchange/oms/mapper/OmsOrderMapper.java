@@ -121,3 +121,6 @@ public interface OmsOrderMapper extends BaseMapper<OmsOrder> {
             "</script>")
     List<OmsOrder> selectByStatuses(@Param("statuses") List<Integer> statuses);
 }
+
+
+

@@ -341,7 +341,32 @@
         };
 
         const host = window.location.hostname || "localhost";
-        const defaultGateway = localStorage.getItem("fx_gateway") || `http://${host}:8082`;
+        const pageProtocol = window.location.protocol === "https:" ? "https:" : "http:";
+
+        function normalizeGatewayBase(raw, fallback = "") {
+            const fallbackValue = String(fallback || "").trim();
+            let value = String(raw || "").trim();
+            if (!value) value = fallbackValue;
+            if (!value) return "";
+            if (/^https?:\/\//i.test(value)) {
+                return value.replace(/\/+$/, "");
+            }
+            if (value.startsWith("//")) {
+                return `${pageProtocol}${value}`.replace(/\/+$/, "");
+            }
+            if (value.startsWith("/")) {
+                return `${window.location.origin}${value}`.replace(/\/+$/, "");
+            }
+            if (/^[A-Za-z0-9.-]+(?::\d+)?(?:\/.*)?$/.test(value)) {
+                return `${pageProtocol}//${value}`.replace(/\/+$/, "");
+            }
+            return fallbackValue.replace(/\/+$/, "");
+        }
+
+        const defaultGateway = normalizeGatewayBase(
+            localStorage.getItem("fx_gateway"),
+            `${pageProtocol}//${host}:8082`
+        );
         const params = new URLSearchParams(window.location.search || "");
         const redirect = params.get("redirect") || "trading-test.html";
 
@@ -422,7 +447,7 @@
             event.preventDefault();
             const username = ui.username.value.trim();
             const password = ui.password.value;
-            const gateway = ui.gateway.value.trim().replace(/\/+$/, "");
+            const gateway = normalizeGatewayBase(ui.gateway.value, `${pageProtocol}//${host}:8082`);
 
             if (!username || !password) {
                 setState("用户名和密码不能为空。", "err");

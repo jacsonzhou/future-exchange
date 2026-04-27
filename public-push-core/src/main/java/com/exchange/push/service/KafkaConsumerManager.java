@@ -19,6 +19,7 @@ import org.springframework.stereotype.Service;
 import jakarta.annotation.PostConstruct;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CopyOnWriteArraySet;
 
@@ -50,7 +51,7 @@ public class KafkaConsumerManager {
     @Autowired
     private MessageDispatcher messageDispatcher;
 
-    @Value("${public-push.ext-channel-enabled:true}")
+    @Value("${public-push.ext-channel-enabled:false}")
     private boolean extChannelEnabled;
 
     // 频道 -> 消费者容器
@@ -61,6 +62,9 @@ public class KafkaConsumerManager {
     
     // 频道 -> 消息计数
     private final Map<String, Long> messageCounters = new ConcurrentHashMap<>();
+    
+    // 正在启动中的频道（防止并发重复创建）
+    private final Set<String> startingConsumers = ConcurrentHashMap.newKeySet();
 
     @PostConstruct
     public void init() {
@@ -68,9 +72,9 @@ public class KafkaConsumerManager {
     }
 
     /**
-     * 确保频道消费者已启动
+     * 确保频道消费者已启动（异步创建，避免阻塞 WebSocket 线程）
      */
-    public synchronized void ensureConsumerStarted(String channel) {
+    public void ensureConsumerStarted(String channel) {
         if (isExternalChannel(channel) && !extChannelEnabled) {
             log.info("[KafkaConsumer] Skip starting ext consumer, channel={}, extChannelEnabled={}",
                     channel, extChannelEnabled);
@@ -83,12 +87,34 @@ public class KafkaConsumerManager {
             return;
         }
         
-        // 解析topic
+        // 防止多个线程同时创建同一个 channel 的 consumer
+        if (!startingConsumers.add(channel)) {
+            return;
+        }
+        
+        // 异步创建 consumer，避免阻塞 WebSocket / HTTP 工作线程
+        CompletableFuture.runAsync(() -> {
+            try {
+                doStartConsumer(channel);
+            } finally {
+                startingConsumers.remove(channel);
+            }
+        });
+    }
+    
+    /**
+     * 同步执行 consumer 创建（仅在异步线程中调用）
+     */
+    private synchronized void doStartConsumer(String channel) {
+        // 双重检查：可能其他线程已经创建完成
+        if (activeConsumers.containsKey(channel)) {
+            return;
+        }
+        
         String topic = channelToTopic(channel);
         String groupId = buildGroupId(channel);
         
         try {
-            // 创建消费者容器 (Spring Kafka 3.x API)
             MessageListenerContainer container = kafkaListenerContainerFactory.createContainer(topic);
             container.getContainerProperties().setGroupId(groupId);
             container.getContainerProperties().setMessageListener((org.springframework.kafka.listener.MessageListener<String, String>) record -> {
@@ -118,6 +144,20 @@ public class KafkaConsumerManager {
             messageCounters.remove(channel);
             log.info("[KafkaConsumer] Stopped consumer for channel: {}", channel);
         }
+    }
+
+    /**
+     * 标记频道已无订阅者，交由空闲清理任务延迟回收，避免频繁退组/重平衡。
+     */
+    public void markChannelInactive(String channel) {
+        if (channel == null || channel.isBlank()) {
+            return;
+        }
+        if (!activeConsumers.containsKey(channel)) {
+            return;
+        }
+        lastActivityTime.put(channel, System.currentTimeMillis());
+        log.debug("[KafkaConsumer] Marked channel inactive (deferred stop): {}", channel);
     }
 
     /**

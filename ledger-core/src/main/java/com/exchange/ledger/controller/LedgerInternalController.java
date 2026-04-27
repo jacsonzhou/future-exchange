@@ -1,6 +1,7 @@
 package com.exchange.ledger.controller;
 
 import com.exchange.ledger.entity.AccountSnapshot;
+import com.exchange.ledger.entity.LedgerEntry;
 import com.exchange.ledger.service.LedgerReplayService;
 import com.exchange.ledger.service.LedgerService;
 import lombok.Data;
@@ -9,6 +10,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.web.bind.annotation.*;
 
 import java.math.BigDecimal;
+import java.util.List;
 
 /**
  * Ledger Internal Controller（生产级）
@@ -127,6 +129,19 @@ public class LedgerInternalController {
         return replayService.getReplayProgress(replayId);
     }
     
+    /**
+     * 🔥 分页查询 Ledger Entry（供 snapshot-account-core 直接 Replay）
+     *
+     * 支持跨月表查询，按 biz_seq 升序返回。
+     * 遍历各月 ledger_entry_YYYYMM 表，合并后按 biz_seq 排序取前 limit 条。
+     */
+    @PostMapping("/entries/query")
+    public List<LedgerEntry> queryLedgerEntries(@RequestBody QueryLedgerEntriesRequest request) {
+        log.info("[LedgerController] Query ledger entries, userId={}, startBizSeq={}, limit={}",
+            request.getUserId(), request.getStartBizSeq(), request.getLimit());
+        return ledgerService.queryLedgerEntries(request.getUserId(), request.getStartBizSeq(), request.getLimit());
+    }
+    
     // ==================== DTO ====================
     
     @Data
@@ -165,5 +180,12 @@ public class LedgerInternalController {
     public static class ReplayRequest {
         private Long startBizSeq;
         private Long endBizSeq;
+    }
+    
+    @Data
+    public static class QueryLedgerEntriesRequest {
+        private Long userId;
+        private Long startBizSeq;
+        private Integer limit;
     }
 }

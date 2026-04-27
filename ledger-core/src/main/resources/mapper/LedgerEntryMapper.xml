@@ -4,7 +4,7 @@
     
     <!-- 批量插入 LedgerEntry -->
     <insert id="batchInsert" parameterType="java.util.List">
-        INSERT INTO t_ledger_entry (
+        INSERT INTO ledger_entry (
             entry_id, user_id, account_type, currency,
             debit, credit, balance_before, balance_after,
             business_type, ref_trade_id, ref_order_id, ref_event_id,

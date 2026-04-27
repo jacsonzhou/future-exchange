@@ -1,8 +1,5 @@
 package com.exchange.market.entity;
 
-import com.baomidou.mybatisplus.annotation.IdType;
-import com.baomidou.mybatisplus.annotation.TableId;
-import com.baomidou.mybatisplus.annotation.TableName;
 import lombok.Data;
 
 import java.time.LocalDateTime;
@@ -11,10 +8,8 @@ import java.time.LocalDateTime;
  * 24小时统计实体
  */
 @Data
-@TableName("t_ticker_24h")
 public class Ticker24h {
 
-    @TableId(type = IdType.AUTO)
     private Long id;
 
     /**

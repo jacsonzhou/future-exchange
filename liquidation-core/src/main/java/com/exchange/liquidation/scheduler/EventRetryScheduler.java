@@ -7,10 +7,12 @@ import com.exchange.liquidation.mapper.LiquidationEventMapper;
 import com.exchange.liquidation.producer.LiquidationEventProducer;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 
 import java.util.List;
+import java.util.concurrent.TimeUnit;
 
 /**
  * 事件重试调度器
@@ -24,12 +26,23 @@ public class EventRetryScheduler {
 
     private final LiquidationEventMapper eventMapper;
     private final LiquidationEventProducer eventProducer;
+    private final StringRedisTemplate redisTemplate;
+
+    private static final String RETRY_LOCK_KEY = "liquidation:event-retry:lock";
+    private static final long RETRY_LOCK_TTL_SECONDS = 30;
 
     /**
      * 每5秒执行一次，重试待发送的事件
      */
     @Scheduled(fixedDelay = 5000)
     public void retryPendingEvents() {
+        // 分布式锁：防止多实例重复重试
+        Boolean locked = redisTemplate.opsForValue()
+                .setIfAbsent(RETRY_LOCK_KEY, "1", RETRY_LOCK_TTL_SECONDS, TimeUnit.SECONDS);
+        if (!Boolean.TRUE.equals(locked)) {
+            return;
+        }
+
         try {
             long now = System.currentTimeMillis();
 
@@ -63,6 +76,11 @@ public class EventRetryScheduler {
 
         } catch (Exception e) {
             log.error("❌ [EventRetryScheduler] Error during retry", e);
+        } finally {
+            try {
+                redisTemplate.delete(RETRY_LOCK_KEY);
+            } catch (Exception ignore) {
+            }
         }
     }
 

@@ -753,7 +753,7 @@
             
             // 更新时间
             document.getElementById('lastUpdate').textContent = 
-                '最后更新: ' + new Date().toLocaleTimeString();
+                '最后更新: ' + formatDisplayTime(Date.now());
         }
 
         // 处理深度消息
@@ -784,12 +784,10 @@
                 const price = formatPrice(tradePrice);
                 const qty = formatQty(tradeQty);
                 const isBuy = !(trade.m !== undefined ? trade.m : trade.buyerMaker); // m=true 表示买方是挂单方
-                const time = new Date(trade.T || Date.now()).toLocaleTimeString('zh-CN', { 
-                    hour12: false, 
-                    hour: '2-digit', 
-                    minute: '2-digit', 
-                    second: '2-digit' 
-                });
+                const tradeTs = normalizeEpochMillis(
+                    trade.time ?? trade.t ?? trade.T ?? trade.E ?? trade.timestamp ?? Date.now()
+                );
+                const time = formatDisplayTime(tradeTs);
                 
                 const div = document.createElement('div');
                 div.className = 'trade-item';
@@ -1109,6 +1107,38 @@
                 return (num / 1e3).toFixed(2) + 'K';
             }
             return num.toFixed(2);
+        }
+
+        function normalizeEpochMillis(value) {
+            const num = parseFloat(value);
+            if (!Number.isFinite(num)) {
+                return Date.now();
+            }
+            const abs = Math.abs(num);
+            if (abs >= 1e18) {
+                // ns -> ms
+                return Math.floor(num / 1_000_000);
+            }
+            if (abs >= 1e15) {
+                // us -> ms
+                return Math.floor(num / 1_000);
+            }
+            if (abs >= 1e12) {
+                // ms
+                return Math.floor(num);
+            }
+            // s -> ms
+            return Math.floor(num * 1000);
+        }
+
+        function formatDisplayTime(epochMs) {
+            return new Date(epochMs).toLocaleTimeString('zh-CN', {
+                hour12: false,
+                hour: '2-digit',
+                minute: '2-digit',
+                second: '2-digit',
+                timeZone: 'Asia/Shanghai'
+            });
         }
 
         // 心跳

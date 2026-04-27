@@ -29,7 +29,7 @@ public interface LedgerEntryMapper extends BaseMapper<LedgerEntry> {
      * 2. 增量同步
      * 3. 灾备恢复
      */
-    @Select("SELECT * FROM ledger_entry_${tableMonth} " +
+    @Select("SELECT * FROM ledger_entry " +
             "WHERE biz_seq >= #{startSeq} AND biz_seq <= #{endSeq} " +
             "ORDER BY biz_seq ASC " +
             "LIMIT #{limit}")
@@ -43,7 +43,7 @@ public interface LedgerEntryMapper extends BaseMapper<LedgerEntry> {
     /**
      * 查询用户某个时间范围的分录
      */
-    @Select("SELECT * FROM ledger_entry_${tableMonth} " +
+    @Select("SELECT * FROM ledger_entry " +
             "WHERE user_id = #{userId} " +
             "AND created_at >= #{startTime} AND created_at <= #{endTime} " +
             "ORDER BY biz_seq ASC")
@@ -62,7 +62,7 @@ public interface LedgerEntryMapper extends BaseMapper<LedgerEntry> {
      */
     @Select("SELECT " +
             "COALESCE(SUM(debit), 0) - COALESCE(SUM(credit), 0) AS balance " +
-            "FROM ledger_entry_${tableMonth} " +
+            "FROM ledger_entry " +
             "WHERE user_id = #{userId} " +
             "AND account_type = #{accountType} " +
             "AND currency = #{currency}")
@@ -76,8 +76,14 @@ public interface LedgerEntryMapper extends BaseMapper<LedgerEntry> {
     /**
      * 查询最大biz_seq（当前位点）
      */
-    @Select("SELECT MAX(biz_seq) FROM ledger_entry_${tableMonth}")
+    @Select("SELECT MAX(biz_seq) FROM ledger_entry")
     Long selectMaxBizSeq(@Param("tableMonth") String tableMonth);
+    
+    /**
+     * 查询最小biz_seq（用于确定最早数据所在月份，优化Replay遍历范围）
+     */
+    @Select("SELECT MIN(biz_seq) FROM ledger_entry")
+    Long selectMinBizSeq(@Param("tableMonth") String tableMonth);
     
     /**
      * 检查借贷平衡（对账核心）
@@ -86,13 +92,13 @@ public interface LedgerEntryMapper extends BaseMapper<LedgerEntry> {
      */
     @Select("SELECT " +
             "COALESCE(SUM(debit), 0) - COALESCE(SUM(credit), 0) AS diff " +
-            "FROM ledger_entry_${tableMonth}")
+            "FROM ledger_entry")
     BigDecimal checkDebitCreditBalance(@Param("tableMonth") String tableMonth);
     
     /**
      * 根据ref_trade_id查询分录
      */
-    @Select("SELECT * FROM ledger_entry_${tableMonth} " +
+    @Select("SELECT * FROM ledger_entry " +
             "WHERE ref_trade_id = #{refTradeId} " +
             "ORDER BY entry_id")
     List<LedgerEntry> selectByRefTradeId(
@@ -103,7 +109,7 @@ public interface LedgerEntryMapper extends BaseMapper<LedgerEntry> {
     /**
      * 查询成对分录
      */
-    @Select("SELECT * FROM ledger_entry_${tableMonth} " +
+    @Select("SELECT * FROM ledger_entry " +
             "WHERE entry_id = #{entryId} OR pair_entry_id = #{entryId}")
     List<LedgerEntry> selectPairEntries(
         @Param("tableMonth") String tableMonth,

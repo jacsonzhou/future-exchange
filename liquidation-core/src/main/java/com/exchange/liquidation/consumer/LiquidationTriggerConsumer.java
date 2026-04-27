@@ -33,7 +33,7 @@ public class LiquidationTriggerConsumer {
     @KafkaListener(
         topics = "${kafka.topic.liquidation-trigger:liquidation-trigger-topic}",
         groupId = "${spring.kafka.consumer.group-id:liquidation-service-group}",
-        containerFactory = "kafkaListenerContainerFactory"
+        containerFactory = "kafkaManualAckListenerContainerFactory"
     )
     public void consume(
             String message,
@@ -50,6 +50,18 @@ public class LiquidationTriggerConsumer {
 
             // 解析事件
             LiquidationTriggerEvent event = JSON.parseObject(message, LiquidationTriggerEvent.class);
+            if (event == null || event.getPositionId() == null) {
+                log.warn("[LiquidationTriggerConsumer] Ignore invalid trigger payload, partition={}, offset={}, key={}",
+                        partition, offset, key);
+                if (ack != null) {
+                    ack.acknowledge();
+                }
+                return;
+            }
+
+            String dedupKey = buildDedupKey(event);
+            log.debug("[LiquidationTriggerConsumer] Parsed trigger event, dedupKey={}, userId={}, positionId={}, triggerType={}, sequence={}",
+                    dedupKey, event.getUserId(), event.getPositionId(), event.getTriggerType(), event.getSequence());
 
             // 处理强平
             liquidationService.processLiquidation(event);
@@ -96,5 +108,19 @@ public class LiquidationTriggerConsumer {
         } catch (Exception e) {
             return null;
         }
+    }
+
+    private String buildDedupKey(LiquidationTriggerEvent event) {
+        if (event == null) {
+            return "0:UNKNOWN:0";
+        }
+        long positionId = event.getPositionId() == null ? 0L : event.getPositionId();
+        String triggerType = event.getTriggerType() == null || event.getTriggerType().isBlank()
+                ? "UNKNOWN"
+                : event.getTriggerType().trim().toUpperCase();
+        long sequence = event.getSequence() != null && event.getSequence() > 0
+                ? event.getSequence()
+                : event.getTimestamp() != null ? event.getTimestamp() : 0L;
+        return positionId + ":" + triggerType + ":" + sequence;
     }
 }

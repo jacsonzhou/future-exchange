@@ -62,9 +62,11 @@ CREATE TABLE IF NOT EXISTS `t_liquidation_execution` (
 
     PRIMARY KEY (`id`),
     UNIQUE KEY `uk_liquidation_id` (`liquidation_id`),
+    UNIQUE KEY `uk_position_trigger_time` (`position_id`, `trigger_type`, `triggered_at`),
     KEY `idx_user_id` (`user_id`),
     KEY `idx_position_id` (`position_id`),
     KEY `idx_position_created` (`position_id`, `created_at`),  -- 幂等性查询优化
+    KEY `idx_position_trigger_created` (`position_id`, `trigger_type`, `created_at`),
     KEY `idx_symbol_status` (`symbol`, `status`),
     KEY `idx_created_at` (`created_at`),
     KEY `idx_parent_liquidation_id` (`parent_liquidation_id`)  -- 剩余仓位订单关联查询

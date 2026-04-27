@@ -69,7 +69,7 @@ public class OmsOrder {
     
     /**
      * 订单状态
-     * 0=NEW 1=PENDING_RISK 2=FROZEN 3=PARTIALLY_FILLED 4=FILLED 5=CANCELED 6=REJECTED
+     * 0=NEW 1=PENDING_RISK 2=FROZEN 3=PARTIALLY_FILLED 4=FILLED 5=CANCELED 6=REJECTED 7=PENDING_CANCEL
      */
     private Integer status;
     
@@ -92,6 +92,26 @@ public class OmsOrder {
      * 流动性来源：如 BINANCE_REF
      */
     private String liquiditySource;
+
+    /**
+     * 强平ID
+     */
+    private String liquidationId;
+
+    /**
+     * 仓位ID（强平/ADL订单使用）
+     */
+    private Long positionId;
+
+    /**
+     * 订单来源 (LIQUIDATION, ADL, TP_SL等)
+     */
+    private String orderSource;
+
+    /**
+     * 是否只减仓
+     */
+    private Boolean reduceOnly;
 
     /**
      * 参考行情来源 Topic
@@ -180,8 +200,8 @@ public class OmsOrder {
      * 是否可撤销
      */
     public boolean isCancelable() {
-        // NEW, PENDING_RISK, FROZEN, PARTIALLY_FILLED 可撤销
-        return status == 0 || status == 1 || status == 2 || status == 3;
+        // NEW, PENDING_RISK, FROZEN, PARTIALLY_FILLED, PENDING_CANCEL 可撤销（PENDING_CANCEL 幂等）
+        return status == 0 || status == 1 || status == 2 || status == 3 || status == 7;
     }
     
     /**
@@ -192,4 +212,7 @@ public class OmsOrder {
         return status == 4 || status == 5 || status == 6;
     }
 }
+
+
+
 

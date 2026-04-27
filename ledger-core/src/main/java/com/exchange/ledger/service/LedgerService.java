@@ -2,6 +2,8 @@ package com.exchange.ledger.service;
 
 import com.exchange.ledger.dto.TradeDTO;
 import com.exchange.ledger.dto.TradeEntryEvent;
+import com.exchange.ledger.entity.LedgerEntry;
+import java.util.List;
 
 /**
  * Ledger Service 核心服务（生产级）
@@ -105,6 +107,19 @@ public interface LedgerService {
      * @return 账户快照
      */
     com.exchange.ledger.entity.AccountSnapshot getAccountSnapshot(Long userId);
+    
+    /**
+     * 🔥 分页查询 Ledger Entry（用于 snapshot-account-core 直接 Replay）
+     *
+     * 支持跨月表查询，按 biz_seq 升序返回。
+     * 遍历各月 ledger_entry_YYYYMM 表，合并后按 biz_seq 排序取前 limit 条。
+     *
+     * @param userId 用户ID（可选，null 表示所有用户）
+     * @param startBizSeq 起始 biz_seq（包含），默认 0
+     * @param limit 最大返回条数，默认 5000
+     * @return LedgerEntry 列表（已按 biz_seq 排序）
+     */
+    List<LedgerEntry> queryLedgerEntries(Long userId, Long startBizSeq, Integer limit);
 }
 
 

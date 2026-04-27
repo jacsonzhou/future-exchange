@@ -32,11 +32,19 @@ binance:
     # REST基础地址（用于深度快照）
     rest-base-url: https://fapi.binance.com
 
+    # 代理配置（网络无法直连 Binance 时开启）
+    proxy:
+      enabled: false
+      host: 127.0.0.1
+      port: 7890
+      username: ""
+      password: ""
+
     # 数据源标识（用于外部行情通道命名）
     source: binance
 
-    # 是否发布到标准兼容通道（默认关闭，避免与 market-price-core 标准输出混源）
-    publish-standard-compatible: false
+    # 是否发布到标准兼容通道（开启以支持 public-push-core 标准通道订阅）
+    publish-standard-compatible: true
     
     # 订阅的交易对列表
     symbols:
@@ -87,10 +95,18 @@ binance:
     
     # 重连配置
     reconnect:
+      # 关键：无限重试，避免达到上限后停摆
+      infinite-retry: true
       max-attempts: 10
       base-delay-ms: 1000
       max-delay-ms: 30000
       multiplier: 2.0
+      # 每 N 次连续失败触发一次告警日志/可选Webhook
+      alert-every-attempts: 5
+      # 告警冷却时间（秒）
+      alert-cooldown-sec: 60
+      # 可选：配置 Slack/PagerDuty webhook；空字符串表示仅日志告警
+      alert-webhook-url: ""
     
     # 心跳配置
     heartbeat:

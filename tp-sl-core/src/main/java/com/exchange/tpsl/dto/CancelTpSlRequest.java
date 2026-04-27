@@ -2,7 +2,7 @@ package com.exchange.tpsl.dto;
 
 import lombok.Data;
 
-import javax.validation.constraints.NotNull;
+import jakarta.validation.constraints.NotNull;
 
 /**
  * 撤销TP/SL订单请求

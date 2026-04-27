@@ -20,7 +20,7 @@ import java.math.BigDecimal;
  * 对标：Binance / OKX / Bybit级别
  */
 @Data
-@TableName("t_ledger_entry")
+@TableName("ledger_entry")
 public class LedgerEntry {
     
     /**

@@ -64,30 +64,33 @@ public class FundingSettlementJob {
         for (FundingRateConfig config : configs) {
             String symbol = config.getSymbol();
 
-            // 使用分布式锁执行结算
-            settlementLock.executeWithLock(symbol, fundingTime, () -> {
-                try {
-                    log.info("Processing funding settlement for symbol={}", symbol);
-
-                    // 1. 计算资金费率
-                    fundingRateService.calculateFundingRate(symbol, fundingTime);
-
-                    // 2. 执行资金费用结算
-                    fundingRateService.settleFundingFee(symbol, fundingTime);
-
-                    log.info("Funding settlement completed for symbol={}", symbol);
-
-                } catch (Exception e) {
-                    log.error("Failed to process funding settlement for symbol={}", symbol, e);
-                    // TODO: 添加到重试队列
-                    throw new RuntimeException("Settlement failed for " + symbol, e);
-                }
-            });
-
             try {
+                // 使用分布式锁执行结算
+                settlementLock.executeWithLock(symbol, fundingTime, () -> {
+                    try {
+                        log.info("Processing funding settlement for symbol={}", symbol);
+
+                        // 1. 计算资金费率
+                        fundingRateService.calculateFundingRate(symbol, fundingTime);
+
+                        // 2. 执行资金费用结算
+                        fundingRateService.settleFundingFee(symbol, fundingTime);
+
+                        log.info("Funding settlement completed for symbol={}", symbol);
+
+                    } catch (Exception e) {
+                        log.error("Failed to process funding settlement for symbol={}", symbol, e);
+                        // TODO: 添加到重试队列
+                        throw new RuntimeException("Settlement failed for " + symbol, e);
+                    }
+                });
+
+                // executeWithLock 正常返回（包括锁未获取到但静默跳过的情况）
                 successCount++;
             } catch (Exception e) {
+                // executeWithLock 内部抛出的异常（结算失败）
                 failureCount++;
+                log.error("Funding settlement failed for symbol={}", symbol, e);
             }
         }
 

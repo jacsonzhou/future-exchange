@@ -8,6 +8,7 @@ import com.exchange.margin.mapper.PositionMarginDetailMapper;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.kafka.annotation.KafkaListener;
 import org.springframework.kafka.core.KafkaTemplate;
 import org.springframework.stereotype.Component;
@@ -16,6 +17,8 @@ import org.springframework.transaction.annotation.Transactional;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.util.List;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.atomic.AtomicLong;
 
 /**
  * 标记价格变动消费者
@@ -36,6 +39,18 @@ public class MarkPriceConsumer {
 
     // 强平阈值：10% = 1000（万分比）
     private static final long LIQUIDATION_THRESHOLD = 1000L;
+
+    @Value("${margin.liquidation.dedup.enabled:true}")
+    private boolean liquidationDedupEnabled;
+
+    @Value("${margin.liquidation.dedup.window-ms:120000}")
+    private long liquidationDedupWindowMs;
+
+    @Value("${margin.liquidation.dedup.max-cache-size:200000}")
+    private int liquidationDedupMaxCacheSize;
+
+    private final ConcurrentHashMap<String, Long> liquidationDedupCache = new ConcurrentHashMap<>();
+    private final AtomicLong dedupCleanupCounter = new AtomicLong(0);
 
     public MarkPriceConsumer(PositionMarginDetailMapper positionMarginDetailMapper,
                              MarginCalculator marginCalculator,
@@ -312,8 +327,15 @@ public class MarkPriceConsumer {
         liquidationEvent.setPriority(priority);
 
         liquidationEvent.setTimestamp(System.currentTimeMillis());
-        liquidationEvent.setSequence(event.getSequence());
-        liquidationEvent.setRemark("标记价格触发强平");
+        Long sequence = resolveSequence(event);
+        liquidationEvent.setSequence(sequence);
+        String dedupKey = buildDedupKey(position.getPositionId(), liquidationEvent.getTriggerType(), sequence);
+        if (!registerDedupKey(dedupKey)) {
+            log.info("[MarkPriceConsumer] Skip duplicate liquidation trigger, dedupKey={}, positionId={}, symbol={}",
+                    dedupKey, position.getPositionId(), position.getSymbol());
+            return;
+        }
+        liquidationEvent.setRemark("标记价格触发强平|dedupKey=" + dedupKey);
 
         // 发送到Kafka（显式序列化为JSON，兼容当前StringSerializer配置）
         try {
@@ -328,6 +350,61 @@ public class MarkPriceConsumer {
                 position.getPositionId(), position.getSymbol(),
                 position.getMarginRatio() / 100.0, event.getMarkPrice(),
                 position.getLiquidationPrice(), priority);
+    }
+
+    private Long resolveSequence(MarkPriceEvent event) {
+        if (event != null && event.getSequence() != null && event.getSequence() > 0) {
+            return event.getSequence();
+        }
+        if (event != null && event.getTimestamp() != null && event.getTimestamp() > 0) {
+            return event.getTimestamp();
+        }
+        return System.currentTimeMillis();
+    }
+
+    private String buildDedupKey(Long positionId, String triggerType, Long sequence) {
+        long safePositionId = positionId == null ? 0L : positionId;
+        String safeTriggerType = (triggerType == null || triggerType.isBlank()) ? "UNKNOWN" : triggerType.trim().toUpperCase();
+        long safeSequence = sequence == null ? 0L : sequence;
+        return safePositionId + ":" + safeTriggerType + ":" + safeSequence;
+    }
+
+    private boolean registerDedupKey(String dedupKey) {
+        if (!liquidationDedupEnabled || dedupKey == null || dedupKey.isBlank()) {
+            return true;
+        }
+
+        long now = System.currentTimeMillis();
+        cleanupDedupCache(now);
+
+        Long existing = liquidationDedupCache.putIfAbsent(dedupKey, now);
+        if (existing == null) {
+            return true;
+        }
+
+        long windowMs = Math.max(1_000L, liquidationDedupWindowMs);
+        if (now - existing > windowMs) {
+            return liquidationDedupCache.replace(dedupKey, existing, now);
+        }
+        return false;
+    }
+
+    private void cleanupDedupCache(long now) {
+        long tick = dedupCleanupCounter.incrementAndGet();
+        if (liquidationDedupCache.isEmpty()) {
+            return;
+        }
+        if (liquidationDedupCache.size() <= liquidationDedupMaxCacheSize && tick % 256 != 0) {
+            return;
+        }
+
+        long expireBefore = now - Math.max(1_000L, liquidationDedupWindowMs);
+        for (var entry : liquidationDedupCache.entrySet()) {
+            Long seenAt = entry.getValue();
+            if (seenAt != null && seenAt < expireBefore) {
+                liquidationDedupCache.remove(entry.getKey(), seenAt);
+            }
+        }
     }
 
     /**

@@ -24,3 +24,6 @@ public interface OmsIdempotentKeyMapper extends BaseMapper<OmsIdempotentKey> {
 
 
 
+
+
+
